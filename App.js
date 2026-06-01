@@ -15,6 +15,7 @@ import {
   Animated,
   Easing,
   Alert,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -109,10 +110,72 @@ const STORES = [
   { name: 'La Cancha', domain: 'lacancha.uy', url: 'https://www.lacancha.uy', bg: '#007F3E', fg: '#FFFFFF', short: 'LC' },
   { name: 'Tienda Inglesa', domain: 'tiendainglesa.com.uy', url: 'https://www.tiendainglesa.com.uy', bg: '#0033A0', fg: '#FFFFFF', short: 'TI' },
   { name: 'Multiahorro', domain: 'multiahorrohogar.com.uy', url: 'https://www.multiahorrohogar.com.uy', bg: '#E2231A', fg: '#FFFFFF', short: 'MA' },
+  { name: 'Indian', domain: 'indian.com.uy', url: 'https://www.indian.com.uy', bg: '#8B6914', fg: '#FFFFFF', short: 'IN' },
 ];
  
+const STORES_AR = [
+  { name: 'Zara', domain: 'zara.com', url: 'https://www.zara.com/ar/', searchUrl: (q) => `https://www.zara.com/ar/es/search?searchTerm=${encodeURIComponent(q)}`, bg: '#000000', fg: '#FFFFFF', short: 'ZA' },
+  { name: 'Rapsodia', domain: 'rapsodia.com', url: 'https://www.rapsodia.com', bg: '#6B3FA0', fg: '#FFFFFF', short: 'RA' },
+  { name: 'Wanama', domain: 'wanama.com', url: 'https://www.wanama.com', bg: '#1A1A2E', fg: '#FFFFFF', short: 'WA' },
+  { name: '47 Street', domain: '47street.com.ar', url: 'https://www.47street.com.ar', bg: '#FF6B00', fg: '#FFFFFF', short: '47' },
+  { name: 'Kosiuko', domain: 'kosiuko.com', url: 'https://www.kosiuko.com', bg: '#2C2C54', fg: '#FFFFFF', short: 'KO' },
+  { name: 'Paula Cahen', domain: 'paulacahendanvers.com.ar', url: 'https://www.paulacahendanvers.com.ar', bg: '#B5451B', fg: '#FFFFFF', short: 'PC' },
+  { name: 'Vitamina', domain: 'emarketpeople.com', url: 'https://www.emarketpeople.com/collections/vitamina', bg: '#C8102E', fg: '#FFFFFF', short: 'VI' },
+  { name: 'Prune', domain: 'prune.com.ar', url: 'https://www.prune.com.ar', bg: '#8B1A1A', fg: '#FFFFFF', short: 'PR' },
+  { name: 'Decathlon', domain: 'decathlon.com.ar', url: 'https://www.decathlon.com.ar', searchUrl: (q) => `https://www.decathlon.com.ar/search?q=${encodeURIComponent(q)}`, bg: '#0082C3', fg: '#FFFFFF', short: 'DC' },
+  { name: 'Indian', domain: 'indian.ar', url: 'https://www.indian.ar', bg: '#8B6914', fg: '#FFFFFF', short: 'IN' },
+];
+
+const STORES_CL = [
+  { name: 'Zara', domain: 'zara.com', url: 'https://www.zara.com/cl/', searchUrl: (q) => `https://www.zara.com/cl/es/search?searchTerm=${encodeURIComponent(q)}`, bg: '#000000', fg: '#FFFFFF', short: 'ZA' },
+  { name: 'Paris', domain: 'paris.cl', url: 'https://www.paris.cl', bg: '#1565C0', fg: '#FFFFFF', short: 'PA' },
+  { name: 'Mango', domain: 'mango.com', url: 'https://shop.mango.com/cl', bg: '#D81B60', fg: '#FFFFFF', short: 'MG' },
+  { name: 'Pull & Bear', domain: 'pullandbear.com', url: 'https://www.pullandbear.com/cl/es/', bg: '#E65100', fg: '#FFFFFF', short: 'PB' },
+  { name: 'Bershka', domain: 'bershka.com', url: 'https://www.bershka.com/cl/es/', bg: '#6A1B9A', fg: '#FFFFFF', short: 'BE' },
+  { name: 'Adidas', domain: 'adidas.cl', url: 'https://www.adidas.cl', bg: '#0277BD', fg: '#FFFFFF', short: 'AD' },
+  { name: 'Decathlon', domain: 'decathlon.cl', url: 'https://www.decathlon.cl', searchUrl: (q) => `https://www.decathlon.cl/search?q=${encodeURIComponent(q)}`, bg: '#0082C3', fg: '#FFFFFF', short: 'DC' },
+];
+
+const STORES_PY = [
+  { name: 'Zara', domain: 'zara.com', url: 'https://www.zara.com', bg: '#000000', fg: '#FFFFFF', short: 'ZA' },
+  { name: 'Adidas', domain: 'adidas.com', url: 'https://www.adidas.com', bg: '#D84315', fg: '#FFFFFF', short: 'AD' },
+  { name: 'Decathlon', domain: 'decathlon.com.py', url: 'https://www.decathlon.com.py', searchUrl: (q) => `https://www.decathlon.com.py/search?q=${encodeURIComponent(q)}`, bg: '#0082C3', fg: '#FFFFFF', short: 'DC' },
+  { name: 'Tecnostore', domain: 'tecnostore.com.py', url: 'https://www.tecnostore.com.py', bg: '#333333', fg: '#FFFFFF', short: 'TS' },
+  { name: 'Metasports', domain: 'metasports.com.py', url: 'https://www.metasports.com.py', bg: '#1A1A2E', fg: '#FFFFFF', short: 'MS' },
+  { name: 'Unicentro', domain: 'unicentro.com.py', url: 'https://www.unicentro.com.py', bg: '#4A0E8F', fg: '#FFFFFF', short: 'UC' },
+  { name: 'Puma Store', domain: 'pumastore.com.uy', url: 'https://www.pumastore.com.uy', bg: '#CC0000', fg: '#FFFFFF', short: 'PS' },
+  { name: 'Indian', domain: 'indian.com.py', url: 'https://www.indian.com.py', bg: '#8B6914', fg: '#FFFFFF', short: 'IN' },
+];
+
+const STORES_BY_COUNTRY = { UY: STORES, AR: STORES_AR, CL: STORES_CL, PY: STORES_PY };
+
+const COUNTRY_INFO = {
+  UY: { name: 'Uruguay', flag: '🇺🇾' },
+  AR: { name: 'Argentina', flag: '🇦🇷' },
+  CL: { name: 'Chile', flag: '🇨🇱' },
+  PY: { name: 'Paraguay', flag: '🇵🇾' },
+};
+
 const SCREEN = Dimensions.get('window');
 const URL_BAR_OFFSET = 90;
+
+// URLs de búsqueda por tienda
+const STORE_SEARCH_URL = {
+  'zara.com':                 (q) => `https://www.zara.com/uy/es/search?searchTerm=${encodeURIComponent(q)}`,
+  'hm.com':                   (q) => `https://uy.hm.com/s?q=${encodeURIComponent(q)}&fuzzy=0&operator=and&sort=score_desc&page=0`,
+  'renner.com':               (q) => `https://www.renner.com/uy/b?q=${encodeURIComponent(q)}`,
+  'rotundastore.com':         (q) => `https://www.rotundastore.com/catalogo?q=${encodeURIComponent(q)}`,
+  'austera.com.uy':           (q) => `https://www.austera.com.uy/search?q=${encodeURIComponent(q)}`,
+  'carocriado.com':           (q) => `https://www.carocriado.com/catalogo?q=${encodeURIComponent(q)}`,
+  'lolita.com.uy':            (q) => `https://lolita.com.uy/productos?q=${encodeURIComponent(q)}`,
+  'decathlon.com.uy':         (q) => `https://www.decathlon.com.uy/search?q=${encodeURIComponent(q)}`,
+  // kiabi.uy bloqueado por protección anti-bots (Datadome)
+  // 'kiabi.es': ...,
+  'lacancha.uy':              (q) => `https://www.lacancha.uy/catalogsearch/result/?q=${encodeURIComponent(q)}`,
+  'tiendainglesa.com.uy':     (q) => `https://www.tiendainglesa.com.uy/supermercado/busqueda?0,0,${encodeURIComponent(q)},0`,
+  'multiahorrohogar.com.uy':  (q) => `https://www.tata.com.uy/s/?q=${encodeURIComponent(q)}&sort=score_desc`,
+  'bas.com.uy':               (q) => `https://www.bas.com.uy/s?q=${encodeURIComponent(q)}&sort=score_desc&page=0`,
+};
  
 function getRegisteredDomain(domain) {
   if (!domain) return 'web';
@@ -321,7 +384,10 @@ const INJECTED_JS = `
  
   function findProductInfo(img) {
     var src = getImageSrc(img);
-    var title = img.alt || '';
+    // Filtrar alt texts que parecen nombres de archivo (IMG_2047207, DSC_001, etc.)
+    var rawAlt = (img.alt || '').trim();
+    var isFilenameAlt = /^[\w-]+_\d+$/i.test(rawAlt) || /^\d+$/.test(rawAlt) || /^(img|dsc|photo|pic|foto)\d*/i.test(rawAlt);
+    var title = isFilenameAlt ? '' : rawAlt;
     var price = '';
     var currentHost = window.location.hostname;
     var candidates = [];
@@ -388,7 +454,32 @@ const INJECTED_JS = `
       link = candidates[0].url.href;
     }
  
+    // Si no se encontró precio en los links, buscar en elementos price cercanos
+    if (!price) {
+      var priceSelectors = ['[class*="price"]','[class*="precio"]','[itemprop="price"]','[data-testid*="price"]','.money','.amount','[class*="selling"]'];
+      var searchRoot = img.parentElement;
+      var pd = 0;
+      while (searchRoot && pd < 6) {
+        for (var ps = 0; ps < priceSelectors.length; ps++) {
+          var priceEl = searchRoot.querySelector(priceSelectors[ps]);
+          if (priceEl) { maybePrice(priceEl.textContent); if (price) break; }
+        }
+        if (price) break;
+        searchRoot = searchRoot.parentElement;
+        pd++;
+      }
+    }
+
     if (!link) link = window.location.href;
+
+    // Si no se encontró título, buscar en h1 o elementos comunes de nombre de producto
+    if (!title) {
+      var titleSelectors = ['h1','[class*="product-name"]','[class*="product-title"]','[itemprop="name"]','[data-testid*="title"]','[data-testid*="name"]'];
+      for (var ts = 0; ts < titleSelectors.length; ts++) {
+        var titleEl = document.querySelector(titleSelectors[ts]);
+        if (titleEl) { var t = (titleEl.textContent || '').trim(); if (t && t.length > 2 && t.length < 200) { title = t.slice(0, 100); break; } }
+      }
+    }
     if (!title) title = document.title || 'Producto';
  
     return { img: src, title: title.slice(0, 100), link: link, price: price };
@@ -482,6 +573,7 @@ export default function App() {
   const [currentPageTitle, setCurrentPageTitle] = useState('');
   const [currentBrowserUrl, setCurrentBrowserUrl] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [country, setCountry] = useState('UY');
  
   // Cargar picks y tiendas custom guardados al arrancar
   useEffect(() => {
@@ -491,6 +583,24 @@ export default function App() {
         if (sp) setPicks(JSON.parse(sp));
         const sc = await AsyncStorage.getItem('customStores-v1');
         if (sc) setCustomStores(JSON.parse(sc));
+        // Detectar país: primero preferencia guardada, luego por IP
+        const savedCountry = await AsyncStorage.getItem('country-v1');
+        if (savedCountry && STORES_BY_COUNTRY[savedCountry]) {
+          setCountry(savedCountry);
+        } else {
+          try {
+            const res = await Promise.race([
+              fetch('https://ipapi.co/json/'),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
+            ]);
+            const geo = await res.json();
+            const code = geo.country_code;
+            if (code && STORES_BY_COUNTRY[code]) {
+              setCountry(code);
+              await AsyncStorage.setItem('country-v1', code);
+            }
+          } catch (e) { /* timeout o sin red — queda UY por defecto */ }
+        }
       } catch (e) {}
       setLoaded(true);
       // Registrar dispositivo para notificaciones (sin bloquear la UI)
@@ -541,7 +651,8 @@ export default function App() {
     try {
       const d = new URL(url).hostname.replace(/^www\./, '');
       const reg = getRegisteredDomain(d);
-      return STORES.some(s => s.domain === reg) || customStores.some(s => s.domain === reg);
+      const activeStores = STORES_BY_COUNTRY[country] || STORES;
+    return activeStores.some(s => s.domain === reg) || customStores.some(s => s.domain === reg);
     } catch (e) { return false; }
   }
  
@@ -551,7 +662,8 @@ export default function App() {
     let domain = '';
     try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return; }
     const reg = getRegisteredDomain(domain);
-    if (STORES.some(s => s.domain === reg) || customStores.some(s => s.domain === reg)) {
+    const activeStores = STORES_BY_COUNTRY[country] || STORES;
+    if (activeStores.some(s => s.domain === reg) || customStores.some(s => s.domain === reg)) {
       showToast('Ya está en tus tiendas');
       return;
     }
@@ -589,6 +701,12 @@ export default function App() {
     ]).start(() => setToast(''));
   }
  
+  async function changeCountry(code) {
+    setCountry(code);
+    try { await AsyncStorage.setItem('country-v1', code); } catch (e) {}
+    track('country_changed', { country: code });
+  }
+
   async function registerForNotifications() {
     try {
       const { status } = await Notifications.requestPermissionsAsync();
@@ -644,7 +762,7 @@ export default function App() {
         showToast('Ya estaba en tus picks');
         return prev;
       }
-      track('pick_saved', { store: getStoreDisplayName(domain), domain: domain, has_price: !!data.price });
+      track('pick_saved', { store: getStoreDisplayName(domain), domain: domain, has_price: !!data.price, img: data.img || '', product_url: data.link || '', title: (data.title || '').slice(0, 80) });
       showToast('Guardado en Mis picks');
       syncPickToBackend(pick); // registrar en backend para monitoreo
       return [pick, ...prev];
@@ -721,6 +839,15 @@ export default function App() {
             onOpenUrl={openUrl}
             customStores={customStores}
             onRemoveCustom={removeCustomStore}
+            country={country}
+            countryStores={STORES_BY_COUNTRY[country] || STORES}
+            onChangeCountry={changeCountry}
+          />
+        ) : activeTab === 'search' ? (
+          <SearchView
+            onMessage={handleWebMessage}
+            customStores={customStores}
+            countryStores={STORES_BY_COUNTRY[country] || STORES}
           />
         ) : (
           <PicksView
@@ -776,7 +903,7 @@ export default function App() {
   );
 }
  
-function HomeView({ onOpenUrl, customStores, onRemoveCustom }) {
+function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry }) {
   const [input, setInput] = useState('');
  
   function confirmRemove(store) {
@@ -826,8 +953,33 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom }) {
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.brandHeader}>
-        <Text style={styles.brandName}>Picks</Text>
-        <Text style={styles.brandTagline}>Tu wishlist universal</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View>
+            <Text style={styles.brandName}>Picks</Text>
+            <Text style={styles.brandTagline}>Tu wishlist universal</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.countryChip}
+            activeOpacity={0.7}
+            onPress={() => {
+              Alert.alert(
+                'Seleccioná tu país',
+                '',
+                [
+                  ...Object.entries(COUNTRY_INFO).map(([code, info]) => ({
+                    text: `${info.flag}  ${info.name}`,
+                    onPress: () => onChangeCountry(code),
+                  })),
+                  { text: 'Cancelar', style: 'cancel' },
+                ]
+              );
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>{COUNTRY_INFO[country].flag}</Text>
+            <Text style={styles.countryChipText}>{COUNTRY_INFO[country].name}</Text>
+            <Ionicons name="chevron-down" size={11} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
  
       <Text style={styles.greeting}>Hola</Text>
@@ -855,10 +1007,12 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom }) {
         )}
       </View>
  
+      <TrendsSection onOpenUrl={onOpenUrl} />
+
       <Text style={styles.sectionTitle}>Tiendas destacadas</Text>
  
       <View style={{ gap: 10 }}>
-        {STORES.map((store) => (
+        {countryStores.map((store) => (
           <TouchableOpacity
             key={store.domain}
             style={styles.storeCard}
@@ -1014,6 +1168,17 @@ function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, on
 function PicksView({ picks, onRemove, onOpen }) {
   const [query, setQuery] = useState('');
   const [activeStore, setActiveStore] = useState(null);
+
+  async function sharePick(p) {
+    try {
+      const store = getStoreDisplayName(p.domain);
+      const price = p.price ? ` · ${p.price}` : '';
+      await Share.share({
+        message: `${p.name}${price}\n${p.url}`,
+        title: `${p.name} — ${store}`,
+      });
+    } catch (e) {}
+  }
  
   // Auto-generar chips agrupando por nombre comercial (no por dominio raw)
   const storeMap = {};
@@ -1146,6 +1311,15 @@ function PicksView({ picks, onRemove, onOpen }) {
                         <Text style={styles.pickDomain} numberOfLines={1}>{getStoreDisplayName(p.domain)}</Text>
                         {p.price ? <Text style={styles.pickPrice} numberOfLines={1}>{p.price}</Text> : null}
                       </View>
+                      <TouchableOpacity
+                        style={styles.shareBtn}
+                        onPress={() => sharePick(p)}
+                        hitSlop={8}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="share-outline" size={14} color={COLORS.textSecondary} />
+                        <Text style={styles.shareBtnText}>Compartir</Text>
+                      </TouchableOpacity>
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -1159,6 +1333,289 @@ function PicksView({ picks, onRemove, onOpen }) {
   );
 }
  
+function SearchView({ onMessage, customStores = [], countryStores = STORES }) {
+  const [inputText, setInputText] = useState('');
+  const [query, setQuery] = useState('');
+  const [selectedStore, setSelectedStore] = useState(0);
+  const searchInjected = useRef(false);
+  const webRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Todas las tiendas del país activo (la inyección JS maneja las que no tienen URL conocida)
+  const predefinedSearchable = countryStores;
+
+  // Tiendas custom: se carga el home y se inyecta la búsqueda via JS
+  const customSearchable = customStores.map(s => ({
+    ...s,
+    isCustom: true,
+  }));
+
+  const searchableStores = [
+    ...predefinedSearchable,
+    ...customSearchable,
+  ];
+
+  // Resetear inyección cuando cambia tienda o búsqueda
+  useEffect(() => {
+    searchInjected.current = false;
+  }, [selectedStore, query]);
+
+  function doSearch() {
+    const q = inputText.trim();
+    if (!q) return;
+    Keyboard.dismiss();
+    searchInjected.current = false;
+    setQuery(q);
+    setSelectedStore(0);
+  }
+
+  // Script que busca el input de búsqueda en la página y hace submit.
+  // Reintenta hasta 6 veces con delay para SPAs que renderizan el DOM después del load.
+  function buildSearchScript(q) {
+    return `
+(function trySearch(attempt) {
+  var q = ${JSON.stringify(q)};
+  var selectors = [
+    'input[type="search"]',
+    'input[name="q"]',
+    'input[name="s"]',
+    'input[name="search"]',
+    'input[name="busqueda"]',
+    'input[name="buscar"]',
+    'input[name="query"]',
+    'input[id*="search"]',
+    'input[id*="busca"]',
+    'input[class*="search"]',
+    'input[class*="busca"]',
+    'input[placeholder*="busca"]',
+    'input[placeholder*="search"]',
+    'input[placeholder*="Busca"]',
+    'input[placeholder*="Search"]',
+  ];
+  var input = null;
+  for (var i = 0; i < selectors.length; i++) {
+    var el = document.querySelector(selectors[i]);
+    if (el) { input = el; break; }
+  }
+  if (!input) {
+    // SPA todavía renderizando — reintentar con backoff
+    if (attempt < 6) setTimeout(function() { trySearch(attempt + 1); }, 600);
+    return;
+  }
+  input.focus();
+  var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  nativeInputValueSetter.call(input, q);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  var form = input.closest('form');
+  if (form) {
+    form.submit();
+  } else {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+  }
+})(0);
+true;
+    `;
+  }
+
+  function handleLoadEnd() {
+    const store = searchableStores[selectedStore];
+    if (!query || searchInjected.current) return;
+    // Solo inyectar si la tienda no tiene URL de búsqueda conocida
+    const hasKnownUrl = store?.searchUrl || STORE_SEARCH_URL[store?.domain];
+    if (hasKnownUrl) return;
+    searchInjected.current = true;
+    webRef.current?.injectJavaScript(buildSearchScript(query));
+  }
+
+  function getSearchUrl(storeIndex) {
+    const store = searchableStores[storeIndex];
+    if (!store || !query) return null;
+    // 1) URL específica del store (tiene precedencia — permite URLs por país)
+    if (store.searchUrl) return store.searchUrl(query);
+    // 2) STORE_SEARCH_URL por dominio (tiendas predefinidas UY y bas.com.uy)
+    const fn = STORE_SEARCH_URL[store.domain];
+    if (fn) return fn(query);
+    // 3) Para tiendas sin URL conocida: cargar home e inyectar búsqueda via JS
+    return store.url || null;
+  }
+
+  const searchUrl = getSearchUrl(selectedStore);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      {/* Barra de búsqueda */}
+      <View style={styles.searchBarWrap}>
+        <View style={styles.searchBarInner}>
+          <Ionicons name="search-outline" size={18} color={COLORS.textSecondary} />
+          <TextInput
+            ref={inputRef}
+            style={styles.searchBarInput}
+            placeholder="Buscar en todas las tiendas..."
+            placeholderTextColor={COLORS.textTertiary}
+            value={inputText}
+            onChangeText={setInputText}
+            onSubmitEditing={doSearch}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {inputText.length > 0 && (
+            <TouchableOpacity onPress={() => { setInputText(''); setQuery(''); }} hitSlop={10}>
+              <Ionicons name="close-circle" size={18} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <TouchableOpacity
+          style={[styles.searchBtn, !inputText.trim() && { opacity: 0.4 }]}
+          onPress={doSearch}
+          disabled={!inputText.trim()}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.searchBtnText}>Buscar</Text>
+        </TouchableOpacity>
+      </View>
+
+      {!query ? (
+        /* Estado vacío */
+        <View style={styles.searchEmpty}>
+          <Ionicons name="search" size={48} color={COLORS.border} />
+          <Text style={styles.searchEmptyTitle}>Buscá en todas las tiendas</Text>
+          <Text style={styles.searchEmptySubtitle}>
+            Escribí un producto arriba y lo buscás en {searchableStores.length} tiendas de un vistazo
+          </Text>
+        </View>
+      ) : (
+        <>
+          {/* Selector de tienda */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.storeTabsScroll}
+            contentContainerStyle={styles.storeTabsContent}
+          >
+            {searchableStores.map((store, i) => (
+              <TouchableOpacity
+                key={store.domain}
+                onPress={() => setSelectedStore(i)}
+                activeOpacity={0.7}
+                style={[
+                  styles.storeTab,
+                  selectedStore === i && { backgroundColor: store.bg, borderColor: store.bg },
+                ]}
+              >
+                <Text style={[
+                  styles.storeTabText,
+                  selectedStore === i && { color: store.fg },
+                ]}>
+                  {store.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* WebView con resultados */}
+          {searchUrl && (
+            <WebView
+              key={searchUrl}
+              ref={webRef}
+              source={{ uri: searchUrl }}
+              style={{ flex: 1 }}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.loadingOverlay}>
+                  <ActivityIndicator size="large" color={COLORS.accent} />
+                </View>
+              )}
+              injectedJavaScript={INJECTED_JS}
+              injectedJavaScriptBeforeContentLoaded={INJECTED_JS}
+              onMessage={onMessage}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              allowsBackForwardNavigationGestures={true}
+              sharedCookiesEnabled={true}
+              setSupportMultipleWindows={false}
+              originWhitelist={['http://*', 'https://*']}
+              userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+              onShouldStartLoadWithRequest={(req) => {
+                if (req.url.startsWith('http://') || req.url.startsWith('https://') || req.url === 'about:blank') return true;
+                return false;
+              }}
+              onLoadEnd={handleLoadEnd}
+            />
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+function TrendsSection({ onOpenUrl }) {
+  const [topStores, setTopStores] = useState([]);
+  const [topProducts, setTopProducts] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await Promise.race([
+          fetch(`${BACKEND_URL}/api/trends`),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
+        ]);
+        const data = await res.json();
+        setTopStores(data.stores || []);
+        setTopProducts(data.products || []);
+      } catch (e) {}
+    })();
+  }, []);
+
+  if (topStores.length === 0 && topProducts.length === 0) return null;
+
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <Text style={styles.sectionTitle}>Esta semana en Picks</Text>
+
+      {topStores.length > 0 && (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={styles.trendsSubtitle}>Tiendas más guardadas</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            {topStores.map((s, i) => (
+              <View key={i} style={styles.trendStoreChip}>
+                <Text style={{ fontSize: 14 }}>{i === 0 ? '🔥' : i === 1 ? '⭐' : '✨'}</Text>
+                <Text style={styles.trendStoreName}>{s.store}</Text>
+                <Text style={styles.trendStoreCount}>{s.count} picks</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {topProducts.length > 0 && (
+        <View>
+          <Text style={styles.trendsSubtitle}>Productos más guardados</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 10 }}>
+            {topProducts.map((p, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.trendProductCard}
+                onPress={() => p.url && onOpenUrl(p.url)}
+                activeOpacity={0.85}
+              >
+                <Image source={{ uri: p.img }} style={styles.trendProductImg} resizeMode="cover" />
+                <View style={styles.trendProductInfo}>
+                  <Text style={styles.trendProductName} numberOfLines={2}>{p.title}</Text>
+                  <Text style={styles.trendProductStore} numberOfLines={1}>{p.store}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function TabBar({ activeTab, setActiveTab, pickCount }) {
   return (
     <SafeAreaView edges={['bottom']} style={styles.tabBarWrap}>
@@ -1169,6 +1626,13 @@ function TabBar({ activeTab, setActiveTab, pickCount }) {
           iconActive="home"
           isActive={activeTab === 'home'}
           onPress={() => setActiveTab('home')}
+        />
+        <Tab
+          label="Buscar"
+          iconName="search-outline"
+          iconActive="search"
+          isActive={activeTab === 'search'}
+          onPress={() => setActiveTab('search')}
         />
         <Tab
           label="Mis picks"
@@ -1260,6 +1724,8 @@ const styles = StyleSheet.create({
   pickMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 6 },
   pickDomain: { fontSize: 11, color: COLORS.textTertiary, flex: 1 },
   pickPrice: { fontSize: 12, fontWeight: '600', color: COLORS.textPrimary },
+  shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
+  shareBtnText: { fontSize: 11, color: COLORS.textSecondary },
   picksHint: { fontSize: 11, color: COLORS.textTertiary, textAlign: 'center', marginTop: 16 },
   picksSearch: {
     backgroundColor: COLORS.surface, borderColor: COLORS.border, borderWidth: 0.5,
@@ -1291,6 +1757,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  // Search styles
+  searchBarWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  searchBarInner: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.borderSoft, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  searchBarInput: {
+    flex: 1, fontSize: 15, color: COLORS.textPrimary, padding: 0,
+  },
+  searchBtn: {
+    backgroundColor: COLORS.accent, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  searchBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  searchEmpty: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 40, gap: 12,
+  },
+  searchEmptyTitle: {
+    fontSize: 18, fontWeight: '600', color: COLORS.textPrimary, textAlign: 'center',
+  },
+  searchEmptySubtitle: {
+    fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 20,
+  },
+  storeTabsScroll: { maxHeight: 50, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
+  storeTabsContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+  storeTab: {
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+  },
+  storeTabText: { fontSize: 13, fontWeight: '500', color: COLORS.textPrimary },
+  // Browser styles
   browserContainer: { flex: 1, backgroundColor: COLORS.background },
   browserBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14,
@@ -1306,6 +1810,28 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center',
   },
+  trendsSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  trendStoreChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: COLORS.surface, borderWidth: 0.5, borderColor: COLORS.border,
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7,
+  },
+  trendStoreName: { fontSize: 13, fontWeight: '500', color: COLORS.textPrimary },
+  trendStoreCount: { fontSize: 11, color: COLORS.textTertiary },
+  trendProductCard: {
+    width: 130, backgroundColor: COLORS.surface,
+    borderWidth: 0.5, borderColor: COLORS.border, borderRadius: 12, overflow: 'hidden',
+  },
+  trendProductImg: { width: 130, height: 130 },
+  trendProductInfo: { padding: 8 },
+  trendProductName: { fontSize: 12, fontWeight: '500', color: COLORS.textPrimary, lineHeight: 16 },
+  trendProductStore: { fontSize: 11, color: COLORS.textTertiary, marginTop: 2 },
+  countryChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: COLORS.borderSoft, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  countryChipText: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500' },
   ghost: {
     position: 'absolute', width: 120, height: 150, borderRadius: 12,
     overflow: 'hidden', backgroundColor: '#fff', top: 0, left: 0,
