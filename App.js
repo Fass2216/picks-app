@@ -254,7 +254,7 @@ const INJECTED_JS = `
     for (var j = 0; j < banners.length; j++) banners[j].style.display = 'none';
   }
   removeAppMeta();
-  setInterval(removeAppMeta, 1500);
+  setInterval(removeAppMeta, 5000);
  
   // Forzar todo a _self y bloquear que se abra la app nativa
   function fixTargets() {
@@ -264,7 +264,7 @@ const INJECTED_JS = `
     for (var i = 0; i < forms.length; i++) forms[i].target = '_self';
   }
   fixTargets();
-  setInterval(fixTargets, 1000);
+  setInterval(fixTargets, 4000);
  
   // Override window.open para que use la misma ventana
   try {
@@ -382,6 +382,50 @@ const INJECTED_JS = `
     return s;
   }
  
+  // Extrae precio y nombre del producto desde JSON-LD Schema.org
+  // Funciona en cualquier tienda que implemente datos estructurados (la mayoría)
+  function extractFromJsonLd() {
+    var result = { price: null, title: null };
+    try {
+      var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (var i = 0; i < scripts.length; i++) {
+        var data = JSON.parse(scripts[i].textContent || '{}');
+        var items = Array.isArray(data) ? data : [data];
+        for (var j = 0; j < items.length; j++) {
+          var item = items[j];
+          // Buscar nombre del producto
+          if (!result.title && item.name && typeof item.name === 'string' && item.name.trim().length > 2) {
+            result.title = item.name.trim().slice(0, 100);
+          }
+          // Buscar precio en offers
+          var offers = item.offers;
+          if (!offers) continue;
+          var offerArr = Array.isArray(offers) ? offers : [offers];
+          for (var k = 0; k < offerArr.length; k++) {
+            var o = offerArr[k];
+            if (o.price != null && !result.price) {
+              var p = parseFloat(String(o.price).replace(/,/g, '.'));
+              if (!isNaN(p) && p > 0) {
+                var currency = o.priceCurrency || '';
+                result.price = (currency ? currency + ' ' : '') + o.price;
+              }
+            }
+            // AggregateOffer tiene lowPrice
+            if (o.lowPrice != null && !result.price) {
+              var lp = parseFloat(String(o.lowPrice).replace(/,/g, '.'));
+              if (!isNaN(lp) && lp > 0) {
+                result.price = String(o.lowPrice);
+              }
+            }
+          }
+          if (result.price) break;
+        }
+        if (result.price) break;
+      }
+    } catch (e) {}
+    return result;
+  }
+
   function findProductInfo(img) {
     var src = getImageSrc(img);
     // Filtrar alt texts que parecen nombres de archivo (IMG_2047207, DSC_001, etc.)
@@ -389,6 +433,11 @@ const INJECTED_JS = `
     var isFilenameAlt = /^[\w-]+_\d+$/i.test(rawAlt) || /^\d+$/.test(rawAlt) || /^(img|dsc|photo|pic|foto)\d*/i.test(rawAlt);
     var title = isFilenameAlt ? '' : rawAlt;
     var price = '';
+
+    // ── Paso 0: JSON-LD Schema.org (universal, máxima confiabilidad) ──────────
+    var jsonLd = extractFromJsonLd();
+    if (jsonLd.price) price = jsonLd.price;
+    if (jsonLd.title && !title) title = jsonLd.title;
     var currentHost = window.location.hostname;
     var candidates = [];
  
@@ -454,12 +503,56 @@ const INJECTED_JS = `
       link = candidates[0].url.href;
     }
  
-    // Si no se encontró precio en los links, buscar en elementos price cercanos
+    // Si no se encontró precio en los links, buscar en elementos de precio
     if (!price) {
-      var priceSelectors = ['[class*="price"]','[class*="precio"]','[itemprop="price"]','[data-testid*="price"]','.money','.amount','[class*="selling"]'];
+      var storeHost = window.location.hostname.replace(/^www\./, '');
+      // Selectores específicos por tienda buscados a nivel documento
+      var storeSelMap = {
+        'zara.com':          ['[data-qa-label="price"]','.price__amount','.money-amount__main','[class*="price__amount"]','.price-current__amount'],
+        'hm.com':            ['.product-item-price','[data-testid="product-price"]','.price.regular','[class*="product-price"]','.price'],
+        'renner.com':        ['.renner-product-price','.vtex-product-price','[class*="product-price"]'],
+        'rotundastore.com':  ['.product__price','span.money','.price'],
+        'austera.com.uy':    ['.price','[class*="price"]','span.money'],
+        'carocriado.com':    ['.price','[class*="price"]'],
+        'lolita.com.uy':     ['.price','[class*="price"]'],
+        'decathlon.com.uy':  ['[class*="sellingPrice"]','[class*="spotPrice"]','[class*="Price"]'],
+        'decathlon.com.ar':  ['[class*="sellingPrice"]','[class*="spotPrice"]','[class*="Price"]'],
+        'lacancha.uy':       ['.price','.product-price','[itemprop="price"]'],
+        'indian.com.uy':     ['.price','[class*="price"]','span.money'],
+        'indian.ar':         ['.price','[class*="price"]','span.money'],
+      };
+      var specificSels = null;
+      for (var sk in storeSelMap) {
+        if (storeHost.indexOf(sk) !== -1) { specificSels = storeSelMap[sk]; break; }
+      }
+      // Selectores de precio muy específicos del producto principal (no carruseles)
+      // Ordered by specificity — se usan a nivel documento solo los que identifican
+      // el precio del producto actual, no de productos relacionados
+      var productPriceSelectors = specificSels || [];
+      // Agregar selectores genéricos de alto nivel de especificidad
+      var highSpecificity = [
+        '[data-qa-label="price"]',          // Zara
+        '[itemprop="price"]',               // Schema.org
+        '[data-testid="product-price"]',    // H&M y otros
+        '[class*="sellingPrice"]',          // VTEX (Decathlon)
+        '[class*="spotPrice"]',             // VTEX alternativo
+      ];
+      for (var hs = 0; hs < highSpecificity.length; hs++) {
+        if (productPriceSelectors.indexOf(highSpecificity[hs]) === -1) {
+          productPriceSelectors.push(highSpecificity[hs]);
+        }
+      }
+
+      // 1) Buscar subiendo desde la imagen — más preciso porque estamos cerca del producto
+      var priceSelectors = [
+        '[class*="price"]','[class*="precio"]','[class*="Price"]',
+        '[itemprop="price"]','[data-testid*="price"]',
+        '.money','[class*="amount"]','[class*="selling"]',
+        '[data-qa-label="price"]','[class*="spot-price"]',
+      ];
       var searchRoot = img.parentElement;
       var pd = 0;
-      while (searchRoot && pd < 6) {
+      while (searchRoot && pd < 12) {
         for (var ps = 0; ps < priceSelectors.length; ps++) {
           var priceEl = searchRoot.querySelector(priceSelectors[ps]);
           if (priceEl) { maybePrice(priceEl.textContent); if (price) break; }
@@ -467,6 +560,24 @@ const INJECTED_JS = `
         if (price) break;
         searchRoot = searchRoot.parentElement;
         pd++;
+      }
+
+      // 2) Último recurso: selectores de alto nivel de especificidad en documento
+      //    (evitamos [class*="price"] genérico para no agarrar carruseles)
+      if (!price) {
+        for (var si = 0; si < productPriceSelectors.length; si++) {
+          var allEls = document.querySelectorAll(productPriceSelectors[si]);
+          // Tomar el primero que esté visible y tenga texto con número
+          for (var ei = 0; ei < allEls.length; ei++) {
+            var el = allEls[ei];
+            var t = (el.textContent || '').trim();
+            if (t && /\d/.test(t) && el.offsetParent !== null) {
+              maybePrice(t);
+              if (price) break;
+            }
+          }
+          if (price) break;
+        }
       }
     }
 
