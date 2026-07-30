@@ -13,7 +13,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.fass216.picksapp"
+      "bundleIdentifier": "com.fass216.picksapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.fass216.picksapp",
@@ -40,7 +43,14 @@
       "url": "https://u.expo.dev/06059259-c03f-47f0-8658-605cf298974c"
     },
     "plugins": [
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Picks necesita acceso a tu galería para cambiar tu foto de perfil.",
+          "cameraPermission": "Picks necesita acceso a tu cámara para tomar una foto de perfil."
+        }
+      ]
     ]
   }
 }

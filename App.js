@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
+import * as Sharing from 'expo-sharing';
+import ViewShot from 'react-native-view-shot';
 import {
   View,
   Text,
@@ -7,6 +10,7 @@ import {
   StyleSheet,
   StatusBar,
   ScrollView,
+  FlatList,
   TextInput,
   ActivityIndicator,
   Keyboard,
@@ -16,11 +20,17 @@ import {
   Easing,
   Alert,
   Share,
+  Vibration,
+  KeyboardAvoidingView,
+  Platform,
+  PanResponder,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient } from '@supabase/supabase-js';
  
 // ============ ANALYTICS (PostHog vía REST API + DEBUG) ============
 const POSTHOG_HOST = 'https://us.i.posthog.com';
@@ -29,6 +39,46 @@ const DEBUG_ANALYTICS = false;
 
 // ============ BACKEND DE NOTIFICACIONES ============
 const BACKEND_URL = 'https://picks-backend-30ur.onrender.com';
+
+// ── Supabase Auth ─────────────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://gbzjpfhhullpqvcycwkp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_FybYxjnA40bJfaZMDhzXFg_1Lf8u2SK';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
+});
+
+// ── Categorías de interés ─────────────────────────────────────────────────────
+const INTEREST_CATEGORIES = [
+  { id: 'indumentaria', label: 'Indumentaria',     emoji: '👗', icon: 'shirt-outline' },
+  { id: 'calzado',      label: 'Calzado',           emoji: '👟', icon: 'footsteps-outline' },
+  { id: 'skincare',     label: 'Skincare & Belleza',emoji: '💄', icon: 'sparkles-outline' },
+  { id: 'hogar',        label: 'Hogar & Deco',      emoji: '🏠', icon: 'home-outline' },
+  { id: 'tecnologia',   label: 'Tecnología',        emoji: '📱', icon: 'phone-portrait-outline' },
+  { id: 'deportes',     label: 'Deportes',          emoji: '⚽', icon: 'football-outline' },
+  { id: 'vehiculos',    label: 'Vehículos',         emoji: '🚗', icon: 'car-outline' },
+  { id: 'herramientas', label: 'Herramientas',      emoji: '🔧', icon: 'construct-outline' },
+  { id: 'gaming',       label: 'Gaming',            emoji: '🎮', icon: 'game-controller-outline' },
+  { id: 'mascotas',     label: 'Mascotas',          emoji: '🐾', icon: 'paw-outline' },
+  { id: 'salud',        label: 'Salud & Bienestar', emoji: '🌿', icon: 'leaf-outline' },
+  { id: 'bebes',        label: 'Bebés & Niños',     emoji: '👶', icon: 'happy-outline' },
+];
+
+// Keywords por categoría para personalizar el feed
+const INTEREST_KEYWORDS = {
+  indumentaria: ['ropa','remera','pantalon','vestido','campera','blusa','short','jean','chomba','saco'],
+  calzado:      ['zapatilla','zapato','bota','sandalia','calzado','sneaker','mocasin','taco'],
+  skincare:     ['crema','serum','facial','hidratante','sunscreen','protector','skincare','perfume','maquillaje','labial'],
+  hogar:        ['silla','mesa','lampara','cojin','hogar','living','cocina','manta','alfombra','deco'],
+  tecnologia:   ['celular','notebook','auricular','cargador','smartwatch','tablet','electronico','computadora'],
+  deportes:     ['deportivo','running','training','gym','fitness','sport','pelota','bicicleta','natacion'],
+  vehiculos:    ['auto','moto','bicicleta','vehiculo','neumatico','repuesto','volante'],
+  herramientas: ['herramienta','taladro','sierra','llave','tornillo','martillo','electricidad','pintura'],
+  gaming:       ['gaming','consola','joystick','headset','mouse gamer','teclado gamer','monitor'],
+  mascotas:     ['mascota','perro','gato','collar','racion','juguete mascota','correa'],
+  salud:        ['vitamina','suplemento','proteina','salud','bienestar','medicamento','termometro'],
+  bebes:        ['bebe','nino','nena','infantil','juguete','cochecito','mamadera','panal'],
+};
+
 
 // ID de dispositivo persistente (se guarda en AsyncStorage la primera vez)
 let DEVICE_ID = null; // caché en memoria para track()
@@ -88,6 +138,7 @@ function track(event, props) {
 const COLORS = {
   background: '#FAF7F2',
   surface: '#FFFFFF',
+  card: '#F1ECE3',
   border: '#E8E2DA',
   borderSoft: '#EFEAE1',
   textPrimary: '#2A2826',
@@ -106,7 +157,7 @@ const STORES = [
   { name: 'Caro Criado', domain: 'carocriado.com', url: 'https://www.carocriado.com', bg: '#D4A4A4', fg: '#FFFFFF', short: 'CC' },
   { name: 'Lolita', domain: 'lolita.com.uy', url: 'https://www.lolita.com.uy', bg: '#DB6B8A', fg: '#FFFFFF', short: 'LO' },
   { name: 'Decathlon', domain: 'decathlon.com.uy', url: 'https://www.decathlon.com.uy', bg: '#0082C3', fg: '#FFFFFF', short: 'DC' },
-  { name: 'Kiabi', domain: 'kiabi.es', url: 'https://www.kiabi.es', bg: '#FF5B5C', fg: '#FFFFFF', short: 'KI' },
+
   { name: 'La Cancha', domain: 'lacancha.uy', url: 'https://www.lacancha.uy', bg: '#007F3E', fg: '#FFFFFF', short: 'LC' },
   { name: 'Tienda Inglesa', domain: 'tiendainglesa.com.uy', url: 'https://www.tiendainglesa.com.uy', bg: '#0033A0', fg: '#FFFFFF', short: 'TI' },
   { name: 'Multiahorro', domain: 'multiahorrohogar.com.uy', url: 'https://www.multiahorrohogar.com.uy', bg: '#E2231A', fg: '#FFFFFF', short: 'MA' },
@@ -203,6 +254,24 @@ function getInitials(name) {
   return parts.map(w => (w[0] || '').toUpperCase()).join('').slice(0, 2) || '??';
 }
  
+// Devuelve el código de país (UY/AR/CL/PY) de un dominio, o null si no se puede determinar
+function getDomainCountry(domain, url) {
+  const reg = getRegisteredDomain(domain);
+  const found = [];
+  for (const [code, stores] of Object.entries(STORES_BY_COUNTRY)) {
+    if (stores.some(s => s.domain === reg)) found.push(code);
+  }
+  if (found.length === 1) return found[0];
+  // Para stores que aparecen en varios países, inferir por el path de la URL
+  if (url && found.length > 1) {
+    for (const code of found) {
+      const lc = code.toLowerCase();
+      if (url.includes('/' + lc + '/') || url.includes('.' + lc + '/') || url.includes('.' + lc + '.')) return code;
+    }
+  }
+  return null;
+}
+
 function getStoreDisplayName(domain) {
   const reg = getRegisteredDomain(domain);
   for (let i = 0; i < STORES.length; i++) {
@@ -254,8 +323,20 @@ const INJECTED_JS = `
     for (var j = 0; j < banners.length; j++) banners[j].style.display = 'none';
   }
   removeAppMeta();
-  setInterval(removeAppMeta, 5000);
- 
+  fixTargets();
+
+  // Usar MutationObserver en vez de setInterval — solo corre cuando el DOM cambia
+  try {
+    var domObserver = new MutationObserver(function(mutations) {
+      var hasNew = false;
+      for (var i = 0; i < mutations.length; i++) {
+        if (mutations[i].addedNodes.length > 0) { hasNew = true; break; }
+      }
+      if (hasNew) { removeAppMeta(); fixTargets(); }
+    });
+    domObserver.observe(document.documentElement, { childList: true, subtree: true });
+  } catch(e) {}
+
   // Forzar todo a _self y bloquear que se abra la app nativa
   function fixTargets() {
     var links = document.querySelectorAll('a[target="_blank"]');
@@ -263,8 +344,6 @@ const INJECTED_JS = `
     var forms = document.querySelectorAll('form[target="_blank"]');
     for (var i = 0; i < forms.length; i++) forms[i].target = '_self';
   }
-  fixTargets();
-  setInterval(fixTargets, 4000);
  
   // Override window.open para que use la misma ventana
   try {
@@ -684,7 +763,19 @@ export default function App() {
   const [currentPageTitle, setCurrentPageTitle] = useState('');
   const [currentBrowserUrl, setCurrentBrowserUrl] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);   // null = no logueado
+  const [userInterests, setUserInterests] = useState([]);  // ids de categorías
+  // Avatar URL siempre se deriva del ID del usuario (sin depender de metadata)
+  const [avatarCacheBust, setAvatarCacheBust] = useState('');
+  const getAvatarUrl = (uid) => uid
+    ? `${SUPABASE_URL}/storage/v1/object/public/avatars/${uid}.jpg${avatarCacheBust}`
+    : null;
   const [country, setCountry] = useState('UY');
+  const [storesOrderSwapped, setStoresOrderSwapped] = useState(false);
+  const [collections, setCollections] = useState([]);          // [{ id, name, pickIds }]
+  const [collectionModal, setCollectionModal] = useState(null); // pick pendiente de asignar
+  const [picksTab, setPicksTab] = useState('todos');            // persiste al abrir browser
+  const [openCollection, setOpenCollection] = useState(null);   // persiste al abrir browser
  
   // Cargar picks y tiendas custom guardados al arrancar
   useEffect(() => {
@@ -693,7 +784,12 @@ export default function App() {
         const sp = await AsyncStorage.getItem('picks-v1');
         if (sp) setPicks(JSON.parse(sp));
         const sc = await AsyncStorage.getItem('customStores-v1');
+        const scol = await AsyncStorage.getItem('collections-v1');
+        if (scol) setCollections(JSON.parse(scol));
+        // avatar URL is now derived from user ID, no need to load from storage
         if (sc) setCustomStores(JSON.parse(sc));
+        const so = await AsyncStorage.getItem('storesOrder-v1');
+        if (so === 'swapped') setStoresOrderSwapped(true);
         // Detectar país: primero preferencia guardada, luego por IP
         const savedCountry = await AsyncStorage.getItem('country-v1');
         if (savedCountry && STORES_BY_COUNTRY[savedCountry]) {
@@ -714,12 +810,35 @@ export default function App() {
         }
       } catch (e) {}
       setLoaded(true);
+      // Siempre re-sincronizar picks al backend (por si reinició y perdió datos)
+      syncAllPicksToBackend();
       // Registrar dispositivo para notificaciones (sin bloquear la UI)
       registerForNotifications();
     })();
     track('app_opened');
   }, []);
  
+  // Escuchar cambios de sesión Supabase
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUserProfile(session.user);
+        setUserInterests(session.user.user_metadata?.interests || []);
+        // avatar URL derived from user ID, no metadata needed
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserProfile(session?.user || null);
+      setUserInterests(session?.user?.user_metadata?.interests || []);
+    });
+    return () => listener?.subscription?.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem('collections-v1', JSON.stringify(collections)).catch(() => {});
+  }, [collections, loaded]);
+
   // Persistir picks cuando cambian
   useEffect(() => {
     if (!loaded) return;
@@ -731,6 +850,12 @@ export default function App() {
     if (!loaded) return;
     AsyncStorage.setItem('customStores-v1', JSON.stringify(customStores)).catch(() => {});
   }, [customStores, loaded]);
+
+  // Persistir orden de secciones
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem('storesOrder-v1', storesOrderSwapped ? 'swapped' : 'normal').catch(() => {});
+  }, [storesOrderSwapped, loaded]);
  
   const ghostAnim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const ghostScale = useRef(new Animated.Value(1)).current;
@@ -767,21 +892,28 @@ export default function App() {
     } catch (e) { return false; }
   }
  
-  function addCurrentToFavorites() {
+  function toggleCurrentFavorite() {
     const url = getActiveBrowserUrl();
     if (!url) return;
     let domain = '';
     try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return; }
     const reg = getRegisteredDomain(domain);
     const activeStores = STORES_BY_COUNTRY[country] || STORES;
-    if (activeStores.some(s => s.domain === reg) || customStores.some(s => s.domain === reg)) {
-      showToast('Ya está en tus tiendas');
+
+    // Si ya está en tiendas predefinidas del país → no se puede quitar
+    if (activeStores.some(s => s.domain === reg)) {
+      showToast('Tienda predefinida de tu país');
       return;
     }
+    // Si está en Mis tiendas → quitarla
+    if (customStores.some(s => s.domain === reg)) {
+      removeCustomStore(reg);
+      return;
+    }
+    // No está en ninguna → agregar como custom
     const titleSource = currentPageTitle || reg.split('.')[0];
     const cleanName = titleSource.split(/[|·\-–—]/)[0].trim().slice(0, 25) || reg.split('.')[0];
     const color = CUSTOM_COLORS[customStores.length % CUSTOM_COLORS.length];
-    // Guardar la URL ACTUAL del WebView, no la inicial (asi conserva el path de pais, locale, etc.)
     const newStore = {
       name: cleanName,
       domain: reg,
@@ -793,7 +925,7 @@ export default function App() {
     };
     setCustomStores(prev => [...prev, newStore]);
     track('custom_store_added', { store: newStore.name, domain: newStore.domain });
-    showToast('Agregada a destacadas');
+    showToast('Agregada a tus tiendas');
   }
  
   function removeCustomStore(domain) {
@@ -818,11 +950,32 @@ export default function App() {
     track('country_changed', { country: code });
   }
 
+  // Re-sincroniza todos los picks guardados al backend.
+  // Se llama siempre al abrir la app, independiente de si hay permisos de notificaciones.
+  async function syncAllPicksToBackend() {
+    try {
+      const device_id = await getOrCreateDeviceId();
+      const stored = await AsyncStorage.getItem('picks-v1');
+      if (!stored) return;
+      const allPicks = JSON.parse(stored);
+      for (const pick of allPicks) {
+        fetch(`${BACKEND_URL}/api/picks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id, pick }),
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
   async function registerForNotifications() {
     try {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') return;
-      const tokenData = await Notifications.getExpoPushTokenAsync();
+      // projectId es requerido en builds standalone (Ad Hoc / App Store)
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: '06059259-c03f-47f0-8658-605cf298974c',
+      });
       const push_token = tokenData.data;
       const device_id = await getOrCreateDeviceId();
       await fetch(`${BACKEND_URL}/api/register`, {
@@ -830,6 +983,16 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id, push_token }),
       });
+      // Si el usuario ya había desactivado los avisos localmente, re-sincronizarlo
+      // (por si el registro del token ocurrió recién ahora y el backend no lo sabía).
+      const storedPref = await AsyncStorage.getItem('notifications-enabled-v1');
+      if (storedPref === 'false') {
+        await fetch(`${BACKEND_URL}/api/notifications/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id, enabled: false }),
+        }).catch(() => {});
+      }
     } catch (e) {
       // Silencioso — las notificaciones son opcionales
     }
@@ -874,8 +1037,9 @@ export default function App() {
         return prev;
       }
       track('pick_saved', { store: getStoreDisplayName(domain), domain: domain, has_price: !!data.price, img: data.img || '', product_url: data.link || '', title: (data.title || '').slice(0, 80) });
-      showToast('Guardado en Mis picks');
-      syncPickToBackend(pick); // registrar en backend para monitoreo
+      showToast('Guardado en Mis picks ✓');
+      syncPickToBackend(pick);
+      setTimeout(() => setCollectionModal(pick), 350);
       return [pick, ...prev];
     });
   }
@@ -940,9 +1104,16 @@ export default function App() {
           <BrowserView
             url={browserUrl}
             onClose={closeBrowser}
+            backLabel={activeTab === 'picks' ? 'Colecciones' : activeTab === 'home' ? 'Inicio' : activeTab === 'explorar' ? 'Explorar' : 'Volver'}
             onMessage={handleWebMessage}
             isFavorite={isCurrentFavorite()}
-            onToggleFavorite={addCurrentToFavorites}
+            isCustomFavorite={customStores.some(s => {
+              try {
+                const d = getRegisteredDomain(new URL(getActiveBrowserUrl() || '').hostname.replace(/^www\./, ''));
+                return s.domain === d;
+              } catch(e) { return false; }
+            })}
+            onToggleFavorite={toggleCurrentFavorite}
             onUrlChange={setCurrentBrowserUrl}
           />
         ) : activeTab === 'home' ? (
@@ -953,6 +1124,8 @@ export default function App() {
             country={country}
             countryStores={STORES_BY_COUNTRY[country] || STORES}
             onChangeCountry={changeCountry}
+            storesOrderSwapped={storesOrderSwapped}
+            onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
           />
         ) : activeTab === 'search' ? (
           <SearchView
@@ -960,29 +1133,83 @@ export default function App() {
             customStores={customStores}
             countryStores={STORES_BY_COUNTRY[country] || STORES}
           />
+        ) : activeTab === 'explorar' ? (
+          <ExplorarScreen
+            picks={picks}
+            customStores={customStores}
+            userInterests={userInterests}
+            onOpenUrl={openUrl}
+            onAddPick={(item) => {
+              addPick({ title: item.title, img: item.img, link: item.url, price: item.price ? String(item.price) : '' });
+            }}
+          />
+        ) : activeTab === 'perfil' ? (
+          <ProfileScreen
+            userProfile={userProfile}
+            userInterests={userInterests}
+            avatarUrl={getAvatarUrl(userProfile?.id)}
+            onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
+            onInterestsChange={async (interests) => {
+              await supabase.auth.updateUser({ data: { interests } });
+              setUserInterests(interests);
+            }}
+            onLogout={async () => {
+              await supabase.auth.signOut();
+              setUserProfile(null);
+              setUserInterests([]);
+              setAvatarCacheBust('');
+            }}
+          />
         ) : (
           <PicksView
             picks={picks}
+            collections={collections}
+            picksTab={picksTab}
+            setPicksTab={setPicksTab}
+            openCollection={openCollection}
+            setOpenCollection={setOpenCollection}
             onRemove={(id) => {
               const removed = picks.find(p => p.id === id);
               if (removed) track('pick_removed', { store: getStoreDisplayName(removed.domain), domain: removed.domain });
               setPicks(prev => prev.filter(p => p.id !== id));
+              setCollections(prev => prev.map(c => ({ ...c, pickIds: c.pickIds.filter(pid => pid !== id) })));
               removePickFromBackend(id);
             }}
             onOpen={(url) => {
               const opened = picks.find(p => p.url === url);
               if (opened) track('pick_opened', { store: getStoreDisplayName(opened.domain), domain: opened.domain });
-              setActiveTab('home');
               openUrl(url);
             }}
           />
         )}
       </View>
  
+      {collectionModal && (
+        <CollectionModal
+          pick={collectionModal}
+          collections={collections}
+          onClose={() => setCollectionModal(null)}
+          onSave={(colId, newColName) => {
+            if (newColName) {
+              const newCol = { id: 'c-' + Date.now(), name: newColName, pickIds: [collectionModal.id] };
+              setCollections(prev => [...prev, newCol]);
+            } else if (colId) {
+              setCollections(prev => prev.map(c =>
+                c.id === colId && !c.pickIds.includes(collectionModal.id)
+                  ? { ...c, pickIds: [...c.pickIds, collectionModal.id] }
+                  : c
+              ));
+            }
+            setCollectionModal(null);
+          }}
+        />
+      )}
+
       <TabBar
         activeTab={browserUrl ? 'home' : activeTab}
         setActiveTab={changeTab}
         pickCount={picks.length}
+        avatarUrl={getAvatarUrl(userProfile?.id)}
       />
  
       {ghost && (
@@ -1014,9 +1241,572 @@ export default function App() {
   );
 }
  
-function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry }) {
+
+// ── StoreGridCard: tarjeta de tienda con logo real (grid 2 columnas) ──────────
+// ── ProfileScreen ─────────────────────────────────────────────────────────────
+function InterestTile({ cat, active, onPress, disabled }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const prevActive = useRef(active);
+
+  const handlePressIn = () => {
+    Animated.spring(scale, { toValue: 0.9, speed: 50, bounciness: 0, useNativeDriver: true }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scale, { toValue: 1, speed: 16, bounciness: 9, useNativeDriver: true }).start();
+  };
+
+  // Pequeño "pop" extra cuando pasa a activo (más allá del press-in/out normal)
+  useEffect(() => {
+    if (active && !prevActive.current) {
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.08, speed: 30, bounciness: 0, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, speed: 16, bounciness: 9, useNativeDriver: true }),
+      ]).start();
+    }
+    prevActive.current = active;
+  }, [active]);
+
+  return (
+    <Animated.View style={{ width: (SCREEN.width - 40 - 20) / 3, transform: [{ scale }] }}>
+      <TouchableOpacity
+        style={[profileStyles.interestTile, active && profileStyles.interestTileActive]}
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        disabled={disabled}
+        activeOpacity={0.9}
+      >
+        <Ionicons name={cat.icon} size={20} color={active ? '#fff' : COLORS.textSecondary} />
+        <Text style={[profileStyles.interestLabel, active && profileStyles.interestLabelActive]} numberOfLines={2}>
+          {cat.label}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl }) {
+  const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [savingInterests, setSavingInterests] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [savingNotifPref, setSavingNotifPref] = useState(false);
+
+  // Resetear error si cambia el URL (ej: después de subir nueva foto)
+  useEffect(() => { setAvatarError(false); }, [avatarUrl]);
+
+  // Cargar preferencia de notificaciones guardada localmente
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem('notifications-enabled-v1');
+        if (stored !== null) setNotifEnabled(stored !== 'false');
+      } catch (e) {}
+    })();
+  }, []);
+
+  const toggleNotifications = async (value) => {
+    setNotifEnabled(value);
+    setSavingNotifPref(true);
+    try {
+      await AsyncStorage.setItem('notifications-enabled-v1', value ? 'true' : 'false');
+      const device_id = await getOrCreateDeviceId();
+      await fetch(`${BACKEND_URL}/api/notifications/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id, enabled: value }),
+      });
+    } catch (e) {
+      // Silencioso — el toggle local ya se aplicó
+    } finally {
+      setSavingNotifPref(false);
+    }
+  };
+
+  useEffect(() => {
+    if (userProfile && tab !== 'profile') setTab('profile');
+  }, [userProfile]);
+
+  const pickAndUploadAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso necesario', 'Necesitamos acceso a tu galería para cambiar la foto.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      if (result.canceled) return;
+
+      setUploadingAvatar(true);
+      const uri = result.assets[0].uri;
+      const fileName = `${userProfile.id}.jpg`; // siempre .jpg
+
+      const response = await fetch(uri);
+      const arrayBuffer = await response.arrayBuffer();
+
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, arrayBuffer, { upsert: true, contentType: 'image/jpeg' });
+
+      if (upErr) { Alert.alert('Error', upErr.message || 'No se pudo subir la foto.'); setUploadingAvatar(false); return; }
+
+      setAvatarError(false);
+      onAvatarChange?.();  // actualiza el URL en App (cache bust) → baja como prop
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo subir la foto.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) { setError('Completá email y contraseña'); return; }
+    setLoading(true); setError('');
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setLoading(false);
+    if (err) setError(err.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos' : err.message);
+  };
+
+  const handleRegister = async () => {
+    if (!email.trim() || !password.trim()) { setError('Completá email y contraseña'); return; }
+    if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
+    setLoading(true); setError('');
+    const { error: err } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { interests: [] } } });
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    setSuccess('¡Cuenta creada! Revisá tu email para confirmar.');
+  };
+
+  const toggleInterest = async (id) => {
+    const next = userInterests.includes(id)
+      ? userInterests.filter(i => i !== id)
+      : [...userInterests, id];
+    setSavingInterests(true);
+    await onInterestsChange(next);
+    setSavingInterests(false);
+  };
+
+  // ── Vista de perfil autenticado ────────────────────────────────────────────
+  if (tab === 'profile' && userProfile) {
+    return (
+      <SafeAreaView style={profileStyles.container} edges={['top']}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          {/* Header */}
+          <View style={profileStyles.header}>
+            <TouchableOpacity onPress={pickAndUploadAvatar} disabled={uploadingAvatar} activeOpacity={0.85}>
+              <View style={profileStyles.avatarCircle}>
+                {avatarUrl && !avatarError
+                  ? <Image
+                      source={{ uri: avatarUrl }}
+                      style={{ width: 72, height: 72, borderRadius: 36 }}
+                      onError={() => setAvatarError(true)}
+                    />
+                  : <Ionicons name="person" size={36} color="#fff" />
+                }
+                {uploadingAvatar
+                  ? <View style={profileStyles.avatarOverlay}><ActivityIndicator color="#fff" /></View>
+                  : <View style={profileStyles.avatarEditBadge}>
+                      <Ionicons name="camera" size={12} color="#fff" />
+                    </View>
+                }
+              </View>
+            </TouchableOpacity>
+            <Text style={profileStyles.emailText}>{userProfile.email}</Text>
+            <TouchableOpacity style={profileStyles.logoutBtn} onPress={onLogout}>
+              <Ionicons name="log-out-outline" size={18} color={COLORS.textSecondary} />
+              <Text style={profileStyles.logoutText}>Cerrar sesión</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Intereses */}
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>PERSONALIZACIÓN</Text>
+            <Text style={profileStyles.sectionTitle}>Mis intereses</Text>
+            <Text style={profileStyles.sectionSub}>Seleccioná las categorías que te interesan para personalizar tu feed y las tiendas destacadas.</Text>
+            <View style={profileStyles.interestsGrid}>
+              {INTEREST_CATEGORIES.map(cat => {
+                const active = userInterests.includes(cat.id);
+                return (
+                  <InterestTile
+                    key={cat.id}
+                    cat={cat}
+                    active={active}
+                    disabled={savingInterests}
+                    onPress={() => toggleInterest(cat.id)}
+                  />
+                );
+              })}
+            </View>
+            {savingInterests && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
+          </View>
+
+          {/* Notificaciones */}
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>PREFERENCIAS</Text>
+            <Text style={profileStyles.sectionTitle}>Notificaciones</Text>
+            <Text style={profileStyles.sectionSub}>Recibí un aviso cuando uno de tus picks tenga un descuento o cambie de stock.</Text>
+            <View style={profileStyles.notifRow}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={profileStyles.notifRowLabel}>Avisos de rebajas y stock</Text>
+                <Text style={profileStyles.notifRowSub}>
+                  {notifEnabled ? 'Activadas' : 'Desactivadas'}
+                </Text>
+              </View>
+              {savingNotifPref
+                ? <ActivityIndicator size="small" color={COLORS.accent} />
+                : <Switch
+                    value={notifEnabled}
+                    onValueChange={toggleNotifications}
+                    trackColor={{ false: COLORS.border, true: COLORS.accent }}
+                    thumbColor="#fff"
+                  />
+              }
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Vista login / registro ─────────────────────────────────────────────────
+  return (
+    <SafeAreaView style={profileStyles.container} edges={['top']}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView contentContainerStyle={profileStyles.authContent} keyboardShouldPersistTaps="handled">
+        {/* Logo / título */}
+        <View style={profileStyles.authHeader}>
+          <View style={profileStyles.authLogo}>
+            <Ionicons name="bookmark" size={32} color="#fff" />
+          </View>
+          <Text style={profileStyles.authTitle}>Picks</Text>
+          <Text style={profileStyles.authSub}>
+            {tab === 'login' ? 'Iniciá sesión para sincronizar tus picks' : 'Creá tu cuenta gratuita'}
+          </Text>
+        </View>
+
+        {/* Tab toggle */}
+        <View style={profileStyles.tabToggle}>
+          <TouchableOpacity
+            style={[profileStyles.toggleBtn, tab === 'login' && profileStyles.toggleBtnActive]}
+            onPress={() => { setTab('login'); setError(''); setSuccess(''); }}
+          >
+            <Text style={[profileStyles.toggleText, tab === 'login' && profileStyles.toggleTextActive]}>
+              Ingresar
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[profileStyles.toggleBtn, tab === 'register' && profileStyles.toggleBtnActive]}
+            onPress={() => { setTab('register'); setError(''); setSuccess(''); }}
+          >
+            <Text style={[profileStyles.toggleText, tab === 'register' && profileStyles.toggleTextActive]}>
+              Registrarse
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Formulario */}
+        <View style={profileStyles.form}>
+          <Text style={profileStyles.inputLabel}>Email</Text>
+          <TextInput
+            style={profileStyles.input}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoCorrect={false}
+            placeholder="tu@email.com"
+            placeholderTextColor={COLORS.textTertiary}
+          />
+          <Text style={profileStyles.inputLabel}>Contraseña</Text>
+          <TextInput
+            style={profileStyles.input}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            placeholder={tab === 'register' ? 'Mínimo 6 caracteres' : '••••••••'}
+            placeholderTextColor={COLORS.textTertiary}
+          />
+
+          {!!error && <Text style={profileStyles.errorText}>{error}</Text>}
+          {!!success && <Text style={profileStyles.successText}>{success}</Text>}
+
+          <TouchableOpacity
+            style={[profileStyles.authBtn, loading && { opacity: 0.7 }]}
+            onPress={tab === 'login' ? handleLogin : handleRegister}
+            disabled={loading}
+          >
+            {loading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={profileStyles.authBtnText}>
+                  {tab === 'login' ? 'Ingresar' : 'Crear cuenta'}
+                </Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const profileStyles = StyleSheet.create({
+  container:     { flex: 1, backgroundColor: COLORS.background },
+  header:        { alignItems: 'center', paddingTop: 32, paddingBottom: 24, paddingHorizontal: 20 },
+  avatarCircle:  { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  avatarOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', borderRadius: 36 },
+  avatarEditBadge: { position: 'absolute', bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.accent, borderWidth: 2, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  emailText:     { fontSize: 15, color: COLORS.textPrimary, fontWeight: '500', marginBottom: 16 },
+  logoutBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: COLORS.card, borderRadius: 20 },
+  logoutText:    { fontSize: 13, color: COLORS.textSecondary },
+  section:       { paddingHorizontal: 20, paddingTop: 8 },
+  sectionDivider: { height: 0.5, backgroundColor: COLORS.border, marginBottom: 20 },
+  sectionEyebrow: { fontSize: 11, fontWeight: '700', color: COLORS.textTertiary, letterSpacing: 1, marginBottom: 4 },
+  sectionTitle:  { fontSize: 18, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 6 },
+  sectionSub:    { fontSize: 13, color: COLORS.textSecondary, marginBottom: 18, lineHeight: 18 },
+  interestsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  interestTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  interestTileActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  interestLabel:       { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500', textAlign: 'center' },
+  interestLabelActive: { color: '#fff', fontWeight: '600' },
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  notifRowLabel: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
+  notifRowSub:   { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  // Auth styles
+  authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
+  authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
+  authLogo:      { width: 68, height: 68, borderRadius: 20, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  authTitle:     { fontSize: 26, fontWeight: '800', color: COLORS.textPrimary, marginBottom: 6 },
+  authSub:       { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center' },
+  tabToggle:     { flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: 12, padding: 4, marginBottom: 24 },
+  toggleBtn:     { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 10 },
+  toggleBtnActive:   { backgroundColor: COLORS.background, shadowColor: '#000', shadowOffset: {width:0,height:1}, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2 },
+  toggleText:        { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500' },
+  toggleTextActive:  { color: COLORS.textPrimary, fontWeight: '700' },
+  form:          { gap: 4 },
+  inputLabel:    { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 6, marginTop: 12 },
+  input:         { backgroundColor: COLORS.card, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: COLORS.textPrimary },
+  errorText:     { color: '#ef4444', fontSize: 13, marginTop: 8 },
+  successText:   { color: '#22c55e', fontSize: 13, marginTop: 8 },
+  authBtn:       { backgroundColor: COLORS.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
+  authBtnText:   { fontSize: 16, fontWeight: '700', color: '#fff' },
+});
+
+
+// Alturas variables para el efecto masonry (estilo Pinterest)
+const MASONRY_HEIGHTS = [200, 240, 220, 180, 230, 210, 190, 250];
+
+function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height = 200 }) {
+  const [logoIdx, setLogoIdx] = useState(0);
+  const [bgFailed, setBgFailed] = useState(false);
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const bgFadeAnim = useRef(new Animated.Value(0)).current;
+
+  const handleBgLoad = () => {
+    Animated.timing(bgFadeAnim, {
+      toValue: 1,
+      duration: 550,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  };
+  const bgOpacity = bgFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] });
+
+  const logoUrls = [
+    `https://logo.clearbit.com/${store.domain}?size=256&format=png`,
+    `https://${store.domain}/apple-touch-icon.png`,
+    `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${store.domain}&size=256`,
+  ];
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 380,
+      delay: index * 55,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const translateY = fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] });
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, { toValue: 0.96, speed: 60, bounciness: 0, useNativeDriver: true }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, { toValue: 1, speed: 20, bounciness: 5, useNativeDriver: true }).start();
+  };
+
+  return (
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }, { scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={[styles.masonryCard, { height, backgroundColor: store.bg }]}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={1}
+      >
+        {bgImage && !bgFailed ? (
+          <>
+            <Animated.Image
+              source={{ uri: bgImage }}
+              style={[styles.masonryBgImage, { opacity: bgOpacity }]}
+              resizeMode="cover"
+              onLoad={handleBgLoad}
+              onError={() => setBgFailed(true)}
+            />
+            <View style={[styles.masonryBgScrim, { backgroundColor: store.bg + 'B3' }]} />
+          </>
+        ) : (
+          <Text style={[styles.masonryWatermark, { color: store.fg }]} numberOfLines={1}>
+            {store.short}
+          </Text>
+        )}
+
+        <View style={styles.masonryLogoBadge}>
+          {logoIdx < logoUrls.length ? (
+            <Image
+              source={{ uri: logoUrls[logoIdx] }}
+              style={styles.masonryLogoImg}
+              resizeMode="contain"
+              onError={() => setLogoIdx(prev => prev + 1)}
+            />
+          ) : (
+            <Text style={[styles.masonryLogoInitials, { color: store.fg }]}>{store.short}</Text>
+          )}
+        </View>
+
+        <View style={styles.masonryCaptionScrim} />
+        <View style={styles.masonryCaption}>
+          <Text style={styles.masonryCaptionName} numberOfLines={1}>{store.name}</Text>
+          <Text style={styles.masonryCaptionDomain} numberOfLines={1}>{store.domain}</Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// Grilla de dos columnas con alturas escalonadas, tipo Pinterest
+function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
+  const left = [];
+  const right = [];
+  stores.forEach((store, idx) => {
+    (idx % 2 === 0 ? left : right).push({ store, idx });
+  });
+
+  return (
+    <View style={styles.masonryRow}>
+      <View style={styles.masonryCol}>
+        {left.map(({ store, idx }) => (
+          <StoreGridCard
+            key={store.domain}
+            store={store}
+            index={idx}
+            height={MASONRY_HEIGHTS[idx % MASONRY_HEIGHTS.length]}
+            bgImage={storeImages[store.domain]}
+            onPress={() => onPress(store)}
+            onLongPress={onLongPress ? () => onLongPress(store) : undefined}
+          />
+        ))}
+      </View>
+      <View style={styles.masonryCol}>
+        {right.map(({ store, idx }) => (
+          <StoreGridCard
+            key={store.domain}
+            store={store}
+            index={idx}
+            height={MASONRY_HEIGHTS[(idx + 3) % MASONRY_HEIGHTS.length]}
+            bgImage={storeImages[store.domain]}
+            onPress={() => onPress(store)}
+            onLongPress={onLongPress ? () => onLongPress(store) : undefined}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder }) {
   const [input, setInput] = useState('');
- 
+  const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
+  const [storeSection, setStoreSection] = useState('destacadas'); // 'destacadas' | 'mis'
+  const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
+
+  const titleScale   = useRef(new Animated.Value(2.2)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const titleSkew    = useRef(new Animated.Value(0)).current;
+
+  // Traer la imagen de portada (og:image) de cada tienda visible, en batch
+  useEffect(() => {
+    const domains = [...new Set([
+      ...(countryStores || []).map(s => s.domain),
+      ...(customStores || []).map(s => s.domain),
+    ])].filter(d => d && !(d in storeImages));
+    if (domains.length === 0) return;
+    fetch(`${BACKEND_URL}/api/store-images?domains=${domains.join(',')}`)
+      .then(r => r.json())
+      .then(data => setStoreImages(prev => ({ ...prev, ...(data.images || {}) })))
+      .catch(() => {});
+  }, [countryStores, customStores]);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(titleScale, {
+        toValue: 1,
+        friction: 6,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(titleOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      Vibration.vibrate(40);
+      Animated.spring(titleSkew, {
+        toValue: 1,
+        friction: 5,
+        tension: 80,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, []);
+
   function confirmRemove(store) {
     if (typeof window !== 'undefined' && window.confirm) {
       if (window.confirm('¿Eliminar ' + store.name + ' de tus destacadas?')) onRemoveCustom(store.domain);
@@ -1066,7 +1856,15 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
       <View style={styles.brandHeader}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
-            <Text style={styles.brandName}>Picks</Text>
+            <Animated.Text style={[styles.brandName, {
+              opacity: titleOpacity,
+              transform: [
+                { scale: titleScale },
+                { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+              ],
+            }]}>
+              Picks
+            </Animated.Text>
             <Text style={styles.brandTagline}>Tu wishlist universal</Text>
           </View>
           <TouchableOpacity
@@ -1093,9 +1891,6 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
         </View>
       </View>
  
-      <Text style={styles.greeting}>Hola</Text>
-      <Text style={styles.title}>¿Qué buscás?</Text>
- 
       <View style={styles.searchCard}>
         <View style={styles.searchIconWrap}>
           <Ionicons name="search" size={22} color={COLORS.accent} />
@@ -1120,59 +1915,52 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
  
       <TrendsSection onOpenUrl={onOpenUrl} />
 
-      <Text style={styles.sectionTitle}>Tiendas destacadas</Text>
- 
-      <View style={{ gap: 10 }}>
-        {countryStores.map((store) => (
-          <TouchableOpacity
-            key={store.domain}
-            style={styles.storeCard}
-            onPress={() => { track('store_opened', { store: store.name, type: 'predefined' }); onOpenUrl(store.url); }}
-            activeOpacity={0.85}
-          >
-            <View style={[styles.storeCover, { backgroundColor: store.bg }]}>
-              <Text style={[styles.storeShort, { color: store.fg }]}>{store.short}</Text>
-            </View>
-            <View style={styles.storeInfo}>
-              <Text style={styles.storeName}>{store.name}</Text>
-              <View style={styles.storeDomain}>
-                <Ionicons name="link" size={11} color={COLORS.textTertiary} />
-                <Text style={styles.storeDomainText}>{store.domain}</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-          </TouchableOpacity>
-        ))}
+      {/* Pestañas: Tiendas destacadas / Mis tiendas */}
+      <View style={styles.storeSectionTabs}>
+        <TouchableOpacity
+          style={[styles.storeSectionTab, storeSection === 'destacadas' && styles.storeSectionTabActive]}
+          onPress={() => setStoreSection('destacadas')}
+        >
+          <Text style={[styles.storeSectionTabText, storeSection === 'destacadas' && styles.storeSectionTabTextActive]}>
+            Destacadas
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.storeSectionTab, storeSection === 'mis' && styles.storeSectionTabActive]}
+          onPress={() => setStoreSection('mis')}
+        >
+          <Text style={[styles.storeSectionTabText, storeSection === 'mis' && styles.storeSectionTabTextActive]}>
+            Mis tiendas{customStores && customStores.length > 0 ? ` (${customStores.length})` : ''}
+          </Text>
+        </TouchableOpacity>
       </View>
- 
-      {customStores && customStores.length > 0 && (
-        <>
-          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>Mis tiendas</Text>
-          <View style={{ gap: 10 }}>
-            {customStores.map((store) => (
-              <TouchableOpacity
-                key={store.domain}
-                style={styles.storeCard}
-                onPress={() => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
-                onLongPress={() => confirmRemove(store)}
-                activeOpacity={0.85}
-              >
-                <View style={[styles.storeCover, { backgroundColor: store.bg }]}>
-                  <Text style={[styles.storeShort, { color: store.fg }]}>{store.short}</Text>
-                </View>
-                <View style={styles.storeInfo}>
-                  <Text style={styles.storeName}>{store.name}</Text>
-                  <View style={styles.storeDomain}>
-                    <Ionicons name="link" size={11} color={COLORS.textTertiary} />
-                    <Text style={styles.storeDomainText}>{store.domain}</Text>
-                  </View>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-              </TouchableOpacity>
-            ))}
+
+      {storeSection === 'destacadas' ? (
+        <MasonryStoreGrid
+          stores={countryStores}
+          storeImages={storeImages}
+          onPress={(store) => { track('store_opened', { store: store.name, type: 'predefined' }); onOpenUrl(store.url); }}
+        />
+      ) : (
+        customStores && customStores.length > 0 ? (
+          <View>
+            <MasonryStoreGrid
+              stores={customStores}
+              storeImages={storeImages}
+              onPress={(store) => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
+              onLongPress={confirmRemove}
+            />
+            <Text style={[styles.picksHint, { marginTop: 8 }]}>Mantené presionada una tienda para eliminarla</Text>
           </View>
-          <Text style={[styles.picksHint, { marginTop: 8 }]}>Mantené presionada una tienda tuya para eliminarla</Text>
-        </>
+        ) : (
+          <View style={styles.emptyStores}>
+            <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
+            <Text style={styles.emptyStoresText}>Todavía no agregaste tiendas</Text>
+            <Text style={[styles.picksHint, { textAlign: 'center', marginTop: 4 }]}>
+              Tocá la estrella arriba en cualquier web para agregarla acá
+            </Text>
+          </View>
+        )
       )}
  
       <View style={styles.infoCard}>
@@ -1192,11 +1980,28 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
   );
 }
  
-function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, onUrlChange }) {
+function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
   const webRef = useRef(null);
- 
+  const canGoBackRef = useRef(false);
+
+  // Franja izquierda: captura swipe antes que el WebView
+  const edgePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderRelease: (_, g) => {
+        if (Math.abs(g.dx) > 50 && Math.abs(g.dx) > Math.abs(g.dy)) {
+          if (canGoBackRef.current) {
+            webRef.current?.goBack();
+          } else {
+            onClose();
+          }
+        }
+      },
+    })
+  ).current;
+
   function handleBack() {
     if (canGoBack && webRef.current) {
       webRef.current.goBack();
@@ -1216,9 +2021,19 @@ function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, on
  
   return (
     <View style={styles.browserContainer}>
+      {/* Franja izquierda invisible: captura swipe horizontal antes que el WebView */}
+      <View
+        {...edgePan.panHandlers}
+        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 28, zIndex: 20 }}
+      />
       <View style={styles.browserBar}>
-        <TouchableOpacity onPress={handleBack} hitSlop={8}>
-          <Ionicons name="arrow-back" size={22} color={COLORS.textPrimary} />
+        <TouchableOpacity
+          onPress={onClose}
+          hitSlop={8}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: COLORS.borderSoft, borderRadius: 14 }}
+        >
+          <Ionicons name="chevron-back" size={16} color={COLORS.accent} />
+          <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.accent }}>{backLabel}</Text>
         </TouchableOpacity>
         <View style={styles.browserUrl}>
           <Ionicons name="lock-closed" size={11} color={COLORS.textSecondary} />
@@ -1228,16 +2043,19 @@ function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, on
         </View>
         <TouchableOpacity onPress={onToggleFavorite} hitSlop={8}>
           <Ionicons
-            name={isFavorite ? 'star' : 'star-outline'}
+            name={isCustomFavorite ? 'star' : isFavorite ? 'star' : 'star-outline'}
             size={20}
             color={isFavorite ? COLORS.accent : COLORS.textPrimary}
           />
+          {isCustomFavorite && (
+            <View style={{ position: 'absolute', top: -3, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.accent, borderWidth: 1.5, borderColor: COLORS.background }} />
+          )}
         </TouchableOpacity>
         <TouchableOpacity onPress={() => webRef.current?.reload()} hitSlop={8}>
           <Ionicons name="refresh" size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
       </View>
- 
+
       <WebView
         ref={webRef}
         source={{ uri: url }}
@@ -1245,6 +2063,7 @@ function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, on
         onNavigationStateChange={(state) => {
           setCurrentUrl(state.url);
           setCanGoBack(state.canGoBack);
+          canGoBackRef.current = state.canGoBack;
           if (onUrlChange) onUrlChange(state.url);
         }}
         startInLoadingState={true}
@@ -1255,12 +2074,12 @@ function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, on
         )}
         allowsBackForwardNavigationGestures={true}
         injectedJavaScript={INJECTED_JS}
-        injectedJavaScriptBeforeContentLoaded={INJECTED_JS}
         onMessage={onMessage}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         allowsLinkPreview={false}
         sharedCookiesEnabled={true}
+
         setSupportMultipleWindows={false}
         originWhitelist={['http://*', 'https://*']}
         userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -1275,12 +2094,213 @@ function BrowserView({ url, onClose, onMessage, isFavorite, onToggleFavorite, on
     </View>
   );
 }
- 
-function PicksView({ picks, onRemove, onOpen }) {
+
+// ── CollectionModal ───────────────────────────────────────────────────────────
+function CollectionModal({ pick, collections, onSave, onClose }) {
+  const slideAnim = useRef(new Animated.Value(400)).current;
+  const bgAnim    = useRef(new Animated.Value(0)).current;
+  const [newName, setNewName]     = useState('');
+  const [creating, setCreating]   = useState(false);
+  const [kbHeight, setKbHeight]   = useState(0);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 65, useNativeDriver: true }),
+      Animated.timing(bgAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+    ]).start();
+    const show = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKbHeight(e.endCoordinates.height)
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKbHeight(0)
+    );
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  const close = (cb) => {
+    Animated.parallel([
+      Animated.timing(slideAnim, { toValue: 400, duration: 220, useNativeDriver: true }),
+      Animated.timing(bgAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => { onClose(); cb && cb(); });
+  };
+
+  const handleSelect = (col) => close(() => onSave(col.id));
+
+  const handleCreate = () => {
+    if (!newName.trim()) return;
+    close(() => onSave(null, newName.trim()));
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={colStyles.overlay}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      pointerEvents="box-none"
+    >
+      <Animated.View style={[colStyles.backdrop, { opacity: bgAnim }]} />
+      <Animated.View style={[colStyles.sheet, { transform: [{ translateY: slideAnim }], marginBottom: kbHeight }]}>
+        {/* Handle */}
+        <View style={colStyles.handle} />
+
+        {/* Pick mini-preview */}
+        <View style={colStyles.pickPreview}>
+          <Image source={{ uri: pick.img }} style={colStyles.pickThumb} />
+          <View style={{ flex: 1 }}>
+            <Text style={colStyles.pickName} numberOfLines={2}>{pick.name}</Text>
+            {pick.price ? <Text style={colStyles.pickPrice}>${pick.price}</Text> : null}
+          </View>
+        </View>
+
+        <Text style={colStyles.sheetTitle}>¿Agregar a una colección?</Text>
+
+        {/* Colecciones existentes */}
+        {collections.length > 0 && (
+          <ScrollView style={{ maxHeight: 180 }} showsVerticalScrollIndicator={false}>
+            {collections.map(col => (
+              <TouchableOpacity key={col.id} style={colStyles.colRow} onPress={() => handleSelect(col)}>
+                <View style={colStyles.colIcon}>
+                  <Ionicons name="folder" size={20} color={COLORS.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={colStyles.colName}>{col.name}</Text>
+                  <Text style={colStyles.colCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'pick' : 'picks'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Crear nueva colección */}
+        {creating ? (
+          <View style={colStyles.createRow}>
+            <TextInput
+              style={colStyles.createInput}
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="Nombre de la colección..."
+              placeholderTextColor={COLORS.textTertiary}
+              autoFocus
+              onSubmitEditing={handleCreate}
+              returnKeyType="done"
+            />
+            <TouchableOpacity style={colStyles.createBtn} onPress={handleCreate}>
+              <Ionicons name="checkmark" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity style={colStyles.newColBtn} onPress={() => setCreating(true)}>
+            <Ionicons name="add-circle-outline" size={20} color={COLORS.accent} />
+            <Text style={colStyles.newColText}>Nueva colección</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Botón "ahora no" */}
+        <TouchableOpacity style={colStyles.skipBtn} onPress={() => close()}>
+          <Text style={colStyles.skipText}>Ahora no</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const colStyles = StyleSheet.create({
+  overlay:      { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end', zIndex: 999 },
+  backdrop:     { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
+  sheet:        { backgroundColor: '#16161e', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12 },
+  handle:       { width: 36, height: 4, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  pickPreview:  { flexDirection: 'row', gap: 12, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: 10, marginBottom: 16 },
+  pickThumb:    { width: 52, height: 52, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.15)' },
+  pickName:     { fontSize: 13, fontWeight: '600', color: '#ffffff', lineHeight: 18 },
+  pickPrice:    { fontSize: 12, color: COLORS.accent, marginTop: 2 },
+  sheetTitle:   { fontSize: 17, fontWeight: '700', color: '#ffffff', marginBottom: 14 },
+  colRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: 'rgba(255,255,255,0.1)' },
+  colIcon:      { width: 38, height: 38, borderRadius: 10, backgroundColor: COLORS.accent + '30', justifyContent: 'center', alignItems: 'center' },
+  colName:      { fontSize: 15, fontWeight: '600', color: '#ffffff' },
+  colCount:     { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 1 },
+  newColBtn:    { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 },
+  newColText:   { fontSize: 15, color: COLORS.accent, fontWeight: '600' },
+  createRow:    { flexDirection: 'row', gap: 10, alignItems: 'center', paddingVertical: 10 },
+  createInput:  { flex: 1, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#ffffff', borderWidth: 1.5, borderColor: COLORS.accent },
+  createBtn:    { width: 44, height: 44, borderRadius: 12, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center' },
+  skipBtn:      { alignItems: 'center', paddingTop: 4 },
+  skipText:     { fontSize: 14, color: 'rgba(255,255,255,0.4)' },
+  colListRow:   { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#F5F1EB', borderRadius: 16, padding: 12 },
+  colListThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.accent + '18', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  colListName:  { fontSize: 15, fontWeight: '600', color: '#2A2826' },
+  colListCount: { fontSize: 12, color: '#8A8580', marginTop: 1 },
+});
+
+
+function ShareCardContent({ pick, onImageReady }) {
+  const store = getStoreDisplayName(pick.domain);
+  return (
+    <View style={styles.shareCard}>
+      {pick.img ? (
+        <Image
+          source={{ uri: pick.img }}
+          style={styles.shareCardImg}
+          resizeMode="cover"
+          onLoadEnd={onImageReady}
+          onError={onImageReady}
+        />
+      ) : (
+        <View style={[styles.shareCardImg, { backgroundColor: COLORS.borderSoft }]} />
+      )}
+      <View style={styles.shareCardBody}>
+        <Text style={styles.shareCardBrand}>Picks</Text>
+        <Text style={styles.shareCardName} numberOfLines={2}>{pick.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+          <Text style={styles.shareCardStore} numberOfLines={1}>{store}</Text>
+          {pick.price ? <Text style={styles.shareCardPrice}>{pick.price}</Text> : null}
+        </View>
+      </View>
+      <View style={styles.shareCardFooter}>
+        <Text style={styles.shareCardFooterText}>Descubrí más en Picks — tu wishlist universal</Text>
+      </View>
+    </View>
+  );
+}
+
+function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection }) {
   const [query, setQuery] = useState('');
   const [activeStore, setActiveStore] = useState(null);
+  const [activeCountry, setActiveCountry] = useState(null);
+  const [shareCardPick, setShareCardPick] = useState(null);
+  const shareCardRef = useRef(null);
+  const shareImageReady = useRef(null);
 
-  async function sharePick(p) {
+  const titleScale   = useRef(new Animated.Value(2.2)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const titleSkew    = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(titleScale, {
+        toValue: 1,
+        friction: 6,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(titleOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      Vibration.vibrate(40);
+      Animated.spring(titleSkew, {
+        toValue: 1,
+        friction: 5,
+        tension: 80,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, []);
+
+  async function shareTextOnly(p) {
     try {
       const store = getStoreDisplayName(p.domain);
       const price = p.price ? ` · ${p.price}` : '';
@@ -1290,18 +2310,70 @@ function PicksView({ picks, onRemove, onOpen }) {
       });
     } catch (e) {}
   }
- 
+
+  async function sharePick(p) {
+    try {
+      setShareCardPick(p);
+      // Esperamos a que la imagen del pick termine de cargar en la tarjeta oculta
+      // (o 2.5s como tope si no carga / no tiene imagen) antes de capturarla.
+      await new Promise((resolve) => {
+        shareImageReady.current = resolve;
+        if (!p.img) { resolve(); return; }
+        setTimeout(resolve, 2500);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 60)); // un frame extra para que pinte
+      const uri = await shareCardRef.current?.capture?.();
+      setShareCardPick(null);
+      if (!uri) throw new Error('no capture');
+      const available = await Sharing.isAvailableAsync();
+      if (!available) throw new Error('sharing unavailable');
+      const store = getStoreDisplayName(p.domain);
+      await Sharing.shareAsync(uri, {
+        mimeType: 'image/png',
+        dialogTitle: `${p.name} — ${store}`,
+        UTI: 'public.png',
+      });
+    } catch (e) {
+      setShareCardPick(null);
+      shareTextOnly(p);
+    }
+  }
+
+  async function shareCollection(list = picks, name = 'Mis Picks') {
+    if (list.length === 0) return;
+    const shown = list.slice(0, 20);
+    const items = shown.map(p => `• ${p.name}${p.price ? ` (${p.price})` : ''}\n  ${p.url}`).join('\n\n');
+    const extra = list.length > shown.length ? `\n\n…y ${list.length - shown.length} más en la app.` : '';
+    try {
+      await Share.share({
+        message: `${name} 🧡\n\n${items}${extra}`,
+        title: name,
+      });
+    } catch (e) {}
+  }
+
+  // Países presentes en los picks
+  const countryMap = {};
+  picks.forEach(p => {
+    const c = getDomainCountry(p.domain, p.url);
+    if (c && !countryMap[c]) countryMap[c] = { code: c, flag: COUNTRY_INFO[c].flag, name: COUNTRY_INFO[c].name, count: 0 };
+    if (c) countryMap[c].count += 1;
+  });
+  const countries = Object.values(countryMap).sort((a, b) => b.count - a.count);
+
   // Auto-generar chips agrupando por nombre comercial (no por dominio raw)
   const storeMap = {};
   picks.forEach(p => {
+    if (activeCountry && getDomainCountry(p.domain, p.url) !== activeCountry) return;
     const key = getRegisteredDomain(p.domain);
     const name = getStoreDisplayName(p.domain);
     if (!storeMap[key]) storeMap[key] = { key, name, count: 0 };
     storeMap[key].count += 1;
   });
   const stores = Object.values(storeMap).sort((a, b) => b.count - a.count);
- 
+
   const filtered = picks.filter(p => {
+    if (activeCountry && getDomainCountry(p.domain, p.url) !== activeCountry) return false;
     if (activeStore && getRegisteredDomain(p.domain) !== activeStore) return false;
     if (query.trim() === '') return true;
     const q = query.trim().toLowerCase();
@@ -1313,18 +2385,156 @@ function PicksView({ picks, onRemove, onOpen }) {
     );
   });
  
+  // ── Vista de colección abierta ─────────────────────────────────────────────
+  // Zona de swipe dedicada: sin hijos interactivos = PanResponder tiene control total
+  const swipeZone = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderRelease: (_, g) => {
+        if (Math.abs(g.dx) > 40 && Math.abs(g.dx) > Math.abs(g.dy)) setOpenCollection(null);
+      },
+    })
+  ).current;
+
+  if (openCollection) {
+    const col = collections.find(c => c.id === openCollection);
+    const colPicks = col ? picks.filter(p => col.pickIds.includes(p.id)) : [];
+    return (
+      <View style={styles.viewContent}>
+        <TouchableOpacity onPress={() => setOpenCollection(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <Ionicons name="chevron-back" size={20} color={COLORS.accent} />
+          <Text style={{ fontSize: 14, color: COLORS.accent }}>Mis picks</Text>
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={styles.title}>{col?.name}</Text>
+          {colPicks.length > 0 && (
+            <TouchableOpacity
+              onPress={() => shareCollection(colPicks, col?.name || 'Mi colección')}
+              style={styles.shareCollectionBtn}
+              hitSlop={10}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.subtitle}>{colPicks.length} {colPicks.length === 1 ? 'pick' : 'picks'}</Text>
+        {/* Zona de swipe: barra ancha sin elementos interactivos entre header y lista */}
+        <View
+          {...swipeZone.panHandlers}
+          style={{ width: '100%', height: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 4 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="chevron-back" size={14} color={COLORS.textTertiary} />
+            <View style={{ width: 40, height: 3, backgroundColor: COLORS.border, borderRadius: 4 }} />
+            <Ionicons name="chevron-forward" size={14} color={COLORS.textTertiary} />
+          </View>
+        </View>
+        {colPicks.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="folder-open-outline" size={48} color={COLORS.border} />
+            <Text style={styles.emptyTitle}>Colección vacía</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={colPicks}
+            keyExtractor={p => p.id}
+            numColumns={2}
+            columnWrapperStyle={{ gap: 10 }}
+            contentContainerStyle={{ gap: 10, paddingBottom: 20 }}
+            renderItem={({ item: p }) => (
+              <TouchableOpacity style={styles.pickCard} onPress={() => onOpen(p.url)} onLongPress={() => onRemove(p.id)} activeOpacity={0.88}>
+                <Image source={{ uri: p.img }} style={styles.pickImg} />
+                <View style={styles.pickMeta}>
+                  <Text style={styles.pickTitle} numberOfLines={2}>{p.name}</Text>
+                  {p.price ? <Text style={styles.pickPrice}>{p.price}</Text> : null}
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.viewContent}>
-      <Text style={styles.title}>Mis picks</Text>
-      <Text style={styles.subtitle}>
-        {picks.length === 0
-          ? 'Todavía no guardaste nada'
-          : picks.length === 1
-          ? '1 producto guardado'
-          : `${picks.length} productos guardados`}
-      </Text>
- 
-      {picks.length === 0 ? (
+      {shareCardPick && (
+        <View style={styles.shareCardOffscreen} pointerEvents="none">
+          <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 0.92, result: 'tmpfile' }}>
+            <ShareCardContent pick={shareCardPick} onImageReady={() => shareImageReady.current?.()} />
+          </ViewShot>
+        </View>
+      )}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Animated.Text style={[styles.title, {
+          opacity: titleOpacity,
+          transform: [
+            { scale: titleScale },
+            { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+          ],
+        }]}>
+          Mis picks
+        </Animated.Text>
+        {picks.length > 0 && (
+          <TouchableOpacity onPress={() => shareCollection()} style={styles.shareCollectionBtn} hitSlop={10} activeOpacity={0.7}>
+            <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+      <View style={styles.storeSectionTabs}>
+        <TouchableOpacity
+          style={[styles.storeSectionTab, picksTab === 'todos' && styles.storeSectionTabActive]}
+          onPress={() => setPicksTab('todos')}
+        >
+          <Text style={[styles.storeSectionTabText, picksTab === 'todos' && styles.storeSectionTabTextActive]}>
+            Todos ({picks.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.storeSectionTab, picksTab === 'colecciones' && styles.storeSectionTabActive]}
+          onPress={() => setPicksTab('colecciones')}
+        >
+          <Text style={[styles.storeSectionTabText, picksTab === 'colecciones' && styles.storeSectionTabTextActive]}>
+            Colecciones ({collections.length})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {picksTab === 'colecciones' ? (
+        collections.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="folder-outline" size={48} color={COLORS.border} />
+            <Text style={styles.emptyTitle}>Sin colecciones</Text>
+            <Text style={styles.emptyDesc}>Al guardar un pick podrás organizarlo en colecciones.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={collections}
+            keyExtractor={c => c.id}
+            contentContainerStyle={{ gap: 10, paddingBottom: 20, paddingTop: 4 }}
+            renderItem={({ item: col }) => {
+              const thumb = picks.find(p => col.pickIds.includes(p.id));
+              return (
+                <TouchableOpacity style={colStyles.colListRow} onPress={() => setOpenCollection(col.id)} activeOpacity={0.85}>
+                  <View style={colStyles.colListThumb}>
+                    {thumb
+                      ? <Image source={{ uri: thumb.img }} style={{ width: '100%', height: '100%', borderRadius: 10 }} />
+                      : <Ionicons name="folder" size={28} color={COLORS.accent} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={colStyles.colListName}>{col.name}</Text>
+                    <Text style={colStyles.colListCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'pick' : 'picks'}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )
+      ) : (
+
+      picks.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="heart-outline" size={56} color={COLORS.border} />
           <Text style={styles.emptyTitle}>Acá van tus picks</Text>
@@ -1352,6 +2562,32 @@ function PicksView({ picks, onRemove, onOpen }) {
             )}
           </View>
  
+          {countries.length > 1 && (
+            <View style={[styles.chipsContainer, { marginBottom: 8 }]}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsRow}
+              >
+                {countries.map(c => {
+                  const active = activeCountry === c.code;
+                  return (
+                    <TouchableOpacity
+                      key={c.code}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => { setActiveCountry(active ? null : c.code); setActiveStore(null); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 13 }}>{c.flag}</Text>
+                      <Text style={[styles.chipText, active && styles.chipTextActive, { marginLeft: 4 }]}>{c.name}</Text>
+                      <Text style={[styles.chipCount, active && styles.chipCountActive]}>{' '}{c.count}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {stores.length > 1 && (
             <View style={styles.chipsContainer}>
               <ScrollView
@@ -1419,7 +2655,10 @@ function PicksView({ picks, onRemove, onOpen }) {
                     <View style={styles.pickInfo}>
                       <Text style={styles.pickName} numberOfLines={2}>{p.name}</Text>
                       <View style={styles.pickMeta}>
-                        <Text style={styles.pickDomain} numberOfLines={1}>{getStoreDisplayName(p.domain)}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
+                          {(() => { const c = getDomainCountry(p.domain, p.url); return c ? <Text style={{ fontSize: 11 }}>{COUNTRY_INFO[c].flag}</Text> : null; })()}
+                          <Text style={[styles.pickDomain, { flexShrink: 1 }]} numberOfLines={1}>{getStoreDisplayName(p.domain)}</Text>
+                        </View>
                         {p.price ? <Text style={styles.pickPrice} numberOfLines={1}>{p.price}</Text> : null}
                       </View>
                       <TouchableOpacity
@@ -1439,11 +2678,12 @@ function PicksView({ picks, onRemove, onOpen }) {
             </ScrollView>
           )}
         </>
+      )
       )}
     </View>
   );
 }
- 
+
 function SearchView({ onMessage, customStores = [], countryStores = STORES }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
@@ -1641,12 +2881,12 @@ true;
                 </View>
               )}
               injectedJavaScript={INJECTED_JS}
-              injectedJavaScriptBeforeContentLoaded={INJECTED_JS}
               onMessage={onMessage}
               javaScriptEnabled={true}
               domStorageEnabled={true}
               allowsBackForwardNavigationGestures={true}
               sharedCookiesEnabled={true}
+      
               setSupportMultipleWindows={false}
               originWhitelist={['http://*', 'https://*']}
               userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -1666,8 +2906,10 @@ true;
 function TrendsSection({ onOpenUrl }) {
   const [topStores, setTopStores] = useState([]);
   const [topProducts, setTopProducts] = useState([]);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
+    AsyncStorage.getItem('trendsCollapsed-v1').then(v => { if (v === 'true') setCollapsed(true); }).catch(() => {});
     (async () => {
       try {
         const res = await Promise.race([
@@ -1681,13 +2923,24 @@ function TrendsSection({ onOpenUrl }) {
     })();
   }, []);
 
+  function toggleCollapsed() {
+    const next = !collapsed;
+    setCollapsed(next);
+    AsyncStorage.setItem('trendsCollapsed-v1', String(next)).catch(() => {});
+  }
+
   if (topStores.length === 0 && topProducts.length === 0) return null;
 
   return (
     <View style={{ marginBottom: 8 }}>
-      <Text style={styles.sectionTitle}>Esta semana en Picks</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: collapsed ? 0 : undefined }}>
+        <Text style={[styles.sectionTitle, { marginBottom: 0, marginTop: 0 }]}>Esta semana en Picks</Text>
+        <TouchableOpacity onPress={toggleCollapsed} hitSlop={10}>
+          <Ionicons name={collapsed ? 'chevron-down-outline' : 'chevron-up-outline'} size={18} color={COLORS.textSecondary} />
+        </TouchableOpacity>
+      </View>
 
-      {topStores.length > 0 && (
+      {!collapsed && topStores.length > 0 && (
         <View style={{ marginBottom: 14 }}>
           <Text style={styles.trendsSubtitle}>Tiendas más guardadas</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
@@ -1702,7 +2955,7 @@ function TrendsSection({ onOpenUrl }) {
         </View>
       )}
 
-      {topProducts.length > 0 && (
+      {!collapsed && topProducts.length > 0 && (
         <View>
           <Text style={styles.trendsSubtitle}>Productos más guardados</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 10 }}>
@@ -1727,7 +2980,255 @@ function TrendsSection({ onOpenUrl }) {
   );
 }
 
-function TabBar({ activeTab, setActiveTab, pickCount }) {
+// ─── Explorar ─────────────────────────────────────────────────────────────────
+function getStoreBgColor(storeName) {
+  const allStores = [...STORES, ...STORES_AR, ...STORES_CL, ...STORES_PY];
+  const found = allStores.find(s => s.name === storeName);
+  return found ? found.bg : '#555555';
+}
+
+function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick }) {
+  const [feed, setFeed] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState('reel'); // 'lista' | 'reel'
+  const [reelHeight, setReelHeight] = useState(SCREEN.height - 160);
+
+  async function loadFeed(isRefresh = false) {
+    if (!isRefresh) setLoading(true);
+    try {
+      // Dominios de picks del usuario (para priorizar esas tiendas)
+      const pickDomains = [...new Set(picks.map(p => p.domain).filter(Boolean))];
+      // Dominios de Mis tiendas (para intentar traer productos de tiendas custom)
+      const customDomains = customStores.map(s => s.domain).filter(Boolean);
+      const params = new URLSearchParams();
+      if (pickDomains.length) params.set('stores', pickDomains.join(','));
+      if (customDomains.length) params.set('custom', customDomains.join(','));
+      // Títulos de picks + keywords de intereses para personalización del feed
+      const pickTitles = picks.slice(0, 30).map(p => p.title).filter(Boolean);
+      const interestKws = userInterests.flatMap(id => INTEREST_KEYWORDS[id] || []);
+      const allTitles = [...pickTitles, ...interestKws];
+      if (allTitles.length) params.set('titles', allTitles.join('|'));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await Promise.race([
+        fetch(`${BACKEND_URL}/api/explorar${query}`),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
+      ]);
+      const data = await res.json();
+      setFeed(data.feed || []);
+    } catch (e) {
+      console.log('[explorar] Error:', e.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => { loadFeed(); }, []);
+
+  function onRefresh() { setRefreshing(true); loadFeed(true); }
+
+  const isAlreadyPicked = (url) => picks.some(p => p.url === url);
+
+  // ── Lista card ──────────────────────────────────────────────────────────────
+  function renderListCard({ item }) {
+    const picked = isAlreadyPicked(item.url);
+    const storeBg = getStoreBgColor(item.store);
+    return (
+      <TouchableOpacity
+        style={styles.explorarCard}
+        onPress={() => item.url && onOpenUrl(item.url)}
+        activeOpacity={0.88}
+      >
+        {item.img ? (
+          <Image source={{ uri: item.img }} style={styles.explorarCardImg} resizeMode="cover" />
+        ) : (
+          <View style={[styles.explorarCardImg, styles.explorarCardImgEmpty]}>
+            <Ionicons name="image-outline" size={28} color={COLORS.textTertiary} />
+          </View>
+        )}
+        <View style={styles.explorarCardBody}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+            <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
+              <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
+            </View>
+            {item.type === 'trending' && (
+              <View style={styles.explorarTrendingBadge}>
+                <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.explorarCardTitle} numberOfLines={2}>{item.title}</Text>
+          {item.price ? (
+            <Text style={styles.explorarCardPrice}>
+              ${item.price.toLocaleString('es-UY', { maximumFractionDigits: 0 })}
+            </Text>
+          ) : null}
+        </View>
+        <TouchableOpacity
+          style={styles.explorarPickBtn}
+          onPress={() => !picked && onAddPick(item)}
+          hitSlop={10}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={picked ? 'heart' : 'heart-outline'} size={22} color={picked ? COLORS.accent : COLORS.textTertiary} />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  }
+
+  // ── Reel card ───────────────────────────────────────────────────────────────
+  function renderReelCard({ item }) {
+    const picked = isAlreadyPicked(item.url);
+    const storeBg = getStoreBgColor(item.store);
+    return (
+      <View style={[styles.reelCard, { height: reelHeight }]}>
+        {item.img ? (
+          <Image source={{ uri: item.img }} style={styles.reelImg} resizeMode="cover" />
+        ) : (
+          <View style={[styles.reelImg, { backgroundColor: COLORS.borderSoft }]} />
+        )}
+
+        {/* Sin overlay — fondo directo en el bloque de info */}
+
+        {/* Info abajo a la izquierda */}
+        <View style={styles.reelInfo}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
+              <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
+            </View>
+            {item.type === 'trending' && (
+              <View style={styles.explorarTrendingBadge}>
+                <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.reelTitle} numberOfLines={3}>{item.title}</Text>
+          {item.price ? (
+            <Text style={styles.reelPrice}>
+              ${item.price.toLocaleString('es-UY', { maximumFractionDigits: 0 })}
+            </Text>
+          ) : null}
+          <TouchableOpacity
+            style={styles.reelOpenBtn}
+            onPress={() => item.url && onOpenUrl(item.url)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.reelOpenBtnText}>Ver producto →</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Acciones lado derecho */}
+        <View style={styles.reelActions}>
+          <TouchableOpacity
+            style={styles.reelActionBtn}
+            onPress={() => !picked && onAddPick(item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={picked ? 'heart' : 'heart-outline'} size={32} color={picked ? COLORS.accent : '#fff'} />
+            <Text style={styles.reelActionLabel}>{picked ? 'Guardado' : 'Guardar'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.reelActionBtn}
+            onPress={() => item.url && onOpenUrl(item.url)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="open-outline" size={28} color="#fff" />
+            <Text style={styles.reelActionLabel}>Abrir</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={COLORS.accent} />
+        <Text style={{ color: COLORS.textSecondary, marginTop: 12, fontSize: 14 }}>Cargando novedades...</Text>
+      </View>
+    );
+  }
+
+  if (feed.length === 0) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+        <Ionicons name="compass-outline" size={48} color={COLORS.border} />
+        <Text style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: 16, marginTop: 12 }}>No hay novedades</Text>
+        <TouchableOpacity onPress={() => loadFeed()} style={{ marginTop: 20 }}>
+          <Text style={{ color: COLORS.accent, fontWeight: '500' }}>Reintentar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Toggle Lista / Reel — solo visible en modo lista */}
+      {viewMode === 'lista' && (
+        <View style={styles.explorarToggleBar}>
+          <Text style={styles.explorarHeaderTitle}>Explorar</Text>
+          <View style={styles.explorarToggle}>
+            <TouchableOpacity
+              style={[styles.explorarToggleBtn, viewMode === 'lista' && styles.explorarToggleBtnActive]}
+              onPress={() => setViewMode('lista')}
+            >
+              <Ionicons name="list-outline" size={16} color={viewMode === 'lista' ? COLORS.surface : COLORS.textSecondary} />
+              <Text style={[styles.explorarToggleText, viewMode === 'lista' && styles.explorarToggleTextActive]}>Lista</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.explorarToggleBtn, viewMode === 'reel' && styles.explorarToggleBtnActive]}
+              onPress={() => setViewMode('reel')}
+            >
+              <Ionicons name="play-outline" size={16} color={viewMode === 'reel' ? COLORS.surface : COLORS.textSecondary} />
+              <Text style={[styles.explorarToggleText, viewMode === 'reel' && styles.explorarToggleTextActive]}>Reel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {viewMode === 'lista' ? (
+        <FlatList
+          data={feed}
+          renderItem={renderListCard}
+          keyExtractor={(item, i) => `lista-${i}-${item.url || ''}`}
+          contentContainerStyle={styles.explorarList}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          showsVerticalScrollIndicator={false}
+        />
+      ) : (
+        <View
+          style={{ flex: 1 }}
+          onLayout={(e) => setReelHeight(e.nativeEvent.layout.height)}
+        >
+          {/* Botón salir del reel */}
+          <TouchableOpacity
+            style={styles.reelExitBtn}
+            onPress={() => setViewMode('lista')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="list-outline" size={18} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', marginLeft: 6 }}>Lista</Text>
+          </TouchableOpacity>
+
+          <FlatList
+            data={feed}
+            renderItem={renderReelCard}
+            keyExtractor={(item, i) => `reel-${i}-${item.url || ''}`}
+            pagingEnabled
+            snapToAlignment="start"
+            decelerationRate="fast"
+            showsVerticalScrollIndicator={false}
+            getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+function TabBar({ activeTab, setActiveTab, pickCount, avatarUrl }) {
   return (
     <SafeAreaView edges={['bottom']} style={styles.tabBarWrap}>
       <View style={styles.tabBar}>
@@ -1746,6 +3247,13 @@ function TabBar({ activeTab, setActiveTab, pickCount }) {
           onPress={() => setActiveTab('search')}
         />
         <Tab
+          label="Explorar"
+          iconName="compass-outline"
+          iconActive="compass"
+          isActive={activeTab === 'explorar'}
+          onPress={() => setActiveTab('explorar')}
+        />
+        <Tab
           label="Mis picks"
           iconName="heart-outline"
           iconActive="heart"
@@ -1753,17 +3261,35 @@ function TabBar({ activeTab, setActiveTab, pickCount }) {
           onPress={() => setActiveTab('picks')}
           badge={pickCount}
         />
+        <Tab
+          label="Perfil"
+          iconName="person-circle-outline"
+          iconActive="person-circle"
+          isActive={activeTab === 'perfil'}
+          onPress={() => setActiveTab('perfil')}
+          avatarUrl={avatarUrl}
+        />
       </View>
     </SafeAreaView>
   );
 }
  
-function Tab({ label, iconName, iconActive, isActive, onPress, badge }) {
+function Tab({ label, iconName, iconActive, isActive, onPress, badge, avatarUrl }) {
   const color = isActive ? COLORS.textPrimary : COLORS.textSecondary;
+  const [imgError, setImgError] = useState(false);
+  // Resetear error si el URL cambia (nueva foto subida)
+  useEffect(() => { setImgError(false); }, [avatarUrl]);
   return (
     <TouchableOpacity style={styles.tab} onPress={onPress} activeOpacity={0.6}>
       <View style={styles.tabIconWrap}>
-        <Ionicons name={isActive ? iconActive : iconName} size={24} color={color} />
+        {avatarUrl && !imgError
+          ? <Image
+              source={{ uri: avatarUrl }}
+              style={{ width: 26, height: 26, borderRadius: 13, borderWidth: isActive ? 2 : 1, borderColor: isActive ? COLORS.accent : COLORS.border }}
+              onError={() => setImgError(true)}
+            />
+          : <Ionicons name={isActive ? iconActive : iconName} size={24} color={color} />
+        }
         {badge > 0 && (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{badge}</Text>
@@ -1813,6 +3339,106 @@ const styles = StyleSheet.create({
   storeName: { fontSize: 15, fontWeight: '500', color: COLORS.textPrimary },
   storeDomain: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   storeDomainText: { fontSize: 11, color: COLORS.textTertiary },
+
+  // ── Store Grid ───────────────────────────────────────────────────────────────
+  storeSectionTabs:         { flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: 12, padding: 4, marginBottom: 14, marginTop: 6 },
+  storeSectionTab:          { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10 },
+  storeSectionTabActive:    { backgroundColor: COLORS.background, shadowColor: '#000', shadowOffset: {width:0,height:1}, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2 },
+  storeSectionTabText:      { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500' },
+  storeSectionTabTextActive:{ color: COLORS.textPrimary, fontWeight: '700' },
+  emptyStores:              { alignItems: 'center', paddingVertical: 36, gap: 8 },
+  emptyStoresText:          { fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
+  // Masonry de dos columnas, estilo Pinterest
+  masonryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  masonryCol: {
+    flex: 1,
+    gap: 10,
+  },
+  masonryCard: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  masonryBgImage: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  masonryBgScrim: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
+  masonryWatermark: {
+    position: 'absolute',
+    right: -14,
+    bottom: 30,
+    fontSize: 72,
+    fontWeight: '800',
+    letterSpacing: -2,
+    opacity: 0.16,
+    transform: [{ rotate: '-6deg' }],
+  },
+  masonryLogoBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 7,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.16,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  masonryLogoImg: {
+    width: '100%',
+    height: '100%',
+  },
+  masonryLogoInitials: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  masonryCaptionScrim: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    height: '52%',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  masonryCaption: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 6,
+  },
+  masonryCaptionName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  masonryCaptionDomain: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.82)',
+    marginTop: 1,
+  },
   infoCard: {
     backgroundColor: COLORS.borderSoft, borderRadius: 12, padding: 14,
     flexDirection: 'row', gap: 10, marginTop: 24,
@@ -1837,6 +3463,17 @@ const styles = StyleSheet.create({
   pickPrice: { fontSize: 12, fontWeight: '600', color: COLORS.textPrimary },
   shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   shareBtnText: { fontSize: 11, color: COLORS.textSecondary },
+  shareCollectionBtn: { padding: 8, backgroundColor: COLORS.card, borderRadius: 20 },
+  shareCardOffscreen: { position: 'absolute', top: -3000, left: 0 },
+  shareCard: { width: 320, backgroundColor: '#fff' },
+  shareCardImg: { width: 320, height: 380 },
+  shareCardBody: { padding: 16 },
+  shareCardBrand: { fontSize: 13, fontWeight: '800', fontStyle: 'italic', color: COLORS.accent, marginBottom: 6 },
+  shareCardName: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary, lineHeight: 21 },
+  shareCardStore: { fontSize: 12, color: COLORS.textTertiary, flex: 1, marginRight: 8 },
+  shareCardPrice: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
+  shareCardFooter: { backgroundColor: COLORS.background, paddingVertical: 10, alignItems: 'center', borderTopWidth: 0.5, borderTopColor: COLORS.border },
+  shareCardFooterText: { fontSize: 11, color: COLORS.textTertiary, fontWeight: '500' },
   picksHint: { fontSize: 11, color: COLORS.textTertiary, textAlign: 'center', marginTop: 16 },
   picksSearch: {
     backgroundColor: COLORS.surface, borderColor: COLORS.border, borderWidth: 0.5,
@@ -1943,18 +3580,124 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 6,
   },
   countryChipText: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500' },
+
+  // ── Explorar (Lista) ──────────────────────────────────────────────────────────
+  explorarHeaderTitle: { fontSize: 20, fontWeight: '700', color: COLORS.textPrimary },
+  explorarToggleBar: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12,
+  },
+  explorarToggle: {
+    flexDirection: 'row', backgroundColor: COLORS.borderSoft, borderRadius: 20, padding: 3, gap: 2,
+  },
+  explorarToggleBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18,
+  },
+  explorarToggleBtnActive: { backgroundColor: COLORS.textPrimary },
+  explorarToggleText: { fontSize: 13, fontWeight: '500', color: COLORS.textSecondary },
+  explorarToggleTextActive: { color: COLORS.surface },
+  explorarList: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 30, gap: 10 },
+  explorarCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.surface, borderWidth: 0.5, borderColor: COLORS.border,
+    borderRadius: 14, padding: 10,
+  },
+  explorarCardImg: { width: 76, height: 76, borderRadius: 10, backgroundColor: COLORS.borderSoft },
+  explorarCardImgEmpty: { justifyContent: 'center', alignItems: 'center' },
+  explorarCardBody: { flex: 1 },
+  explorarStoreBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  explorarStoreBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  explorarTrendingBadge: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF1E8',
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+  },
+  explorarTrendingText: { fontSize: 11, fontWeight: '600', color: COLORS.accent },
+  explorarCardTitle: { fontSize: 14, fontWeight: '500', color: COLORS.textPrimary, lineHeight: 19 },
+  explorarCardPrice: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary, marginTop: 4 },
+  explorarPickBtn: { padding: 6 },
+
+  // ── Reel (Explorar pantalla completa) ────────────────────────────────────────
+  reelCard: {
+    width: '100%',
+    backgroundColor: '#000',
+    overflow: 'hidden',
+  },
+  reelImg: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    width: '100%', height: '100%',
+  },
+  reelGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 0 },
+  reelGradientTop: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 0 },
+  reelInfo: {
+    position: 'absolute',
+    bottom: 90,
+    left: 12,
+    right: 76,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    borderRadius: 14,
+    padding: 12,
+  },
+  reelTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#fff',
+    lineHeight: 26,
+    marginTop: 8,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  reelPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.accent,
+    marginTop: 6,
+  },
+  reelOpenBtn: {
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  reelOpenBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  reelActions: {
+    position: 'absolute',
+    right: 12,
+    bottom: 100,
+    alignItems: 'center',
+    gap: 22,
+  },
+  reelActionBtn: { alignItems: 'center', gap: 4 },
+  reelActionLabel: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  reelExitBtn: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    zIndex: 10,
+  },
   ghost: {
     position: 'absolute', width: 120, height: 150, borderRadius: 12,
     overflow: 'hidden', backgroundColor: '#fff', top: 0, left: 0,
     shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25, shadowRadius: 16, elevation: 12, zIndex: 100,
+    shadowOpacity: 0.2, shadowRadius: 12, elevation: 5,
   },
-  ghostImg: { width: '100%', height: '100%' },
-  toast: {
-    position: 'absolute', bottom: 120, alignSelf: 'center',
-    backgroundColor: '#2A2826', paddingHorizontal: 18, paddingVertical: 10,
-    borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, zIndex: 200,
-  },
-  toastText: { color: '#fff', fontSize: 13, fontWeight: '500' },
 });
- 
