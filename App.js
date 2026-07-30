@@ -1626,7 +1626,7 @@ const profileStyles = StyleSheet.create({
 
 
 // Alturas variables para el efecto masonry (estilo Pinterest)
-const MASONRY_HEIGHTS = [200, 240, 220, 180, 230, 210, 190, 250];
+const MASONRY_HEIGHTS = [165, 195, 180, 150, 190, 170, 155, 205];
 
 function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height = 200 }) {
   const [logoIdx, setLogoIdx] = useState(0);
@@ -3380,25 +3380,25 @@ const styles = StyleSheet.create({
   },
   masonryWatermark: {
     position: 'absolute',
-    right: -14,
-    bottom: 30,
-    fontSize: 72,
+    right: -10,
+    bottom: 22,
+    fontSize: 58,
     fontWeight: '800',
-    letterSpacing: -2,
+    letterSpacing: -1.5,
     opacity: 0.16,
     transform: [{ rotate: '-6deg' }],
   },
   masonryLogoBadge: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    width: 40,
-    height: 40,
-    borderRadius: 11,
+    top: 8,
+    left: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 7,
+    padding: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.16,
@@ -3410,7 +3410,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   masonryLogoInitials: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
   },
   masonryCaptionScrim: {
@@ -3422,12 +3422,12 @@ const styles = StyleSheet.create({
   masonryCaption: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
     paddingTop: 6,
   },
   masonryCaptionName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#fff',
     textShadowColor: 'rgba(0,0,0,0.35)',
@@ -3435,7 +3435,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   masonryCaptionDomain: {
-    fontSize: 11,
+    fontSize: 10,
     color: 'rgba(255,255,255,0.82)',
     marginTop: 1,
   },
