@@ -153,7 +153,7 @@ const STORES = [
   { name: 'H&M', domain: 'hm.com', url: 'https://www2.hm.com', bg: '#E50010', fg: '#FFFFFF', short: 'HM' },
   { name: 'Renner', domain: 'renner.com', url: 'https://www.renner.com', bg: '#E70062', fg: '#FFFFFF', short: 'RE' },
   { name: 'Rotunda', domain: 'rotundastore.com', url: 'https://www.rotundastore.com', bg: '#C9968A', fg: '#FFFFFF', short: 'RO' },
-  { name: 'Austera', domain: 'austera.com.uy', url: 'https://www.austera.com.uy', bg: '#1A1A1A', fg: '#FFFFFF', short: 'AU' },
+  { name: 'Austera', domain: 'austera.com.uy', url: 'https://www.austera.com.uy', bg: '#1A1A1A', fg: '#FFFFFF', short: 'AU', logo: 'https://www.austera.com.uy/cdn/shop/files/IMG_8800.jpg?v=1760655992&width=600' },
   { name: 'Caro Criado', domain: 'carocriado.com', url: 'https://www.carocriado.com', bg: '#D4A4A4', fg: '#FFFFFF', short: 'CC' },
   { name: 'Lolita', domain: 'lolita.com.uy', url: 'https://www.lolita.com.uy', bg: '#DB6B8A', fg: '#FFFFFF', short: 'LO' },
   { name: 'Decathlon', domain: 'decathlon.com.uy', url: 'https://www.decathlon.com.uy', bg: '#0082C3', fg: '#FFFFFF', short: 'DC' },
@@ -1646,6 +1646,7 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
   const bgOpacity = bgFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] });
 
   const logoUrls = [
+    ...(store.logo ? [store.logo] : []),
     `https://logo.clearbit.com/${store.domain}?size=256&format=png`,
     `https://${store.domain}/apple-touch-icon.png`,
     `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${store.domain}&size=256`,
