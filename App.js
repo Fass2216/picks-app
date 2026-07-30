@@ -161,7 +161,7 @@ const STORES = [
   { name: 'La Cancha', domain: 'lacancha.uy', url: 'https://www.lacancha.uy', bg: '#007F3E', fg: '#FFFFFF', short: 'LC' },
   { name: 'Tienda Inglesa', domain: 'tiendainglesa.com.uy', url: 'https://www.tiendainglesa.com.uy', bg: '#0033A0', fg: '#FFFFFF', short: 'TI' },
   { name: 'Multiahorro', domain: 'multiahorrohogar.com.uy', url: 'https://www.multiahorrohogar.com.uy', bg: '#E2231A', fg: '#FFFFFF', short: 'MA' },
-  { name: 'Indian', domain: 'indian.com.uy', url: 'https://www.indian.com.uy', bg: '#8B6914', fg: '#FFFFFF', short: 'IN' },
+  { name: 'Indian', domain: 'indian.com.uy', url: 'https://www.indian.com.uy', bg: '#8B6914', fg: '#FFFFFF', short: 'IN', logo: 'https://www.indian.com.uy/public/web/img/logo-og.png' },
 ];
  
 const STORES_AR = [
