@@ -1293,6 +1293,9 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [interestsExpanded, setInterestsExpanded] = useState(true);
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+  const [savingName, setSavingName] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -1405,6 +1408,24 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     setSavingInterests(false);
   };
 
+  const startEditingName = () => {
+    setEditNameValue(userProfile?.user_metadata?.name || '');
+    setEditingName(true);
+  };
+
+  const saveName = async () => {
+    setSavingName(true);
+    try {
+      const { error: err } = await supabase.auth.updateUser({ data: { name: editNameValue.trim() || null } });
+      if (err) { Alert.alert('Error', err.message || 'No se pudo guardar el nombre.'); return; }
+      setEditingName(false);
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo guardar el nombre.');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
   const toggleInterestsSection = () => {
     if (Platform.OS === 'android') {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -1438,8 +1459,41 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 }
               </View>
             </TouchableOpacity>
-            {!!userProfile.user_metadata?.name && (
-              <Text style={profileStyles.nameText}>{userProfile.user_metadata.name}</Text>
+            {editingName ? (
+              <View style={profileStyles.nameEditRow}>
+                <TextInput
+                  style={profileStyles.nameEditInput}
+                  value={editNameValue}
+                  onChangeText={setEditNameValue}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  autoFocus
+                  placeholder="Tu nombre"
+                  placeholderTextColor={COLORS.textTertiary}
+                  onSubmitEditing={saveName}
+                  returnKeyType="done"
+                />
+                {savingName
+                  ? <ActivityIndicator size="small" color={COLORS.accent} style={{ marginLeft: 8 }} />
+                  : (
+                    <>
+                      <TouchableOpacity onPress={saveName} style={profileStyles.nameEditBtn}>
+                        <Ionicons name="checkmark" size={18} color={COLORS.accent} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setEditingName(false)} style={profileStyles.nameEditBtn}>
+                        <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                      </TouchableOpacity>
+                    </>
+                  )
+                }
+              </View>
+            ) : (
+              <TouchableOpacity style={profileStyles.nameRow} onPress={startEditingName} activeOpacity={0.7}>
+                <Text style={userProfile.user_metadata?.name ? profileStyles.nameText : profileStyles.nameTextPlaceholder}>
+                  {userProfile.user_metadata?.name || 'Agregar nombre'}
+                </Text>
+                <Ionicons name="pencil-outline" size={13} color={COLORS.textTertiary} style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
             )}
             <Text style={profileStyles.emailText}>{userProfile.email}</Text>
             <TouchableOpacity style={profileStyles.logoutBtn} onPress={onLogout}>
@@ -1624,7 +1678,17 @@ const profileStyles = StyleSheet.create({
   avatarCircle:  { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   avatarOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', borderRadius: 36 },
   avatarEditBadge: { position: 'absolute', bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.accent, borderWidth: 2, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
-  nameText:      { fontSize: 18, color: COLORS.textPrimary, fontWeight: '700', marginBottom: 2 },
+  nameRow:       { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
+  nameText:      { fontSize: 18, color: COLORS.textPrimary, fontWeight: '700' },
+  nameTextPlaceholder: { fontSize: 15, color: COLORS.textTertiary, fontWeight: '500', fontStyle: 'italic' },
+  nameEditRow:   { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 4 },
+  nameEditInput: {
+    fontSize: 15, color: COLORS.textPrimary, fontWeight: '600',
+    backgroundColor: COLORS.card, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 6,
+    minWidth: 140, textAlign: 'center',
+  },
+  nameEditBtn:   { padding: 6 },
   emailText:     { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500', marginBottom: 16 },
   logoutBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: COLORS.card, borderRadius: 20 },
   logoutText:    { fontSize: 13, color: COLORS.textSecondary },
