@@ -1333,6 +1333,13 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
   useEffect(() => { setAvatarError(false); }, [avatarUrl]);
 
+  // Recordar si "Mis intereses" estaba plegado o desplegado la última vez
+  useEffect(() => {
+    AsyncStorage.getItem('interests-expanded-v1')
+      .then((v) => { if (v !== null) setInterestsExpanded(v !== 'false'); })
+      .catch(() => {});
+  }, []);
+
   // Cargar el perfil público (username) de la tabla profiles
   useEffect(() => {
     if (!userProfile) { setMyProfileRow(null); return; }
@@ -1621,7 +1628,11 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInterestsExpanded(prev => !prev);
+    setInterestsExpanded(prev => {
+      const next = !prev;
+      AsyncStorage.setItem('interests-expanded-v1', next ? 'true' : 'false').catch(() => {});
+      return next;
+    });
   };
 
   // ── Vista de perfil autenticado ────────────────────────────────────────────
@@ -1629,7 +1640,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     return (
       <SafeAreaView style={profileStyles.container} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {/* Header */}
           <View style={profileStyles.header}>
             <TouchableOpacity onPress={pickAndUploadAvatar} disabled={uploadingAvatar} activeOpacity={0.85}>
@@ -1896,9 +1907,9 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                     onChangeText={(t) => setPeopleQuery(t.replace(/^@+/, ''))}
                     autoCapitalize="none"
                     autoCorrect={false}
-                    autoFocus
                     placeholder="usuario"
                     placeholderTextColor={COLORS.textTertiary}
+                    returnKeyType="search"
                   />
                 </View>
                 {searchingPeople && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
