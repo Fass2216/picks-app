@@ -1327,6 +1327,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [searchingPeople, setSearchingPeople] = useState(false);
   const [myFollowing, setMyFollowing] = useState({});
   const [followActionLoading, setFollowActionLoading] = useState({});
+  const [peopleSearchError, setPeopleSearchError] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
 
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
@@ -1361,14 +1362,20 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     if (q.length < 2) { setPeopleResults([]); return; }
     setSearchingPeople(true);
     const t = setTimeout(async () => {
+      setPeopleSearchError('');
       try {
-        const { data } = await supabase
+        const { data, error: searchErr } = await supabase
           .from('profiles')
           .select('id, username, display_name')
           .neq('id', userProfile.id)
           .not('username', 'is', null)
           .ilike('username', `%${q}%`)
           .limit(15);
+        if (searchErr) {
+          setPeopleResults([]);
+          setPeopleSearchError(searchErr.message || 'No se pudo buscar. Probá de nuevo.');
+          return;
+        }
         setPeopleResults(data || []);
         if (data && data.length > 0) {
           const { data: myFollows } = await supabase
@@ -1382,6 +1389,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
         }
       } catch (e) {
         setPeopleResults([]);
+        setPeopleSearchError('No se pudo buscar. Probá de nuevo.');
       } finally {
         setSearchingPeople(false);
       }
@@ -1915,7 +1923,8 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                     </View>
                   );
                 })}
-                {!searchingPeople && peopleQuery.trim().length >= 2 && peopleResults.length === 0 && (
+                {!!peopleSearchError && <Text style={profileStyles.errorText}>{peopleSearchError}</Text>}
+                {!searchingPeople && !peopleSearchError && peopleQuery.trim().length >= 2 && peopleResults.length === 0 && (
                   <Text style={[profileStyles.sectionSub, { marginTop: 10 }]}>No encontramos usuarios con ese nombre.</Text>
                 )}
                 <TouchableOpacity
