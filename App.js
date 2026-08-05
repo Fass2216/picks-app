@@ -1358,7 +1358,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
 
   // Búsqueda de personas por @usuario (debounced)
   useEffect(() => {
-    const q = peopleQuery.trim().toLowerCase();
+    const q = peopleQuery.trim().toLowerCase().replace(/^@/, '');
     if (q.length < 2) { setPeopleResults([]); return; }
     setSearchingPeople(true);
     const t = setTimeout(async () => {
