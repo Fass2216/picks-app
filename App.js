@@ -101,6 +101,11 @@ async function getOrCreateDeviceId() {
   }
 }
 
+// Mis Picks y colecciones se guardan por cuenta (no por dispositivo), para que
+// dos cuentas de Supabase en el mismo teléfono no compartan la misma lista.
+function picksStorageKey(uid) { return `picks-v1-${uid || 'guest'}`; }
+function collectionsStorageKey(uid) { return `collections-v1-${uid || 'guest'}`; }
+
 // Configurar cómo se muestran las notificaciones cuando la app está abierta
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -765,6 +770,8 @@ export default function App() {
   const [currentPageTitle, setCurrentPageTitle] = useState('');
   const [currentBrowserUrl, setCurrentBrowserUrl] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [picksLoaded, setPicksLoaded] = useState(false);
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Avatar URL siempre se deriva del ID del usuario (sin depender de metadata)
@@ -779,16 +786,11 @@ export default function App() {
   const [picksTab, setPicksTab] = useState('todos');            // persiste al abrir browser
   const [openCollection, setOpenCollection] = useState(null);   // persiste al abrir browser
  
-  // Cargar picks y tiendas custom guardados al arrancar
+  // Cargar tiendas custom, orden y país guardados al arrancar (esto no depende de la cuenta)
   useEffect(() => {
     (async () => {
       try {
-        const sp = await AsyncStorage.getItem('picks-v1');
-        if (sp) setPicks(JSON.parse(sp));
         const sc = await AsyncStorage.getItem('customStores-v1');
-        const scol = await AsyncStorage.getItem('collections-v1');
-        if (scol) setCollections(JSON.parse(scol));
-        // avatar URL is now derived from user ID, no need to load from storage
         if (sc) setCustomStores(JSON.parse(sc));
         const so = await AsyncStorage.getItem('storesOrder-v1');
         if (so === 'swapped') setStoresOrderSwapped(true);
@@ -812,13 +814,56 @@ export default function App() {
         }
       } catch (e) {}
       setLoaded(true);
-      // Siempre re-sincronizar picks al backend (por si reinició y perdió datos)
-      syncAllPicksToBackend();
       // Registrar dispositivo para notificaciones (sin bloquear la UI)
       registerForNotifications();
     })();
     track('app_opened');
   }, []);
+
+  // Cargar Mis Picks y Colecciones DE LA CUENTA ACTUAL (o "invitado" si no hay sesión).
+  // Se re-ejecuta cada vez que cambia la cuenta logueada, para que dos cuentas
+  // en el mismo teléfono no se mezclen. La primera vez migra los datos viejos
+  // (guardados antes de separar por cuenta) a la cuenta que esté activa en ese momento.
+  useEffect(() => {
+    if (!authChecked) return;
+    let cancelled = false;
+    (async () => {
+      setPicksLoaded(false);
+      const uid = userProfile?.id || null;
+      const pKey = picksStorageKey(uid);
+      const cKey = collectionsStorageKey(uid);
+      try {
+        const migrated = await AsyncStorage.getItem('legacy-storage-migrated-v1');
+        if (!migrated) {
+          const [legacyPicks, legacyCollections, hasNewPicks, hasNewCollections] = await Promise.all([
+            AsyncStorage.getItem('picks-v1'),
+            AsyncStorage.getItem('collections-v1'),
+            AsyncStorage.getItem(pKey),
+            AsyncStorage.getItem(cKey),
+          ]);
+          if (!hasNewPicks && legacyPicks) await AsyncStorage.setItem(pKey, legacyPicks);
+          if (!hasNewCollections && legacyCollections) await AsyncStorage.setItem(cKey, legacyCollections);
+          await AsyncStorage.setItem('legacy-storage-migrated-v1', '1');
+        }
+
+        const [sp, scol] = await Promise.all([
+          AsyncStorage.getItem(pKey),
+          AsyncStorage.getItem(cKey),
+        ]);
+        if (cancelled) return;
+        const loadedPicks = sp ? JSON.parse(sp) : [];
+        setPicks(loadedPicks);
+        setCollections(scol ? JSON.parse(scol) : []);
+        // Re-sincronizar picks de esta cuenta al backend (por si reinició y perdió datos)
+        syncAllPicksToBackend(loadedPicks);
+      } catch (e) {
+        if (!cancelled) { setPicks([]); setCollections([]); }
+      } finally {
+        if (!cancelled) setPicksLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authChecked, userProfile?.id]);
  
   // Escuchar cambios de sesión Supabase
   useEffect(() => {
@@ -828,24 +873,26 @@ export default function App() {
         setUserInterests(session.user.user_metadata?.interests || []);
         // avatar URL derived from user ID, no metadata needed
       }
+      setAuthChecked(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserProfile(session?.user || null);
       setUserInterests(session?.user?.user_metadata?.interests || []);
+      setAuthChecked(true);
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
-    AsyncStorage.setItem('collections-v1', JSON.stringify(collections)).catch(() => {});
-  }, [collections, loaded]);
+    if (!picksLoaded) return;
+    AsyncStorage.setItem(collectionsStorageKey(userProfile?.id), JSON.stringify(collections)).catch(() => {});
+  }, [collections, picksLoaded, userProfile?.id]);
 
-  // Persistir picks cuando cambian
+  // Persistir picks cuando cambian (guardados por cuenta, no por dispositivo)
   useEffect(() => {
-    if (!loaded) return;
-    AsyncStorage.setItem('picks-v1', JSON.stringify(picks)).catch(() => {});
-  }, [picks, loaded]);
+    if (!picksLoaded) return;
+    AsyncStorage.setItem(picksStorageKey(userProfile?.id), JSON.stringify(picks)).catch(() => {});
+  }, [picks, picksLoaded, userProfile?.id]);
  
   // Persistir tiendas custom cuando cambian
   useEffect(() => {
@@ -952,14 +999,12 @@ export default function App() {
     track('country_changed', { country: code });
   }
 
-  // Re-sincroniza todos los picks guardados al backend.
-  // Se llama siempre al abrir la app, independiente de si hay permisos de notificaciones.
-  async function syncAllPicksToBackend() {
+  // Re-sincroniza los picks de la cuenta activa al backend.
+  // Se llama siempre que carga (o cambia) la cuenta, independiente de si hay permisos de notificaciones.
+  async function syncAllPicksToBackend(allPicks) {
     try {
+      if (!allPicks || allPicks.length === 0) return;
       const device_id = await getOrCreateDeviceId();
-      const stored = await AsyncStorage.getItem('picks-v1');
-      if (!stored) return;
-      const allPicks = JSON.parse(stored);
       for (const pick of allPicks) {
         fetch(`${BACKEND_URL}/api/picks`, {
           method: 'POST',
