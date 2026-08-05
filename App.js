@@ -1296,6 +1296,12 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [editingName, setEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -1423,6 +1429,33 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       Alert.alert('Error', 'No se pudo guardar el nombre.');
     } finally {
       setSavingName(false);
+    }
+  };
+
+  const cancelPasswordChange = () => {
+    setChangingPassword(false);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setPasswordSuccess('');
+  };
+
+  const savePassword = async () => {
+    setPasswordError(''); setPasswordSuccess('');
+    if (newPassword.length < 6) { setPasswordError('La contraseña debe tener al menos 6 caracteres'); return; }
+    if (newPassword !== confirmPassword) { setPasswordError('Las contraseñas no coinciden'); return; }
+    setSavingPassword(true);
+    try {
+      const { error: err } = await supabase.auth.updateUser({ password: newPassword });
+      if (err) { setPasswordError(err.message); return; }
+      setPasswordSuccess('Contraseña actualizada ✓');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => { setChangingPassword(false); setPasswordSuccess(''); }, 1400);
+    } catch (e) {
+      setPasswordError('No se pudo actualizar la contraseña.');
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -1571,6 +1604,66 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                   />
               }
             </View>
+          </View>
+
+          {/* Contraseña */}
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>CUENTA</Text>
+            <Text style={profileStyles.sectionTitle}>Contraseña</Text>
+            {!changingPassword ? (
+              <TouchableOpacity style={profileStyles.notifRow} onPress={() => setChangingPassword(true)} activeOpacity={0.7}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={profileStyles.notifRowLabel}>Cambiar contraseña</Text>
+                  <Text style={profileStyles.notifRowSub}>Actualizá la contraseña de tu cuenta</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            ) : (
+              <View>
+                <Text style={profileStyles.inputLabel}>Nueva contraseña</Text>
+                <TextInput
+                  style={profileStyles.input}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  placeholder="Mínimo 6 caracteres"
+                  placeholderTextColor={COLORS.textTertiary}
+                />
+                <Text style={profileStyles.inputLabel}>Confirmar contraseña</Text>
+                <TextInput
+                  style={profileStyles.input}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  placeholder="Repetí la contraseña"
+                  placeholderTextColor={COLORS.textTertiary}
+                />
+                {!!passwordError && <Text style={profileStyles.errorText}>{passwordError}</Text>}
+                {!!passwordSuccess && <Text style={profileStyles.successText}>{passwordSuccess}</Text>}
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                  <TouchableOpacity
+                    style={[profileStyles.authBtn, { flex: 1, marginTop: 0 }, savingPassword && { opacity: 0.7 }]}
+                    onPress={savePassword}
+                    disabled={savingPassword}
+                  >
+                    {savingPassword
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Text style={profileStyles.authBtnText}>Guardar</Text>
+                    }
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[profileStyles.authBtn, { flex: 1, marginTop: 0, backgroundColor: COLORS.card }]}
+                    onPress={cancelPasswordChange}
+                    disabled={savingPassword}
+                  >
+                    <Text style={[profileStyles.authBtnText, { color: COLORS.textSecondary }]}>Cancelar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </ScrollView>
       </SafeAreaView>
