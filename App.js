@@ -25,6 +25,8 @@ import {
   Platform,
   PanResponder,
   Switch,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -1287,8 +1289,10 @@ function InterestTile({ cat, active, onPress, disabled }) {
 
 function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [interestsExpanded, setInterestsExpanded] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -1382,7 +1386,11 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     if (!email.trim() || !password.trim()) { setError('Completá email y contraseña'); return; }
     if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
     setLoading(true); setError('');
-    const { error: err } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { interests: [] } } });
+    const { error: err } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { name: name.trim() || null, interests: [] } },
+    });
     setLoading(false);
     if (err) { setError(err.message); return; }
     setSuccess('¡Cuenta creada! Revisá tu email para confirmar.');
@@ -1395,6 +1403,14 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     setSavingInterests(true);
     await onInterestsChange(next);
     setSavingInterests(false);
+  };
+
+  const toggleInterestsSection = () => {
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setInterestsExpanded(prev => !prev);
   };
 
   // ── Vista de perfil autenticado ────────────────────────────────────────────
@@ -1422,6 +1438,9 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 }
               </View>
             </TouchableOpacity>
+            {!!userProfile.user_metadata?.name && (
+              <Text style={profileStyles.nameText}>{userProfile.user_metadata.name}</Text>
+            )}
             <Text style={profileStyles.emailText}>{userProfile.email}</Text>
             <TouchableOpacity style={profileStyles.logoutBtn} onPress={onLogout}>
               <Ionicons name="log-out-outline" size={18} color={COLORS.textSecondary} />
@@ -1432,9 +1451,31 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
           {/* Intereses */}
           <View style={profileStyles.section}>
             <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>PERSONALIZACIÓN</Text>
-            <Text style={profileStyles.sectionTitle}>Mis intereses</Text>
-            <Text style={profileStyles.sectionSub}>Seleccioná las categorías que te interesan para personalizar tu feed y las tiendas destacadas.</Text>
+            <TouchableOpacity
+              style={profileStyles.sectionHeaderRow}
+              onPress={toggleInterestsSection}
+              activeOpacity={0.7}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={profileStyles.sectionEyebrow}>PERSONALIZACIÓN</Text>
+                <Text style={profileStyles.sectionTitle}>Mis intereses</Text>
+              </View>
+              <Ionicons
+                name={interestsExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={COLORS.textSecondary}
+              />
+            </TouchableOpacity>
+            {interestsExpanded ? (
+              <Text style={profileStyles.sectionSub}>Seleccioná las categorías que te interesan para personalizar tu feed y las tiendas destacadas.</Text>
+            ) : (
+              <Text style={profileStyles.sectionSub}>
+                {userInterests.length > 0
+                  ? `${userInterests.length} seleccionada${userInterests.length === 1 ? '' : 's'}`
+                  : 'Sin categorías seleccionadas'}
+              </Text>
+            )}
+            {interestsExpanded && (
             <View style={profileStyles.interestsGrid}>
               {INTEREST_CATEGORIES.map(cat => {
                 const active = userInterests.includes(cat.id);
@@ -1449,7 +1490,8 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 );
               })}
             </View>
-            {savingInterests && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
+            )}
+            {interestsExpanded && savingInterests && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
           </View>
 
           {/* Notificaciones */}
@@ -1519,6 +1561,20 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
 
         {/* Formulario */}
         <View style={profileStyles.form}>
+          {tab === 'register' && (
+            <>
+              <Text style={profileStyles.inputLabel}>Nombre</Text>
+              <TextInput
+                style={profileStyles.input}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                autoCorrect={false}
+                placeholder="Tu nombre"
+                placeholderTextColor={COLORS.textTertiary}
+              />
+            </>
+          )}
           <Text style={profileStyles.inputLabel}>Email</Text>
           <TextInput
             style={profileStyles.input}
@@ -1568,10 +1624,12 @@ const profileStyles = StyleSheet.create({
   avatarCircle:  { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   avatarOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', borderRadius: 36 },
   avatarEditBadge: { position: 'absolute', bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.accent, borderWidth: 2, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
-  emailText:     { fontSize: 15, color: COLORS.textPrimary, fontWeight: '500', marginBottom: 16 },
+  nameText:      { fontSize: 18, color: COLORS.textPrimary, fontWeight: '700', marginBottom: 2 },
+  emailText:     { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500', marginBottom: 16 },
   logoutBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: COLORS.card, borderRadius: 20 },
   logoutText:    { fontSize: 13, color: COLORS.textSecondary },
   section:       { paddingHorizontal: 20, paddingTop: 8 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionDivider: { height: 0.5, backgroundColor: COLORS.border, marginBottom: 20 },
   sectionEyebrow: { fontSize: 11, fontWeight: '700', color: COLORS.textTertiary, letterSpacing: 1, marginBottom: 4 },
   sectionTitle:  { fontSize: 18, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 6 },
