@@ -1327,6 +1327,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [searchingPeople, setSearchingPeople] = useState(false);
   const [myFollowing, setMyFollowing] = useState({});
   const [followActionLoading, setFollowActionLoading] = useState({});
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
   useEffect(() => { setAvatarError(false); }, [avatarUrl]);
@@ -1484,6 +1485,23 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
     if (err) setError(err.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos' : err.message);
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) { setError('Ingresá tu email primero'); setSuccess(''); return; }
+    setError(''); setSuccess('');
+    setForgotLoading(true);
+    try {
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${BACKEND_URL}/reset-password`,
+      });
+      if (err) { setError(err.message); return; }
+      setSuccess('Te enviamos un email con un link para restablecer tu contraseña.');
+    } catch (e) {
+      setError('No se pudo enviar el email. Probá de nuevo.');
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   const handleRegister = async () => {
@@ -1987,6 +2005,15 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
             placeholder={tab === 'register' ? 'Mínimo 6 caracteres' : '••••••••'}
             placeholderTextColor={COLORS.textTertiary}
           />
+
+          {tab === 'login' && (
+            <TouchableOpacity onPress={handleForgotPassword} disabled={forgotLoading} style={{ alignSelf: 'flex-end', marginTop: 10 }}>
+              {forgotLoading
+                ? <ActivityIndicator size="small" color={COLORS.accent} />
+                : <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600' }}>¿Olvidaste tu contraseña?</Text>
+              }
+            </TouchableOpacity>
+          )}
 
           {!!error && <Text style={profileStyles.errorText}>{error}</Text>}
           {!!success && <Text style={profileStyles.successText}>{success}</Text>}
