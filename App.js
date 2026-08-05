@@ -1319,6 +1319,14 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [avatarError, setAvatarError] = useState(false);
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [savingNotifPref, setSavingNotifPref] = useState(false);
+  const [communityExpanded, setCommunityExpanded] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [peopleQuery, setPeopleQuery] = useState('');
+  const [peopleResults, setPeopleResults] = useState([]);
+  const [searchingPeople, setSearchingPeople] = useState(false);
+  const [myFollowing, setMyFollowing] = useState({});
+  const [followActionLoading, setFollowActionLoading] = useState({});
 
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
   useEffect(() => { setAvatarError(false); }, [avatarUrl]);
@@ -1330,6 +1338,76 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       .then(({ data }) => setMyProfileRow(data || null))
       .catch(() => setMyProfileRow(null));
   }, [userProfile?.id]);
+
+  // Contadores propios de seguidores / siguiendo
+  useEffect(() => {
+    if (!userProfile) return;
+    (async () => {
+      try {
+        const [{ count: followers }, { count: following }] = await Promise.all([
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userProfile.id),
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', userProfile.id),
+        ]);
+        setFollowerCount(followers || 0);
+        setFollowingCount(following || 0);
+      } catch (e) {}
+    })();
+  }, [userProfile?.id]);
+
+  // Búsqueda de personas por @usuario (debounced)
+  useEffect(() => {
+    const q = peopleQuery.trim().toLowerCase();
+    if (q.length < 2) { setPeopleResults([]); return; }
+    setSearchingPeople(true);
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id, username, display_name')
+          .neq('id', userProfile.id)
+          .not('username', 'is', null)
+          .ilike('username', `%${q}%`)
+          .limit(15);
+        setPeopleResults(data || []);
+        if (data && data.length > 0) {
+          const { data: myFollows } = await supabase
+            .from('follows')
+            .select('following_id')
+            .eq('follower_id', userProfile.id)
+            .in('following_id', data.map(d => d.id));
+          const map = {};
+          (myFollows || []).forEach(f => { map[f.following_id] = true; });
+          setMyFollowing(prev => ({ ...prev, ...map }));
+        }
+      } catch (e) {
+        setPeopleResults([]);
+      } finally {
+        setSearchingPeople(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [peopleQuery]);
+
+  const toggleFollow = async (targetId) => {
+    const isFollowing = !!myFollowing[targetId];
+    setFollowActionLoading(prev => ({ ...prev, [targetId]: true }));
+    try {
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', userProfile.id).eq('following_id', targetId);
+        setMyFollowing(prev => ({ ...prev, [targetId]: false }));
+        setFollowingCount(c => Math.max(0, c - 1));
+      } else {
+        const { error: err } = await supabase.from('follows').insert({ follower_id: userProfile.id, following_id: targetId });
+        if (err) throw err;
+        setMyFollowing(prev => ({ ...prev, [targetId]: true }));
+        setFollowingCount(c => c + 1);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo actualizar. Probá de nuevo.');
+    } finally {
+      setFollowActionLoading(prev => ({ ...prev, [targetId]: false }));
+    }
+  };
 
   // Cargar preferencia de notificaciones guardada localmente
   useEffect(() => {
@@ -1764,6 +1842,73 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
               </View>
             )}
           </View>
+
+          {/* Comunidad */}
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>COMUNIDAD</Text>
+            <Text style={profileStyles.sectionTitle}>Comunidad</Text>
+            <Text style={profileStyles.sectionSub}>
+              <Text style={{ fontWeight: '700', color: COLORS.textPrimary }}>{followerCount}</Text> seguidores · <Text style={{ fontWeight: '700', color: COLORS.textPrimary }}>{followingCount}</Text> siguiendo
+            </Text>
+
+            {!communityExpanded ? (
+              <TouchableOpacity style={profileStyles.notifRow} onPress={() => setCommunityExpanded(true)} activeOpacity={0.7}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={profileStyles.notifRowLabel}>Buscar personas</Text>
+                  <Text style={profileStyles.notifRowSub}>Encontrá gente por su @usuario para seguir</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            ) : (
+              <View>
+                <TextInput
+                  style={profileStyles.input}
+                  value={peopleQuery}
+                  onChangeText={setPeopleQuery}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoFocus
+                  placeholder="Buscar por @usuario"
+                  placeholderTextColor={COLORS.textTertiary}
+                />
+                {searchingPeople && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
+                {peopleResults.map(person => {
+                  const following = !!myFollowing[person.id];
+                  const busy = !!followActionLoading[person.id];
+                  return (
+                    <View key={person.id} style={profileStyles.personRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={profileStyles.personName}>{person.display_name || `@${person.username}`}</Text>
+                        <Text style={profileStyles.personUsername}>@{person.username}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[profileStyles.followBtn, following && profileStyles.followBtnActive]}
+                        onPress={() => toggleFollow(person.id)}
+                        disabled={busy}
+                      >
+                        {busy
+                          ? <ActivityIndicator size="small" color={following ? COLORS.textSecondary : '#fff'} />
+                          : <Text style={[profileStyles.followBtnText, following && profileStyles.followBtnTextActive]}>
+                              {following ? 'Siguiendo' : 'Seguir'}
+                            </Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+                {!searchingPeople && peopleQuery.trim().length >= 2 && peopleResults.length === 0 && (
+                  <Text style={[profileStyles.sectionSub, { marginTop: 10 }]}>No encontramos usuarios con ese nombre.</Text>
+                )}
+                <TouchableOpacity
+                  onPress={() => { setCommunityExpanded(false); setPeopleQuery(''); setPeopleResults([]); }}
+                  style={{ marginTop: 12 }}
+                >
+                  <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600', textAlign: 'center' }}>Cerrar búsqueda</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
       </SafeAreaView>
@@ -1919,6 +2064,19 @@ const profileStyles = StyleSheet.create({
   },
   notifRowLabel: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
   notifRowSub:   { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  personRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+  },
+  personName:     { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
+  personUsername: { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
+  followBtn: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: COLORS.accent, minWidth: 90, alignItems: 'center',
+  },
+  followBtnActive:   { backgroundColor: COLORS.card },
+  followBtnText:     { fontSize: 13, fontWeight: '700', color: '#fff' },
+  followBtnTextActive: { color: COLORS.textSecondary },
   // Auth styles
   authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
   authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
