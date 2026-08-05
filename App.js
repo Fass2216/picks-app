@@ -1888,16 +1888,19 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
               </TouchableOpacity>
             ) : (
               <View>
-                <TextInput
-                  style={profileStyles.input}
-                  value={peopleQuery}
-                  onChangeText={setPeopleQuery}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoFocus
-                  placeholder="Buscar por @usuario"
-                  placeholderTextColor={COLORS.textTertiary}
-                />
+                <View style={profileStyles.searchInputRow}>
+                  <Text style={profileStyles.searchAtSign}>@</Text>
+                  <TextInput
+                    style={profileStyles.searchInputField}
+                    value={peopleQuery}
+                    onChangeText={(t) => setPeopleQuery(t.replace(/^@+/, ''))}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoFocus
+                    placeholder="usuario"
+                    placeholderTextColor={COLORS.textTertiary}
+                  />
+                </View>
                 {searchingPeople && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
                 {peopleResults.map(person => {
                   const following = !!myFollowing[person.id];
@@ -2113,6 +2116,12 @@ const profileStyles = StyleSheet.create({
   followBtnActive:   { backgroundColor: COLORS.card },
   followBtnText:     { fontSize: 13, fontWeight: '700', color: '#fff' },
   followBtnTextActive: { color: COLORS.textSecondary },
+  searchInputRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.card, borderRadius: 12, paddingHorizontal: 16,
+  },
+  searchAtSign: { fontSize: 15, color: COLORS.textTertiary, fontWeight: '600' },
+  searchInputField: { flex: 1, paddingVertical: 13, paddingLeft: 2, fontSize: 15, color: COLORS.textPrimary },
   // Auth styles
   authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
   authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
