@@ -1182,6 +1182,10 @@ export default function App() {
               if (opened) track('pick_opened', { store: getStoreDisplayName(opened.domain), domain: opened.domain });
               openUrl(url);
             }}
+            onToggleCollectionPublic={(colId, isPublic) => {
+              setCollections(prev => prev.map(c => c.id === colId ? { ...c, isPublic } : c));
+              track('collection_visibility_changed', { isPublic });
+            }}
           />
         )}
       </View>
@@ -1193,7 +1197,7 @@ export default function App() {
           onClose={() => setCollectionModal(null)}
           onSave={(colId, newColName) => {
             if (newColName) {
-              const newCol = { id: 'c-' + Date.now(), name: newColName, pickIds: [collectionModal.id] };
+              const newCol = { id: 'c-' + Date.now(), name: newColName, pickIds: [collectionModal.id], isPublic: false };
               setCollections(prev => [...prev, newCol]);
             } else if (colId) {
               setCollections(prev => prev.map(c =>
@@ -1296,6 +1300,11 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [editingName, setEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [myProfileRow, setMyProfileRow] = useState(null);
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [editUsernameValue, setEditUsernameValue] = useState('');
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -1313,6 +1322,14 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
 
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
   useEffect(() => { setAvatarError(false); }, [avatarUrl]);
+
+  // Cargar el perfil público (username) de la tabla profiles
+  useEffect(() => {
+    if (!userProfile) { setMyProfileRow(null); return; }
+    supabase.from('profiles').select('*').eq('id', userProfile.id).maybeSingle()
+      .then(({ data }) => setMyProfileRow(data || null))
+      .catch(() => setMyProfileRow(null));
+  }, [userProfile?.id]);
 
   // Cargar preferencia de notificaciones guardada localmente
   useEffect(() => {
@@ -1429,6 +1446,42 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       Alert.alert('Error', 'No se pudo guardar el nombre.');
     } finally {
       setSavingName(false);
+    }
+  };
+
+  const startEditingUsername = () => {
+    setEditUsernameValue(myProfileRow?.username || '');
+    setUsernameError('');
+    setEditingUsername(true);
+  };
+
+  const saveUsername = async () => {
+    const clean = editUsernameValue.trim().toLowerCase();
+    setUsernameError('');
+    if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
+      setUsernameError('3-20 caracteres: minúsculas, números y guión bajo');
+      return;
+    }
+    setSavingUsername(true);
+    try {
+      const { data: existing, error: checkErr } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('username', clean)
+        .neq('id', userProfile.id)
+        .maybeSingle();
+      if (checkErr) { setUsernameError('No se pudo verificar disponibilidad. Probá de nuevo.'); return; }
+      if (existing) { setUsernameError('Ese nombre de usuario ya está en uso'); return; }
+      const { error: err } = await supabase
+        .from('profiles')
+        .upsert({ id: userProfile.id, username: clean }, { onConflict: 'id' });
+      if (err) { setUsernameError(err.message); return; }
+      setMyProfileRow(prev => ({ ...(prev || {}), id: userProfile.id, username: clean }));
+      setEditingUsername(false);
+    } catch (e) {
+      setUsernameError('No se pudo guardar. Probá de nuevo.');
+    } finally {
+      setSavingUsername(false);
     }
   };
 
@@ -1606,11 +1659,56 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
             </View>
           </View>
 
-          {/* Contraseña */}
+          {/* Cuenta: usuario público + contraseña */}
           <View style={profileStyles.section}>
             <View style={profileStyles.sectionDivider} />
             <Text style={profileStyles.sectionEyebrow}>CUENTA</Text>
-            <Text style={profileStyles.sectionTitle}>Contraseña</Text>
+            <Text style={profileStyles.sectionTitle}>Cuenta</Text>
+
+            {editingUsername ? (
+              <View style={profileStyles.nameEditRow}>
+                <Text style={{ fontSize: 15, color: COLORS.textTertiary, fontWeight: '600' }}>@</Text>
+                <TextInput
+                  style={profileStyles.nameEditInput}
+                  value={editUsernameValue}
+                  onChangeText={setEditUsernameValue}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoFocus
+                  placeholder="usuario"
+                  placeholderTextColor={COLORS.textTertiary}
+                  onSubmitEditing={saveUsername}
+                  returnKeyType="done"
+                />
+                {savingUsername
+                  ? <ActivityIndicator size="small" color={COLORS.accent} style={{ marginLeft: 8 }} />
+                  : (
+                    <>
+                      <TouchableOpacity onPress={saveUsername} style={profileStyles.nameEditBtn}>
+                        <Ionicons name="checkmark" size={18} color={COLORS.accent} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setEditingUsername(false)} style={profileStyles.nameEditBtn}>
+                        <Ionicons name="close" size={18} color={COLORS.textSecondary} />
+                      </TouchableOpacity>
+                    </>
+                  )
+                }
+              </View>
+            ) : (
+              <TouchableOpacity style={profileStyles.notifRow} onPress={startEditingUsername} activeOpacity={0.7}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={profileStyles.notifRowLabel}>Nombre de usuario</Text>
+                  <Text style={profileStyles.notifRowSub}>
+                    {myProfileRow?.username ? `@${myProfileRow.username}` : 'Elegí uno para que otros te puedan seguir'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            )}
+            {!!usernameError && <Text style={profileStyles.errorText}>{usernameError}</Text>}
+
+            <View style={{ height: 10 }} />
+
             {!changingPassword ? (
               <TouchableOpacity style={profileStyles.notifRow} onPress={() => setChangingPassword(true)} activeOpacity={0.7}>
                 <View style={{ flex: 1, marginRight: 12 }}>
@@ -2480,7 +2578,7 @@ function ShareCardContent({ pick, onImageReady }) {
   );
 }
 
-function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection }) {
+function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection, onToggleCollectionPublic }) {
   const [query, setQuery] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCountry, setActiveCountry] = useState(null);
@@ -2633,6 +2731,23 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
               <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
             </TouchableOpacity>
           )}
+        </View>
+        <View style={styles.collectionVisibilityRow}>
+          <Ionicons
+            name={col?.isPublic ? 'globe-outline' : 'lock-closed-outline'}
+            size={14}
+            color={col?.isPublic ? COLORS.accent : COLORS.textTertiary}
+          />
+          <Text style={[styles.collectionVisibilityText, col?.isPublic && { color: COLORS.accent }]}>
+            {col?.isPublic ? 'Colección pública' : 'Colección privada'}
+          </Text>
+          <Switch
+            value={!!col?.isPublic}
+            onValueChange={(val) => onToggleCollectionPublic?.(col?.id, val)}
+            trackColor={{ false: COLORS.border, true: COLORS.accent }}
+            thumbColor="#fff"
+            style={{ transform: [{ scale: 0.8 }] }}
+          />
         </View>
         <Text style={styles.subtitle}>{colPicks.length} {colPicks.length === 1 ? 'pick' : 'picks'}</Text>
         {/* Zona de swipe: barra ancha sin elementos interactivos entre header y lista */}
@@ -3680,6 +3795,8 @@ const styles = StyleSheet.create({
   shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   shareBtnText: { fontSize: 11, color: COLORS.textSecondary },
   shareCollectionBtn: { padding: 8, backgroundColor: COLORS.card, borderRadius: 20 },
+  collectionVisibilityRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  collectionVisibilityText: { fontSize: 12, color: COLORS.textTertiary, fontWeight: '500', flex: 1 },
   shareCardOffscreen: { position: 'absolute', top: -3000, left: 0 },
   shareCard: { width: 320, backgroundColor: '#fff' },
   shareCardImg: { width: 320, height: 380 },
