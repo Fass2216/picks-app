@@ -1524,7 +1524,8 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   if (tab === 'profile' && userProfile) {
     return (
       <SafeAreaView style={profileStyles.container} edges={['top']}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View style={profileStyles.header}>
             <TouchableOpacity onPress={pickAndUploadAvatar} disabled={uploadingAvatar} activeOpacity={0.85}>
@@ -1764,6 +1765,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
             )}
           </View>
         </ScrollView>
+      </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
