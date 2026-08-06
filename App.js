@@ -44,6 +44,21 @@ const DEBUG_ANALYTICS = false;
 // ============ BACKEND DE NOTIFICACIONES ============
 const BACKEND_URL = 'https://picks-backend-30ur.onrender.com';
 
+// ============ FONDOS PERSONALIZABLES ============
+// Imágenes suaves y translúcidas, opcionales, que el usuario puede elegir en
+// su perfil para darle un poco de personalidad a la app sin afectar la lectura.
+const APP_BACKGROUND_STORAGE_KEY = 'app-background-v1';
+const BACKGROUNDS = [
+  { id: 'amanecer', label: 'Amanecer', source: require('./assets/backgrounds/bg-amanecer.png') },
+  { id: 'salvia',   label: 'Salvia',   source: require('./assets/backgrounds/bg-salvia.png') },
+  { id: 'bruma',    label: 'Bruma',    source: require('./assets/backgrounds/bg-bruma.png') },
+  { id: 'coral',    label: 'Coral',    source: require('./assets/backgrounds/bg-coral.png') },
+  { id: 'arena',    label: 'Arena',    source: require('./assets/backgrounds/bg-arena.png') },
+];
+function getBackgroundSource(id) {
+  return BACKGROUNDS.find(b => b.id === id)?.source || null;
+}
+
 // ── Supabase Auth ─────────────────────────────────────────────────────────────
 const SUPABASE_URL  = 'https://gbzjpfhhullpqvcycwkp.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_FybYxjnA40bJfaZMDhzXFg_1Lf8u2SK';
@@ -819,7 +834,13 @@ export default function App() {
   const [collectionModal, setCollectionModal] = useState(null); // pick pendiente de asignar
   const [picksTab, setPicksTab] = useState('todos');            // persiste al abrir browser
   const [openCollection, setOpenCollection] = useState(null);   // persiste al abrir browser
- 
+  const [appBackground, setAppBackground] = useState(null);     // id del fondo elegido, o null = ninguno
+
+  const changeAppBackground = async (id) => {
+    setAppBackground(id);
+    try { await AsyncStorage.setItem(APP_BACKGROUND_STORAGE_KEY, id || ''); } catch (e) {}
+  };
+
   // Cargar tiendas custom, orden y país guardados al arrancar (esto no depende de la cuenta)
   useEffect(() => {
     (async () => {
@@ -828,6 +849,8 @@ export default function App() {
         if (sc) setCustomStores(JSON.parse(sc));
         const so = await AsyncStorage.getItem('storesOrder-v1');
         if (so === 'swapped') setStoresOrderSwapped(true);
+        const savedBg = await AsyncStorage.getItem(APP_BACKGROUND_STORAGE_KEY);
+        if (savedBg) setAppBackground(savedBg);
         // Detectar país: primero preferencia guardada, luego por IP
         const savedCountry = await AsyncStorage.getItem('country-v1');
         if (savedCountry && STORES_BY_COUNTRY[savedCountry]) {
@@ -1261,7 +1284,19 @@ export default function App() {
   }
  
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <>
+      {!!appBackground && (
+        <Image
+          source={getBackgroundSource(appBackground)}
+          style={styles.appBackgroundImg}
+          resizeMode="cover"
+          pointerEvents="none"
+        />
+      )}
+      <SafeAreaView
+        style={[styles.container, !!appBackground && { backgroundColor: 'transparent' }]}
+        edges={['top', 'left', 'right']}
+      >
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
  
       <View style={styles.content}>
@@ -1319,6 +1354,8 @@ export default function App() {
             onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
             onFollowingChanged={() => refreshFollowingList(userProfile?.id)}
             onOpenUrl={openUrl}
+            currentBackground={appBackground}
+            onBackgroundChange={changeAppBackground}
             onInterestsChange={async (interests) => {
               await supabase.auth.updateUser({ data: { interests } });
               setUserInterests(interests);
@@ -1434,9 +1471,10 @@ export default function App() {
         </Animated.View>
       )}
     </SafeAreaView>
+    </>
   );
 }
- 
+
 
 // ── StoreGridCard: tarjeta de tienda con logo real (grid 2 columnas) ──────────
 // ── ProfileScreen ─────────────────────────────────────────────────────────────
@@ -1492,7 +1530,7 @@ function personDisplayLabel(person) {
   return name || 'Usuario';
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl }) {
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, currentBackground, onBackgroundChange }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1880,7 +1918,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   // ── Vista de perfil autenticado ────────────────────────────────────────────
   if (tab === 'profile' && userProfile) {
     return (
-      <SafeAreaView style={profileStyles.container} edges={['top']}>
+      <SafeAreaView style={[profileStyles.container, !!currentBackground && { backgroundColor: 'transparent' }]} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {/* Header */}
@@ -1944,6 +1982,48 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
               <Ionicons name="log-out-outline" size={18} color={COLORS.textSecondary} />
               <Text style={profileStyles.logoutText}>Cerrar sesión</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Fondo personalizado */}
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>PERSONALIZAR</Text>
+            <Text style={profileStyles.sectionTitle}>Fondo</Text>
+            <Text style={profileStyles.sectionSub}>
+              Un toque de color suave y translúcido detrás de la app. Es opcional.
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
+              <TouchableOpacity
+                style={profileStyles.bgSwatchWrap}
+                onPress={() => onBackgroundChange?.(null)}
+                activeOpacity={0.8}
+              >
+                <View style={[
+                  profileStyles.bgSwatchNone,
+                  !currentBackground && profileStyles.bgSwatchSelected,
+                ]}>
+                  <Ionicons name="close" size={18} color={COLORS.textTertiary} />
+                </View>
+                <Text style={profileStyles.bgSwatchLabel}>Ninguno</Text>
+              </TouchableOpacity>
+              {BACKGROUNDS.map(bg => (
+                <TouchableOpacity
+                  key={bg.id}
+                  style={profileStyles.bgSwatchWrap}
+                  onPress={() => onBackgroundChange?.(bg.id)}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={bg.source}
+                    style={[
+                      profileStyles.bgSwatch,
+                      currentBackground === bg.id && profileStyles.bgSwatchSelected,
+                    ]}
+                  />
+                  <Text style={profileStyles.bgSwatchLabel}>{bg.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
 
           {/* Intereses */}
@@ -2264,7 +2344,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
 
   // ── Vista login / registro ─────────────────────────────────────────────────
   return (
-    <SafeAreaView style={profileStyles.container} edges={['top']}>
+    <SafeAreaView style={[profileStyles.container, !!currentBackground && { backgroundColor: 'transparent' }]} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={profileStyles.authContent} keyboardShouldPersistTaps="handled">
         {/* Logo / título */}
@@ -2462,6 +2542,18 @@ const profileStyles = StyleSheet.create({
   viewingPickImg: { width: 56, height: 56, borderRadius: 10, backgroundColor: COLORS.card },
   viewingPickName: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
   viewingPickPrice: { fontSize: 13, fontWeight: '700', color: COLORS.accent, marginTop: 4 },
+  bgSwatchWrap: { alignItems: 'center', marginRight: 14, width: 64 },
+  bgSwatch: {
+    width: 56, height: 56, borderRadius: 16,
+    borderWidth: 2, borderColor: COLORS.border, backgroundColor: COLORS.card,
+  },
+  bgSwatchNone: {
+    width: 56, height: 56, borderRadius: 16,
+    borderWidth: 2, borderColor: COLORS.border, backgroundColor: COLORS.card,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  bgSwatchSelected: { borderColor: COLORS.accent, borderWidth: 3 },
+  bgSwatchLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 6, textAlign: 'center' },
   // Auth styles
   authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
   authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
@@ -4422,6 +4514,7 @@ function Tab({ label, iconName, iconActive, isActive, onPress, badge, avatarUrl 
  
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  appBackgroundImg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
   content: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: { padding: 24, paddingBottom: 40 },
