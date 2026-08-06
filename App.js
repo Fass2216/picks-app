@@ -49,11 +49,11 @@ const BACKEND_URL = 'https://picks-backend-30ur.onrender.com';
 // su perfil para darle un poco de personalidad a la app sin afectar la lectura.
 const APP_BACKGROUND_STORAGE_KEY = 'app-background-v1';
 const BACKGROUNDS = [
-  { id: 'amanecer', label: 'Amanecer', source: require('./assets/backgrounds/bg-amanecer.png') },
-  { id: 'salvia',   label: 'Salvia',   source: require('./assets/backgrounds/bg-salvia.png') },
-  { id: 'bruma',    label: 'Bruma',    source: require('./assets/backgrounds/bg-bruma.png') },
-  { id: 'coral',    label: 'Coral',    source: require('./assets/backgrounds/bg-coral.png') },
-  { id: 'arena',    label: 'Arena',    source: require('./assets/backgrounds/bg-arena.png') },
+  { id: 'amanecer', label: 'Terracota',  source: require('./assets/backgrounds/bg-amanecer.png') },
+  { id: 'salvia',   label: 'Bosque',     source: require('./assets/backgrounds/bg-salvia.png') },
+  { id: 'bruma',    label: 'Nocturno',   source: require('./assets/backgrounds/bg-bruma.png') },
+  { id: 'coral',    label: 'Frambuesa',  source: require('./assets/backgrounds/bg-coral.png') },
+  { id: 'arena',    label: 'Mostaza',    source: require('./assets/backgrounds/bg-arena.png') },
 ];
 function getBackgroundSource(id) {
   return BACKGROUNDS.find(b => b.id === id)?.source || null;
@@ -1285,7 +1285,7 @@ export default function App() {
  
   return (
     <>
-      {!!appBackground && (
+      {!!getBackgroundSource(appBackground) && (
         <Image
           source={getBackgroundSource(appBackground)}
           style={styles.appBackgroundImg}
@@ -1984,48 +1984,6 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
             </TouchableOpacity>
           </View>
 
-          {/* Fondo personalizado */}
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>PERSONALIZAR</Text>
-            <Text style={profileStyles.sectionTitle}>Fondo</Text>
-            <Text style={profileStyles.sectionSub}>
-              Un toque de color suave y translúcido detrás de la app. Es opcional.
-            </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
-              <TouchableOpacity
-                style={profileStyles.bgSwatchWrap}
-                onPress={() => onBackgroundChange?.(null)}
-                activeOpacity={0.8}
-              >
-                <View style={[
-                  profileStyles.bgSwatchNone,
-                  !currentBackground && profileStyles.bgSwatchSelected,
-                ]}>
-                  <Ionicons name="close" size={18} color={COLORS.textTertiary} />
-                </View>
-                <Text style={profileStyles.bgSwatchLabel}>Ninguno</Text>
-              </TouchableOpacity>
-              {BACKGROUNDS.map(bg => (
-                <TouchableOpacity
-                  key={bg.id}
-                  style={profileStyles.bgSwatchWrap}
-                  onPress={() => onBackgroundChange?.(bg.id)}
-                  activeOpacity={0.8}
-                >
-                  <Image
-                    source={bg.source}
-                    style={[
-                      profileStyles.bgSwatch,
-                      currentBackground === bg.id && profileStyles.bgSwatchSelected,
-                    ]}
-                  />
-                  <Text style={profileStyles.bgSwatchLabel}>{bg.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-
           {/* Intereses */}
           <View style={profileStyles.section}>
             <View style={profileStyles.sectionDivider} />
@@ -2281,6 +2239,48 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 </TouchableOpacity>
               </View>
             )}
+          </View>
+
+          {/* Fondo personalizado */}
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>PERSONALIZAR</Text>
+            <Text style={profileStyles.sectionTitle}>Fondo</Text>
+            <Text style={profileStyles.sectionSub}>
+              Un toque de color suave y translúcido detrás de la app. Es opcional.
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
+              <TouchableOpacity
+                style={profileStyles.bgSwatchWrap}
+                onPress={() => onBackgroundChange?.(null)}
+                activeOpacity={0.8}
+              >
+                <View style={[
+                  profileStyles.bgSwatchNone,
+                  !currentBackground && profileStyles.bgSwatchSelected,
+                ]}>
+                  <Ionicons name="close" size={18} color={COLORS.textTertiary} />
+                </View>
+                <Text style={profileStyles.bgSwatchLabel}>Ninguno</Text>
+              </TouchableOpacity>
+              {BACKGROUNDS.map(bg => (
+                <TouchableOpacity
+                  key={bg.id}
+                  style={profileStyles.bgSwatchWrap}
+                  onPress={() => onBackgroundChange?.(bg.id)}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={bg.source}
+                    style={[
+                      profileStyles.bgSwatch,
+                      currentBackground === bg.id && profileStyles.bgSwatchSelected,
+                    ]}
+                  />
+                  <Text style={profileStyles.bgSwatchLabel}>{bg.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
