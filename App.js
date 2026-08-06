@@ -807,6 +807,7 @@ export default function App() {
   const activeCollectionsKeyRef = useRef(null);
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
+  const [followingList, setFollowingList] = useState([]);  // [{id, username, display_name}] gente que sigo
   // Avatar URL siempre se deriva del ID del usuario (sin depender de metadata)
   const [avatarCacheBust, setAvatarCacheBust] = useState('');
   const getAvatarUrl = (uid) => uid
@@ -888,6 +889,7 @@ export default function App() {
         // Se pasan las colecciones recién leídas (no el estado, que puede estar desactualizado
         // en este mismo flush) para calcular is_public correctamente.
         syncAllPicksToBackend(loadedPicks, loadedCollections);
+        syncAllCollectionsToBackend(loadedCollections);
       } catch (e) {
         if (!cancelled) {
           setPicks([]);
@@ -919,6 +921,30 @@ export default function App() {
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
+
+  // Lista de gente que sigo (para la pestaña vertical de colecciones públicas en el Home)
+  useEffect(() => {
+    if (!userProfile?.id) { setFollowingList([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: followRows, error: followErr } = await supabase
+          .from('follows')
+          .select('following_id')
+          .eq('follower_id', userProfile.id);
+        if (followErr || cancelled) return;
+        const ids = (followRows || []).map(r => r.following_id);
+        if (ids.length === 0) { setFollowingList([]); return; }
+        const { data: profiles, error: profErr } = await supabase
+          .from('profiles')
+          .select('id, username, display_name')
+          .in('id', ids);
+        if (profErr || cancelled) return;
+        setFollowingList(profiles || []);
+      } catch (e) {}
+    })();
+    return () => { cancelled = true; };
+  }, [userProfile?.id]);
 
   useEffect(() => {
     if (!picksLoaded || !activeCollectionsKeyRef.current) return;
@@ -1079,6 +1105,28 @@ export default function App() {
     } catch (e) {}
   }
 
+  // Sincroniza una colección (nombre, público/privado, qué picks contiene) al
+  // backend, para que se puedan armar "colecciones públicas" de otros usuarios.
+  async function syncCollectionToBackend(collection) {
+    if (!collection) return;
+    try {
+      const device_id = await getOrCreateDeviceId();
+      const user_id = userProfile?.id || null;
+      await fetch(`${BACKEND_URL}/api/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id, user_id, collection }),
+      });
+    } catch (e) {}
+  }
+
+  async function syncAllCollectionsToBackend(allCollections) {
+    try {
+      if (!allCollections || allCollections.length === 0) return;
+      for (const col of allCollections) syncCollectionToBackend(col);
+    } catch (e) {}
+  }
+
   async function registerForNotifications() {
     try {
       const { status } = await Notifications.requestPermissionsAsync();
@@ -1229,16 +1277,19 @@ export default function App() {
             onUrlChange={setCurrentBrowserUrl}
           />
         ) : activeTab === 'home' ? (
-          <HomeView
-            onOpenUrl={openUrl}
-            customStores={customStores}
-            onRemoveCustom={removeCustomStore}
-            country={country}
-            countryStores={STORES_BY_COUNTRY[country] || STORES}
-            onChangeCountry={changeCountry}
-            storesOrderSwapped={storesOrderSwapped}
-            onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
-          />
+          <>
+            <HomeView
+              onOpenUrl={openUrl}
+              customStores={customStores}
+              onRemoveCustom={removeCustomStore}
+              country={country}
+              countryStores={STORES_BY_COUNTRY[country] || STORES}
+              onChangeCountry={changeCountry}
+              storesOrderSwapped={storesOrderSwapped}
+              onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
+            />
+            {!!userProfile && <FollowingRail followingList={followingList} getAvatarUrl={getAvatarUrl} />}
+          </>
         ) : activeTab === 'search' ? (
           <SearchView
             onMessage={handleWebMessage}
@@ -1311,6 +1362,7 @@ export default function App() {
                 const pk = picks.find(p => p.id === pid);
                 if (pk) syncPickVisibility(pk, isPublic);
               });
+              if (col) syncCollectionToBackend({ ...col, isPublic });
               track('collection_visibility_changed', { isPublic });
             }}
           />
@@ -1326,6 +1378,7 @@ export default function App() {
             if (newColName) {
               const newCol = { id: 'c-' + Date.now(), name: newColName, pickIds: [collectionModal.id], isPublic: false };
               setCollections(prev => [...prev, newCol]);
+              syncCollectionToBackend(newCol);
             } else if (colId) {
               const targetCol = collections.find(c => c.id === colId);
               setCollections(prev => prev.map(c =>
@@ -1334,6 +1387,7 @@ export default function App() {
                   : c
               ));
               if (targetCol?.isPublic) syncPickVisibility(collectionModal, true);
+              if (targetCol) syncCollectionToBackend({ ...targetCol, pickIds: [...targetCol.pickIds, collectionModal.id] });
             }
             setCollectionModal(null);
           }}
@@ -2536,6 +2590,230 @@ function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
     </View>
   );
 }
+
+// ── FollowingRail ──────────────────────────────────────────────────────────
+// Pestaña vertical sobre el borde derecho del Home: aparece al tocarla y se
+// esconde sola al segundo de inactividad. Muestra los avatares de la gente
+// que seguís; tocar uno abre sus colecciones públicas. Es un acceso secundario
+// a propósito — el foco de la app sigue siendo el wishlist universal.
+function FollowingRail({ followingList, getAvatarUrl }) {
+  const [expanded, setExpanded] = useState(false);
+  const [viewingUser, setViewingUser] = useState(null);
+  const [viewingCollections, setViewingCollections] = useState([]);
+  const [loadingCollections, setLoadingCollections] = useState(false);
+  const [viewingError, setViewingError] = useState('');
+  const [openedCollection, setOpenedCollection] = useState(null);
+  const hideTimer = useRef(null);
+
+  useEffect(() => {
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  }, []);
+
+  const scheduleHide = () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setExpanded(false), 1000);
+  };
+
+  const handleToggle = () => {
+    setExpanded(prev => {
+      const next = !prev;
+      if (next) scheduleHide();
+      else if (hideTimer.current) clearTimeout(hideTimer.current);
+      return next;
+    });
+  };
+
+  const openUserCollections = async (person) => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    setExpanded(false);
+    setViewingUser(person);
+    setViewingCollections([]);
+    setViewingError('');
+    setOpenedCollection(null);
+    setLoadingCollections(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/collections/public/${person.id}`);
+      const data = await res.json();
+      setViewingCollections(data.collections || []);
+    } catch (e) {
+      setViewingError('No se pudieron cargar sus colecciones. Probá de nuevo.');
+    } finally {
+      setLoadingCollections(false);
+    }
+  };
+
+  if (!followingList || followingList.length === 0) return null;
+
+  return (
+    <>
+      <View style={railStyles.container} pointerEvents="box-none">
+        <TouchableOpacity style={railStyles.handle} onPress={handleToggle} activeOpacity={0.8}>
+          <Ionicons name={expanded ? 'chevron-forward' : 'people'} size={16} color="#fff" />
+        </TouchableOpacity>
+        {expanded && (
+          <View style={railStyles.avatarPanel} onTouchStart={scheduleHide}>
+            <ScrollView contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={false}>
+              {followingList.map(person => (
+                <TouchableOpacity
+                  key={person.id}
+                  style={railStyles.avatarBtn}
+                  onPress={() => openUserCollections(person)}
+                  activeOpacity={0.8}
+                >
+                  <Image source={{ uri: getAvatarUrl(person.id) }} style={railStyles.avatarImg} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+
+      <Modal
+        visible={!!viewingUser}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setViewingUser(null)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
+          <View style={railStyles.modalHeader}>
+            {!!openedCollection && (
+              <TouchableOpacity onPress={() => setOpenedCollection(null)} style={{ padding: 6, marginRight: 4 }}>
+                <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={railStyles.modalTitle} numberOfLines={1}>
+                {openedCollection ? openedCollection.name : (viewingUser?.display_name || `@${viewingUser?.username}`)}
+              </Text>
+              {!openedCollection && <Text style={railStyles.modalSub}>@{viewingUser?.username}</Text>}
+            </View>
+            <TouchableOpacity onPress={() => setViewingUser(null)} style={{ padding: 6 }}>
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          {loadingCollections ? (
+            <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+          ) : !!viewingError ? (
+            <Text style={railStyles.emptyText}>{viewingError}</Text>
+          ) : openedCollection ? (
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              {openedCollection.picks.length === 0 ? (
+                <Text style={railStyles.emptyText}>Esta colección no tiene picks públicos.</Text>
+              ) : openedCollection.picks.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={railStyles.pickRow}
+                  onPress={() => Linking.openURL(p.url).catch(() => {})}
+                  activeOpacity={0.75}
+                >
+                  {p.img
+                    ? <Image source={{ uri: p.img }} style={railStyles.pickImg} />
+                    : <View style={[railStyles.pickImg, { justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="image-outline" size={20} color={COLORS.textTertiary} />
+                      </View>
+                  }
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={railStyles.pickName} numberOfLines={2}>{p.name}</Text>
+                    {!!(p.price_current || p.price_saved) && (
+                      <Text style={railStyles.pickPrice}>${p.price_current || p.price_saved}</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : viewingCollections.length === 0 ? (
+            <Text style={railStyles.emptyText}>Todavía no tiene colecciones públicas.</Text>
+          ) : (
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              {viewingCollections.map(col => (
+                <TouchableOpacity
+                  key={col.id}
+                  style={railStyles.collectionCard}
+                  onPress={() => setOpenedCollection(col)}
+                  activeOpacity={0.75}
+                >
+                  <View style={railStyles.collectionThumbRow}>
+                    {col.picks.length === 0
+                      ? <View style={[railStyles.collectionThumb, { justifyContent: 'center', alignItems: 'center' }]}>
+                          <Ionicons name="albums-outline" size={16} color={COLORS.textTertiary} />
+                        </View>
+                      : col.picks.slice(0, 3).map((p, i) => (
+                          p.img
+                            ? <Image key={p.id} source={{ uri: p.img }} style={[railStyles.collectionThumb, i > 0 && { marginLeft: -14 }]} />
+                            : <View key={p.id || i} style={[railStyles.collectionThumb, i > 0 && { marginLeft: -14 }, { justifyContent: 'center', alignItems: 'center' }]}>
+                                <Ionicons name="image-outline" size={14} color={COLORS.textTertiary} />
+                              </View>
+                        ))
+                    }
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={railStyles.collectionName}>{col.name}</Text>
+                    <Text style={railStyles.collectionCount}>{col.picks.length} pick{col.picks.length !== 1 ? 's' : ''}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
+    </>
+  );
+}
+
+const railStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    right: 0,
+    top: '38%',
+    alignItems: 'flex-end',
+    zIndex: 20,
+  },
+  handle: {
+    width: 30,
+    height: 44,
+    backgroundColor: 'rgba(20,20,20,0.55)',
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarPanel: {
+    backgroundColor: 'rgba(20,20,20,0.55)',
+    borderRadius: 20,
+    paddingHorizontal: 6,
+    marginTop: 8,
+    maxHeight: 260,
+  },
+  avatarBtn: { paddingVertical: 6, alignItems: 'center' },
+  avatarImg: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#fff', backgroundColor: '#ccc' },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
+    borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
+  modalSub:   { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
+  emptyText:  { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 30, paddingHorizontal: 24 },
+  pickRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
+    padding: 10, marginBottom: 10,
+  },
+  pickImg: { width: 56, height: 56, borderRadius: 10, backgroundColor: COLORS.card },
+  pickName: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
+  pickPrice: { fontSize: 13, fontWeight: '700', color: COLORS.accent, marginTop: 4 },
+  collectionCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
+    padding: 12, marginBottom: 10,
+  },
+  collectionThumbRow: { flexDirection: 'row' },
+  collectionThumb: { width: 40, height: 40, borderRadius: 8, backgroundColor: COLORS.card, borderWidth: 2, borderColor: COLORS.surface },
+  collectionName: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
+  collectionCount: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+});
 
 function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder }) {
   const [input, setInput] = useState('');
