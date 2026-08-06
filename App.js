@@ -1293,7 +1293,7 @@ export default function App() {
               storesOrderSwapped={storesOrderSwapped}
               onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
             />
-            {!!userProfile && <FollowingRail followingList={followingList} getAvatarUrl={getAvatarUrl} />}
+            {!!userProfile && <FollowingRail followingList={followingList} getAvatarUrl={getAvatarUrl} onOpenUrl={openUrl} />}
           </>
         ) : activeTab === 'search' ? (
           <SearchView
@@ -1318,6 +1318,7 @@ export default function App() {
             avatarUrl={getAvatarUrl(userProfile?.id)}
             onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
             onFollowingChanged={() => refreshFollowingList(userProfile?.id)}
+            onOpenUrl={openUrl}
             onInterestsChange={async (interests) => {
               await supabase.auth.updateUser({ data: { interests } });
               setUserInterests(interests);
@@ -1491,7 +1492,7 @@ function personDisplayLabel(person) {
   return name || 'Usuario';
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged }) {
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -2236,7 +2237,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 <TouchableOpacity
                   key={p.id}
                   style={profileStyles.viewingPickRow}
-                  onPress={() => Linking.openURL(p.url).catch(() => {})}
+                  onPress={() => { setViewingPerson(null); onOpenUrl ? onOpenUrl(p.url) : Linking.openURL(p.url).catch(() => {}); }}
                   activeOpacity={0.75}
                 >
                   {p.img
@@ -2635,7 +2636,7 @@ function FollowingAvatarImg({ uri }) {
   return <Image source={{ uri }} style={railStyles.avatarImg} onError={() => setFailed(true)} />;
 }
 
-function FollowingRail({ followingList, getAvatarUrl }) {
+function FollowingRail({ followingList, getAvatarUrl, onOpenUrl }) {
   const [expanded, setExpanded] = useState(false);
   const [viewingUser, setViewingUser] = useState(null);
   const [viewingCollections, setViewingCollections] = useState([]);
@@ -2746,7 +2747,7 @@ function FollowingRail({ followingList, getAvatarUrl }) {
                 <TouchableOpacity
                   key={p.id}
                   style={railStyles.pickRow}
-                  onPress={() => Linking.openURL(p.url).catch(() => {})}
+                  onPress={() => { setViewingUser(null); onOpenUrl ? onOpenUrl(p.url) : Linking.openURL(p.url).catch(() => {}); }}
                   activeOpacity={0.75}
                 >
                   {p.img
