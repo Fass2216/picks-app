@@ -1063,13 +1063,18 @@ export default function App() {
 
   // Notifica al backend que cambió la visibilidad pública de un pick puntual
   // (se usa al togglear una colección pública/privada, sin re-mandar todo el objeto).
-  async function syncPickVisibility(pickId, isPublic) {
+  // Reenvía el pick COMPLETO (no solo el flag) para garantizar que el backend
+  // tenga siempre el user_id correcto, incluso si el pick se creó antes de
+  // que existiera esta sincronización (picks viejos que nunca mandaron user_id).
+  async function syncPickVisibility(pick, isPublic) {
+    if (!pick) return;
     try {
       const device_id = await getOrCreateDeviceId();
-      await fetch(`${BACKEND_URL}/api/picks/${pickId}/visibility`, {
+      const user_id = userProfile?.id || null;
+      await fetch(`${BACKEND_URL}/api/picks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id, is_public: isPublic }),
+        body: JSON.stringify({ device_id, user_id, pick: { ...pick, is_public: isPublic } }),
       });
     } catch (e) {}
   }
@@ -1302,7 +1307,10 @@ export default function App() {
             onToggleCollectionPublic={(colId, isPublic) => {
               const col = collections.find(c => c.id === colId);
               setCollections(prev => prev.map(c => c.id === colId ? { ...c, isPublic } : c));
-              (col?.pickIds || []).forEach(pid => syncPickVisibility(pid, isPublic));
+              (col?.pickIds || []).forEach(pid => {
+                const pk = picks.find(p => p.id === pid);
+                if (pk) syncPickVisibility(pk, isPublic);
+              });
               track('collection_visibility_changed', { isPublic });
             }}
           />
@@ -1325,7 +1333,7 @@ export default function App() {
                   ? { ...c, pickIds: [...c.pickIds, collectionModal.id] }
                   : c
               ));
-              if (targetCol?.isPublic) syncPickVisibility(collectionModal.id, true);
+              if (targetCol?.isPublic) syncPickVisibility(collectionModal, true);
             }
             setCollectionModal(null);
           }}
