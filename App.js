@@ -3775,28 +3775,57 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
             <Text style={styles.emptyDesc}>Al guardar un pick podrás organizarlo en colecciones.</Text>
           </View>
         ) : (
-          <FlatList
-            data={collections}
-            keyExtractor={c => c.id}
-            contentContainerStyle={{ gap: 10, paddingBottom: 20, paddingTop: 4 }}
-            renderItem={({ item: col }) => {
-              const thumb = picks.find(p => col.pickIds.includes(p.id));
-              return (
-                <TouchableOpacity style={colStyles.colListRow} onPress={() => setOpenCollection(col.id)} activeOpacity={0.85}>
-                  <View style={colStyles.colListThumb}>
-                    {thumb
-                      ? <Image source={{ uri: thumb.img }} style={{ width: '100%', height: '100%', borderRadius: 10 }} />
-                      : <Ionicons name="folder" size={28} color={COLORS.accent} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={colStyles.colListName}>{col.name}</Text>
-                    <Text style={colStyles.colListCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'Pick' : 'Picks'}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-                </TouchableOpacity>
-              );
-            }}
-          />
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.picksGridContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.picksGrid}>
+              {collections.map((col) => {
+                const colPicksForCard = picks.filter(p => col.pickIds.includes(p.id));
+                const thumb = colPicksForCard[0];
+                return (
+                  <TouchableOpacity
+                    key={col.id}
+                    style={styles.pickCard}
+                    activeOpacity={0.85}
+                    onPress={() => setOpenCollection(col.id)}
+                  >
+                    <View style={styles.pickImgWrap}>
+                      {thumb
+                        ? <Image source={{ uri: thumb.img }} style={styles.pickImg} resizeMode="cover" />
+                        : (
+                          <View style={[styles.pickImg, { justifyContent: 'center', alignItems: 'center' }]}>
+                            <Ionicons name="folder" size={32} color={COLORS.accent} />
+                          </View>
+                        )
+                      }
+                    </View>
+                    <View style={styles.pickInfo}>
+                      <Text style={styles.pickName} numberOfLines={2}>{col.name}</Text>
+                      <View style={styles.pickMeta}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
+                          <Ionicons name={col.isPublic ? 'globe-outline' : 'lock-closed-outline'} size={11} color={COLORS.textTertiary} />
+                          <Text style={[styles.pickDomain, { flexShrink: 1 }]} numberOfLines={1}>
+                            {col.pickIds.length} {col.pickIds.length === 1 ? 'Pick' : 'Picks'}
+                          </Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.shareBtn}
+                        onPress={() => shareCollection(colPicksForCard, col.name)}
+                        hitSlop={8}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="share-outline" size={14} color={COLORS.textSecondary} />
+                        <Text style={styles.shareBtnText}>Compartir</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
         )
       ) : (
 
