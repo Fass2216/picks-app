@@ -1771,8 +1771,17 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const saveName = async () => {
     setSavingName(true);
     try {
-      const { error: err } = await supabase.auth.updateUser({ data: { name: editNameValue.trim() || null } });
+      const cleanName = editNameValue.trim() || null;
+      const { error: err } = await supabase.auth.updateUser({ data: { name: cleanName } });
       if (err) { Alert.alert('Error', err.message || 'No se pudo guardar el nombre.'); return; }
+      // El auth.updateUser de arriba solo actualiza el metadata del usuario logueado;
+      // la tabla profiles (que es la que consultan otros usuarios al buscarte, seguirte,
+      // etc.) es una tabla aparte y no se actualiza sola — hay que sincronizarla acá.
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .upsert({ id: userProfile.id, display_name: cleanName }, { onConflict: 'id' });
+      if (profErr) { Alert.alert('Error', 'El nombre se guardó pero no se pudo sincronizar tu perfil público.'); }
+      setMyProfileRow(prev => ({ ...(prev || {}), id: userProfile.id, display_name: cleanName }));
       setEditingName(false);
     } catch (e) {
       Alert.alert('Error', 'No se pudo guardar el nombre.');
