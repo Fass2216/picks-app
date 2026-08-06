@@ -1243,6 +1243,15 @@ export default function App() {
               setUserInterests([]);
               setAvatarCacheBust('');
             }}
+            picksCount={picks.length}
+            onClearMyPicks={async () => {
+              setPicks([]);
+              setCollections([]);
+              try {
+                if (activePicksKeyRef.current) await AsyncStorage.removeItem(activePicksKeyRef.current);
+                if (activeCollectionsKeyRef.current) await AsyncStorage.removeItem(activeCollectionsKeyRef.current);
+              } catch (e) {}
+            }}
           />
         ) : (
           <PicksView
@@ -1373,7 +1382,7 @@ function InterestTile({ cat, active, onPress, disabled }) {
   );
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl }) {
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1705,6 +1714,17 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     }
   };
 
+  const handleClearMyPicks = () => {
+    Alert.alert(
+      'Vaciar mis picks',
+      `Se van a borrar los ${picksCount} picks guardados en este dispositivo para esta cuenta. Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Vaciar', style: 'destructive', onPress: () => { onClearMyPicks?.(); } },
+      ]
+    );
+  };
+
   const toggleInterestsSection = () => {
     if (Platform.OS === 'android') {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -1960,6 +1980,16 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 </View>
               </View>
             )}
+
+            <View style={{ height: 10 }} />
+
+            <TouchableOpacity style={profileStyles.notifRow} onPress={handleClearMyPicks} activeOpacity={0.7}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={[profileStyles.notifRowLabel, { color: COLORS.danger || '#e0524a' }]}>Vaciar mis picks</Text>
+                <Text style={profileStyles.notifRowSub}>Borra los {picksCount} picks guardados en este dispositivo para esta cuenta</Text>
+              </View>
+              <Ionicons name="trash-outline" size={18} color={COLORS.danger || '#e0524a'} />
+            </TouchableOpacity>
           </View>
 
           {/* Comunidad */}
