@@ -3976,9 +3976,69 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState(0);
+  const [pickingImage, setPickingImage] = useState(false);
   const searchInjected = useRef(false);
   const webRef = useRef(null);
   const inputRef = useRef(null);
+
+  async function runImageSearch(pickerResult) {
+    if (pickerResult.canceled || !pickerResult.assets?.[0]?.base64) return;
+    setPickingImage(true);
+    try {
+      const asset = pickerResult.assets[0];
+      const res = await fetch(`${BACKEND_URL}/api/vision/describe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: asset.base64, media_type: asset.mimeType || 'image/jpeg' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.query) throw new Error(data.error || 'No se pudo reconocer la imagen');
+      Keyboard.dismiss();
+      setInputText(data.query);
+      searchInjected.current = false;
+      setQuery(data.query);
+      setSelectedStore(0);
+      track('image_search', { query: data.query });
+    } catch (e) {
+      Alert.alert('No pudimos reconocer la imagen', 'Probá con otra foto o buscá escribiendo el producto.');
+    } finally {
+      setPickingImage(false);
+    }
+  }
+
+  async function handleImageSearchPress() {
+    Alert.alert(
+      'Buscar con una foto',
+      'Elegí una imagen y buscamos productos parecidos en las tiendas.',
+      [
+        {
+          text: 'Tomar foto',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permiso necesario', 'Necesitamos acceso a tu cámara para tomar la foto.');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.5 });
+            runImageSearch(result);
+          },
+        },
+        {
+          text: 'Elegir de la galería',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permiso necesario', 'Necesitamos acceso a tu galería para elegir la foto.');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.5 });
+            runImageSearch(result);
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
+  }
 
   // Todas las tiendas del país activo (la inyección JS maneja las que no tienen URL conocida)
   const predefinedSearchable = countryStores;
@@ -4108,6 +4168,17 @@ true;
           )}
         </View>
         <TouchableOpacity
+          style={[styles.searchBtn, { paddingHorizontal: 12 }, pickingImage && { opacity: 0.6 }]}
+          onPress={handleImageSearchPress}
+          disabled={pickingImage}
+          activeOpacity={0.7}
+        >
+          {pickingImage
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Ionicons name="camera-outline" size={18} color="#fff" />
+          }
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.searchBtn, !inputText.trim() && { opacity: 0.4 }]}
           onPress={doSearch}
           disabled={!inputText.trim()}
@@ -4123,7 +4194,7 @@ true;
           <Ionicons name="search" size={48} color={COLORS.border} />
           <Text style={styles.searchEmptyTitle}>Buscá en todas las tiendas</Text>
           <Text style={styles.searchEmptySubtitle}>
-            Escribí un producto arriba y lo buscás en {searchableStores.length} tiendas de un vistazo
+            Escribí un producto arriba, o tocá {'\u{1F4F7}'} para buscar con una foto
           </Text>
         </View>
       ) : (
