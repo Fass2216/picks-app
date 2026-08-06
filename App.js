@@ -2648,7 +2648,7 @@ function FollowingRail({ followingList, getAvatarUrl }) {
     <>
       <View style={railStyles.container} pointerEvents="box-none">
         <TouchableOpacity style={railStyles.handle} onPress={handleToggle} activeOpacity={0.8}>
-          <Ionicons name={expanded ? 'chevron-forward' : 'people'} size={16} color="#fff" />
+          <Ionicons name={expanded ? 'chevron-forward' : 'people'} size={20} color="#fff" />
         </TouchableOpacity>
         {expanded && (
           <View style={railStyles.avatarPanel} onTouchStart={scheduleHide}>
@@ -2771,23 +2771,23 @@ const railStyles = StyleSheet.create({
     zIndex: 20,
   },
   handle: {
-    width: 30,
-    height: 44,
-    backgroundColor: 'rgba(20,20,20,0.55)',
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
+    width: 40,
+    height: 60,
+    backgroundColor: 'rgba(20,20,20,0.6)',
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarPanel: {
-    backgroundColor: 'rgba(20,20,20,0.55)',
-    borderRadius: 20,
-    paddingHorizontal: 6,
+    backgroundColor: 'rgba(20,20,20,0.6)',
+    borderRadius: 24,
+    paddingHorizontal: 8,
     marginTop: 8,
-    maxHeight: 260,
+    maxHeight: 300,
   },
-  avatarBtn: { paddingVertical: 6, alignItems: 'center' },
-  avatarImg: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#fff', backgroundColor: '#ccc' },
+  avatarBtn: { paddingVertical: 8, alignItems: 'center' },
+  avatarImg: { width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: '#fff', backgroundColor: '#ccc' },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
