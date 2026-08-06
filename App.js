@@ -1201,6 +1201,9 @@ export default function App() {
               setUserInterests(interests);
             }}
             onLogout={async () => {
+              setPicksLoaded(false);
+              setPicks([]);
+              setCollections([]);
               await supabase.auth.signOut();
               setUserProfile(null);
               setUserInterests([]);
