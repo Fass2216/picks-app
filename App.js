@@ -106,6 +106,31 @@ async function getOrCreateDeviceId() {
 function picksStorageKey(uid) { return `picks-v1-${uid || 'guest'}`; }
 function collectionsStorageKey(uid) { return `collections-v1-${uid || 'guest'}`; }
 
+// Mutex en memoria para que la migración única de datos viejos no corra dos
+// veces en paralelo si se cambia de cuenta rápido (evita copiar los picks
+// del dueño original a una segunda cuenta por una condición de carrera).
+let legacyMigrationPromise = null;
+function runLegacyMigrationOnce(pKey, cKey) {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = (async () => {
+      const migrated = await AsyncStorage.getItem('legacy-storage-migrated-v1');
+      if (migrated) return;
+      // Marcamos como migrado ANTES de copiar, para que cualquier llamada
+      // concurrente vea el flag lo antes posible.
+      await AsyncStorage.setItem('legacy-storage-migrated-v1', '1');
+      const [legacyPicks, legacyCollections, hasNewPicks, hasNewCollections] = await Promise.all([
+        AsyncStorage.getItem('picks-v1'),
+        AsyncStorage.getItem('collections-v1'),
+        AsyncStorage.getItem(pKey),
+        AsyncStorage.getItem(cKey),
+      ]);
+      if (!hasNewPicks && legacyPicks) await AsyncStorage.setItem(pKey, legacyPicks);
+      if (!hasNewCollections && legacyCollections) await AsyncStorage.setItem(cKey, legacyCollections);
+    })();
+  }
+  return legacyMigrationPromise;
+}
+
 // Configurar cómo se muestran las notificaciones cuando la app está abierta
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -833,18 +858,7 @@ export default function App() {
       const pKey = picksStorageKey(uid);
       const cKey = collectionsStorageKey(uid);
       try {
-        const migrated = await AsyncStorage.getItem('legacy-storage-migrated-v1');
-        if (!migrated) {
-          const [legacyPicks, legacyCollections, hasNewPicks, hasNewCollections] = await Promise.all([
-            AsyncStorage.getItem('picks-v1'),
-            AsyncStorage.getItem('collections-v1'),
-            AsyncStorage.getItem(pKey),
-            AsyncStorage.getItem(cKey),
-          ]);
-          if (!hasNewPicks && legacyPicks) await AsyncStorage.setItem(pKey, legacyPicks);
-          if (!hasNewCollections && legacyCollections) await AsyncStorage.setItem(cKey, legacyCollections);
-          await AsyncStorage.setItem('legacy-storage-migrated-v1', '1');
-        }
+        await runLegacyMigrationOnce(pKey, cKey);
 
         const [sp, scol] = await Promise.all([
           AsyncStorage.getItem(pKey),
