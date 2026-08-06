@@ -1208,6 +1208,24 @@ export default function App() {
     } catch (e) {}
   }
 
+  // Revisa contra el backend (que chequea stock periódicamente) cuáles de los
+  // Picks de la cuenta activa ya están agotados, sin borrar nada todavía.
+  async function checkOutOfStockPicks() {
+    const device_id = await getOrCreateDeviceId();
+    const res = await fetch(`${BACKEND_URL}/api/picks/${device_id}`);
+    const data = await res.json();
+    const outOfStockIds = new Set((data.picks || []).filter(p => p.in_stock === 0).map(p => p.id));
+    return picks.filter(p => outOfStockIds.has(p.id));
+  }
+
+  function removeOutOfStockPicks(ids) {
+    const idSet = new Set(ids);
+    setPicks(prev => prev.filter(p => !idSet.has(p.id)));
+    setCollections(prev => prev.map(c => ({ ...c, pickIds: c.pickIds.filter(pid => !idSet.has(pid)) })));
+    ids.forEach(id => removePickFromBackend(id));
+    track('picks_cleaned_out_of_stock', { count: ids.length });
+  }
+
   function addPick(data) {
     var domain = 'web';
     try { domain = new URL(data.link || browserUrl).hostname.replace(/^www\./, ''); } catch (e) {}
@@ -1221,11 +1239,11 @@ export default function App() {
     };
     setPicks(prev => {
       if (prev.find(p => p.img === pick.img)) {
-        showToast('Ya estaba en tus picks');
+        showToast('Ya estaba en tus Picks');
         return prev;
       }
       track('pick_saved', { store: getStoreDisplayName(domain), domain: domain, has_price: !!data.price, img: data.img || '', product_url: data.link || '', title: (data.title || '').slice(0, 80) });
-      showToast('Guardado en Mis picks ✓');
+      showToast('Guardado en Mis Picks ✓');
       syncPickToBackend(pick);
       setTimeout(() => setCollectionModal(pick), 350);
       return [pick, ...prev];
@@ -1356,6 +1374,8 @@ export default function App() {
             onOpenUrl={openUrl}
             currentBackground={appBackground}
             onBackgroundChange={changeAppBackground}
+            onCheckOutOfStock={checkOutOfStockPicks}
+            onRemoveOutOfStock={removeOutOfStockPicks}
             onInterestsChange={async (interests) => {
               await supabase.auth.updateUser({ data: { interests } });
               setUserInterests(interests);
@@ -1530,7 +1550,7 @@ function personDisplayLabel(person) {
   return name || 'Usuario';
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, currentBackground, onBackgroundChange }) {
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, currentBackground, onBackgroundChange, onCheckOutOfStock, onRemoveOutOfStock }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1572,6 +1592,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [viewingPicks, setViewingPicks] = useState([]);
   const [loadingViewingPicks, setLoadingViewingPicks] = useState(false);
   const [viewingPicksError, setViewingPicksError] = useState('');
+  const [checkingOutOfStock, setCheckingOutOfStock] = useState(false);
 
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
   useEffect(() => { setAvatarError(false); }, [avatarUrl]);
@@ -1679,7 +1700,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       const data = await res.json();
       setViewingPicks(data.picks || []);
     } catch (e) {
-      setViewingPicksError('No se pudieron cargar sus picks. Probá de nuevo.');
+      setViewingPicksError('No se pudieron cargar sus Picks. Probá de nuevo.');
     } finally {
       setLoadingViewingPicks(false);
     }
@@ -1894,13 +1915,36 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
 
   const handleClearMyPicks = () => {
     Alert.alert(
-      'Vaciar mis picks',
-      `Se van a borrar los ${picksCount} picks guardados en este dispositivo para esta cuenta. Esta acción no se puede deshacer.`,
+      'Vaciar mis Picks',
+      `Se van a borrar los ${picksCount} Picks guardados en este dispositivo para esta cuenta. Esta acción no se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Vaciar', style: 'destructive', onPress: () => { onClearMyPicks?.(); } },
       ]
     );
+  };
+
+  const handleCleanOutOfStock = async () => {
+    setCheckingOutOfStock(true);
+    try {
+      const outOfStock = await onCheckOutOfStock?.();
+      if (!outOfStock || outOfStock.length === 0) {
+        Alert.alert('Todo al día', 'No tenés Picks agotados en este momento.');
+        return;
+      }
+      Alert.alert(
+        'Limpiar Picks agotados',
+        `Se van a borrar ${outOfStock.length} Pick${outOfStock.length !== 1 ? 's' : ''} que ya no tienen stock. Esta acción no se puede deshacer.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Borrar', style: 'destructive', onPress: () => onRemoveOutOfStock?.(outOfStock.map(p => p.id)) },
+        ]
+      );
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo revisar el estado de tus Picks. Probá de nuevo.');
+    } finally {
+      setCheckingOutOfStock(false);
+    }
   };
 
   const toggleInterestsSection = () => {
@@ -2035,7 +2079,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
             <View style={profileStyles.sectionDivider} />
             <Text style={profileStyles.sectionEyebrow}>PREFERENCIAS</Text>
             <Text style={profileStyles.sectionTitle}>Notificaciones</Text>
-            <Text style={profileStyles.sectionSub}>Recibí un aviso cuando uno de tus picks tenga un descuento o cambie de stock.</Text>
+            <Text style={profileStyles.sectionSub}>Recibí un aviso cuando uno de tus Picks tenga un descuento o cambie de stock.</Text>
             <View style={profileStyles.notifRow}>
               <View style={{ flex: 1, marginRight: 12 }}>
                 <Text style={profileStyles.notifRowLabel}>Avisos de rebajas y stock</Text>
@@ -2161,10 +2205,23 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
 
             <View style={{ height: 10 }} />
 
+            <TouchableOpacity style={profileStyles.notifRow} onPress={handleCleanOutOfStock} activeOpacity={0.7} disabled={checkingOutOfStock}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={profileStyles.notifRowLabel}>Limpiar Picks agotados</Text>
+                <Text style={profileStyles.notifRowSub}>Borra los Picks que ya no tienen stock</Text>
+              </View>
+              {checkingOutOfStock
+                ? <ActivityIndicator size="small" color={COLORS.accent} />
+                : <Ionicons name="sparkles-outline" size={18} color={COLORS.textTertiary} />
+              }
+            </TouchableOpacity>
+
+            <View style={{ height: 10 }} />
+
             <TouchableOpacity style={profileStyles.notifRow} onPress={handleClearMyPicks} activeOpacity={0.7}>
               <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={[profileStyles.notifRowLabel, { color: COLORS.danger || '#e0524a' }]}>Vaciar mis picks</Text>
-                <Text style={profileStyles.notifRowSub}>Borra los {picksCount} picks guardados en este dispositivo para esta cuenta</Text>
+                <Text style={[profileStyles.notifRowLabel, { color: COLORS.danger || '#e0524a' }]}>Vaciar mis Picks</Text>
+                <Text style={profileStyles.notifRowSub}>Borra los {picksCount} Picks guardados en este dispositivo para esta cuenta</Text>
               </View>
               <Ionicons name="trash-outline" size={18} color={COLORS.danger || '#e0524a'} />
             </TouchableOpacity>
@@ -2309,7 +2366,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
             <Text style={[profileStyles.errorText, { textAlign: 'center', marginTop: 20 }]}>{viewingPicksError}</Text>
           ) : viewingPicks.length === 0 ? (
             <Text style={[profileStyles.sectionSub, { textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }]}>
-              Todavía no tiene picks públicos.
+              Todavía no tiene Picks públicos.
             </Text>
           ) : (
             <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -2354,7 +2411,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
           </View>
           <Text style={profileStyles.authTitle}>Picks</Text>
           <Text style={profileStyles.authSub}>
-            {tab === 'login' ? 'Iniciá sesión para sincronizar tus picks' : 'Creá tu cuenta gratuita'}
+            {tab === 'login' ? 'Iniciá sesión para sincronizar tus Picks' : 'Creá tu cuenta gratuita'}
           </Text>
         </View>
 
@@ -2443,7 +2500,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
           {picksCount > 0 && (
             <TouchableOpacity onPress={handleClearMyPicks} style={{ marginTop: 24, alignSelf: 'center' }}>
               <Text style={{ color: COLORS.textTertiary, fontSize: 12, textAlign: 'center' }}>
-                Vaciar los {picksCount} picks guardados en este dispositivo
+                Vaciar los {picksCount} Picks guardados en este dispositivo
               </Text>
             </TouchableOpacity>
           )}
@@ -2834,7 +2891,7 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl }) {
           ) : openedCollection ? (
             <ScrollView contentContainerStyle={{ padding: 16 }}>
               {openedCollection.picks.length === 0 ? (
-                <Text style={railStyles.emptyText}>Esta colección no tiene picks públicos.</Text>
+                <Text style={railStyles.emptyText}>Esta colección no tiene Picks públicos.</Text>
               ) : openedCollection.picks.map(p => (
                 <TouchableOpacity
                   key={p.id}
@@ -2884,7 +2941,7 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl }) {
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={railStyles.collectionName}>{col.name}</Text>
-                    <Text style={railStyles.collectionCount}>{col.picks.length} pick{col.picks.length !== 1 ? 's' : ''}</Text>
+                    <Text style={railStyles.collectionCount}>{col.picks.length} Pick{col.picks.length !== 1 ? 's' : ''}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
                 </TouchableOpacity>
@@ -3164,7 +3221,7 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
         />
         <Text style={styles.infoText}>
           Mantené presionada una imagen de cualquier tienda y se va a guardar
-          en Mis picks. Tocá la estrella arriba en cualquier web para agregarla
+          en Mis Picks. Tocá la estrella arriba en cualquier web para agregarla
           a tus tiendas destacadas.
         </Text>
       </View>
@@ -3357,7 +3414,7 @@ function CollectionModal({ pick, collections, onSave, onClose }) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={colStyles.colName}>{col.name}</Text>
-                  <Text style={colStyles.colCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'pick' : 'picks'}</Text>
+                  <Text style={colStyles.colCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'Pick' : 'Picks'}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={COLORS.textTertiary} />
               </TouchableOpacity>
@@ -3595,7 +3652,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
       <View style={styles.viewContent}>
         <TouchableOpacity onPress={() => setOpenCollection(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
           <Ionicons name="chevron-back" size={20} color={COLORS.accent} />
-          <Text style={{ fontSize: 14, color: COLORS.accent }}>Mis picks</Text>
+          <Text style={{ fontSize: 14, color: COLORS.accent }}>Mis Picks</Text>
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text style={styles.title}>{col?.name}</Text>
@@ -3627,7 +3684,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
             style={{ transform: [{ scale: 0.8 }] }}
           />
         </View>
-        <Text style={styles.subtitle}>{colPicks.length} {colPicks.length === 1 ? 'pick' : 'picks'}</Text>
+        <Text style={styles.subtitle}>{colPicks.length} {colPicks.length === 1 ? 'Pick' : 'Picks'}</Text>
         {/* Zona de swipe: barra ancha sin elementos interactivos entre header y lista */}
         <View
           {...swipeZone.panHandlers}
@@ -3683,7 +3740,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
             { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
           ],
         }]}>
-          Mis picks
+          Mis Picks
         </Animated.Text>
         {picks.length > 0 && (
           <TouchableOpacity onPress={() => shareCollection()} style={styles.shareCollectionBtn} hitSlop={10} activeOpacity={0.7}>
@@ -3733,7 +3790,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={colStyles.colListName}>{col.name}</Text>
-                    <Text style={colStyles.colListCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'pick' : 'picks'}</Text>
+                    <Text style={colStyles.colListCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'Pick' : 'Picks'}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
                 </TouchableOpacity>
@@ -3746,7 +3803,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
       picks.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="heart-outline" size={56} color={COLORS.border} />
-          <Text style={styles.emptyTitle}>Acá van tus picks</Text>
+          <Text style={styles.emptyTitle}>Acá van tus Picks</Text>
           <Text style={styles.emptyDesc}>
             Entrá a una tienda, mantené presionada una imagen y se guarda acá.
           </Text>
@@ -4157,7 +4214,7 @@ function TrendsSection({ onOpenUrl }) {
               <View key={i} style={styles.trendStoreChip}>
                 <Text style={{ fontSize: 14 }}>{i === 0 ? '🔥' : i === 1 ? '⭐' : '✨'}</Text>
                 <Text style={styles.trendStoreName}>{s.store}</Text>
-                <Text style={styles.trendStoreCount}>{s.count} picks</Text>
+                <Text style={styles.trendStoreCount}>{s.count} Picks</Text>
               </View>
             ))}
           </View>
@@ -4463,7 +4520,7 @@ function TabBar({ activeTab, setActiveTab, pickCount, avatarUrl }) {
           onPress={() => setActiveTab('explorar')}
         />
         <Tab
-          label="Mis picks"
+          label="Mis Picks"
           iconName="heart-outline"
           iconActive="heart"
           isActive={activeTab === 'picks'}
