@@ -823,6 +823,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   const [followingList, setFollowingList] = useState([]);  // [{id, username, display_name}] gente que sigo
+  const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
   // Avatar URL siempre se deriva del ID del usuario (sin depender de metadata)
   const [avatarCacheBust, setAvatarCacheBust] = useState('');
   const getAvatarUrl = (uid) => uid
@@ -1044,14 +1045,16 @@ export default function App() {
   const ghostOpacity = useRef(new Animated.Value(0)).current;
   const toastOpacity = useRef(new Animated.Value(0)).current;
  
-  function openUrl(url) {
+  function openUrl(url, backLabel) {
     setCurrentPageTitle('');
     setCurrentBrowserUrl(url);
     setBrowserUrl(url);
+    setCustomBackLabel(backLabel || null);
   }
   function closeBrowser() {
     setBrowserUrl(null);
     setCurrentBrowserUrl(null);
+    setCustomBackLabel(null);
   }
   function changeTab(tab) {
     setBrowserUrl(null);
@@ -1362,7 +1365,7 @@ export default function App() {
           <BrowserView
             url={browserUrl}
             onClose={closeBrowser}
-            backLabel={activeTab === 'picks' ? 'Colecciones' : activeTab === 'home' ? 'Inicio' : activeTab === 'explorar' ? 'Explorar' : 'Volver'}
+            backLabel={customBackLabel || (activeTab === 'picks' ? 'Colecciones' : activeTab === 'home' ? 'Inicio' : activeTab === 'explorar' ? 'Explorar' : 'Volver')}
             onMessage={handleWebMessage}
             isFavorite={isCurrentFavorite()}
             isCustomFavorite={customStores.some(s => {
@@ -1386,7 +1389,7 @@ export default function App() {
               storesOrderSwapped={storesOrderSwapped}
               onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
             />
-            {!!userProfile && <FollowingRail followingList={followingList} getAvatarUrl={getAvatarUrl} onOpenUrl={openUrl} />}
+            {!!userProfile && <FollowingRail followingList={followingList} getAvatarUrl={getAvatarUrl} onOpenUrl={openUrl} browserUrl={browserUrl} />}
           </>
         ) : activeTab === 'search' ? (
           <SearchView
@@ -1412,6 +1415,7 @@ export default function App() {
             onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
             onFollowingChanged={() => refreshFollowingList(userProfile?.id)}
             onOpenUrl={openUrl}
+            browserUrl={browserUrl}
             currentBackground={appBackground}
             onBackgroundChange={changeAppBackground}
             onCheckOutOfStock={checkOutOfStockPicks}
@@ -1499,7 +1503,7 @@ export default function App() {
       )}
 
       <Modal
-        visible={!!sharedCollectionId}
+        visible={!!sharedCollectionId && !browserUrl}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setSharedCollectionId(null)}
@@ -1541,7 +1545,7 @@ export default function App() {
                       key={p.id}
                       style={styles.pickCard}
                       activeOpacity={0.85}
-                      onPress={() => { setSharedCollectionId(null); openUrl(p.url); }}
+                      onPress={() => openUrl(p.url, sharedCollection?.name || 'Colección')}
                     >
                       <View style={styles.pickImgWrap}>
                         <Image source={{ uri: p.img }} style={styles.pickImg} resizeMode="cover" />
@@ -1658,7 +1662,7 @@ function personDisplayLabel(person) {
   return name || 'Usuario';
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, currentBackground, onBackgroundChange, onCheckOutOfStock, onRemoveOutOfStock }) {
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, browserUrl, currentBackground, onBackgroundChange, onCheckOutOfStock, onRemoveOutOfStock }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -2451,7 +2455,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       </KeyboardAvoidingView>
 
       <Modal
-        visible={!!viewingPerson}
+        visible={!!viewingPerson && !browserUrl}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setViewingPerson(null)}
@@ -2482,7 +2486,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 <TouchableOpacity
                   key={p.id}
                   style={profileStyles.viewingPickRow}
-                  onPress={() => { setViewingPerson(null); onOpenUrl ? onOpenUrl(p.url) : Linking.openURL(p.url).catch(() => {}); }}
+                  onPress={() => onOpenUrl ? onOpenUrl(p.url, personDisplayLabel(viewingPerson)) : Linking.openURL(p.url).catch(() => {})}
                   activeOpacity={0.75}
                 >
                   {p.img
@@ -2893,7 +2897,7 @@ function FollowingAvatarImg({ uri }) {
   return <Image source={{ uri }} style={railStyles.avatarImg} onError={() => setFailed(true)} />;
 }
 
-function FollowingRail({ followingList, getAvatarUrl, onOpenUrl }) {
+function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl }) {
   const [expanded, setExpanded] = useState(false);
   const [viewingUser, setViewingUser] = useState(null);
   const [viewingCollections, setViewingCollections] = useState([]);
@@ -2969,7 +2973,7 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl }) {
       </View>
 
       <Modal
-        visible={!!viewingUser}
+        visible={!!viewingUser && !browserUrl}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setViewingUser(null)}
@@ -3004,7 +3008,7 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl }) {
                 <TouchableOpacity
                   key={p.id}
                   style={railStyles.pickRow}
-                  onPress={() => { setViewingUser(null); onOpenUrl ? onOpenUrl(p.url) : Linking.openURL(p.url).catch(() => {}); }}
+                  onPress={() => onOpenUrl ? onOpenUrl(p.url, openedCollection?.name || 'Colección') : Linking.openURL(p.url).catch(() => {})}
                   activeOpacity={0.75}
                 >
                   {p.img
