@@ -1480,6 +1480,17 @@ function InterestTile({ cat, active, onPress, disabled }) {
   );
 }
 
+// Nombre a mostrar para otro usuario: preferimos display_name, pero algunas
+// cuentas viejas (creadas antes de pedir el nombre en el registro) quedaron
+// con el email guardado ahí — en ese caso mostramos el @usuario en su lugar.
+function personDisplayLabel(person) {
+  const name = person?.display_name;
+  const looksLikeEmail = typeof name === 'string' && name.includes('@');
+  if (name && !looksLikeEmail) return name;
+  if (person?.username) return `@${person.username}`;
+  return name || 'Usuario';
+}
+
 function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
@@ -2150,7 +2161,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                   return (
                     <View key={person.id} style={profileStyles.personRow}>
                       <TouchableOpacity style={{ flex: 1 }} onPress={() => openPersonPicks(person)} activeOpacity={0.7}>
-                        <Text style={profileStyles.personName}>{person.display_name || `@${person.username}`}</Text>
+                        <Text style={profileStyles.personName}>{personDisplayLabel(person)}</Text>
                         <Text style={profileStyles.personUsername}>@{person.username}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -2194,7 +2205,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
           <View style={profileStyles.viewingHeader}>
             <View style={{ flex: 1 }}>
               <Text style={profileStyles.viewingTitle}>
-                {viewingPerson?.display_name || `@${viewingPerson?.username}`}
+                {personDisplayLabel(viewingPerson)}
               </Text>
               <Text style={profileStyles.viewingSub}>@{viewingPerson?.username}</Text>
             </View>
@@ -2681,7 +2692,7 @@ function FollowingRail({ followingList, getAvatarUrl }) {
                 >
                   <FollowingAvatarImg uri={getAvatarUrl(person.id)} />
                   <Text style={railStyles.avatarLabel} numberOfLines={1}>
-                    {person.display_name || `@${person.username}`}
+                    {personDisplayLabel(person)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -2705,7 +2716,7 @@ function FollowingRail({ followingList, getAvatarUrl }) {
             )}
             <View style={{ flex: 1 }}>
               <Text style={railStyles.modalTitle} numberOfLines={1}>
-                {openedCollection ? openedCollection.name : (viewingUser?.display_name || `@${viewingUser?.username}`)}
+                {openedCollection ? openedCollection.name : personDisplayLabel(viewingUser)}
               </Text>
               {!openedCollection && <Text style={railStyles.modalSub}>@{viewingUser?.username}</Text>}
             </View>
