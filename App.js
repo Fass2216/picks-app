@@ -2596,6 +2596,18 @@ function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
 // esconde sola al segundo de inactividad. Muestra los avatares de la gente
 // que seguís; tocar uno abre sus colecciones públicas. Es un acceso secundario
 // a propósito — el foco de la app sigue siendo el wishlist universal.
+function FollowingAvatarImg({ uri }) {
+  const [failed, setFailed] = useState(false);
+  if (!uri || failed) {
+    return (
+      <View style={[railStyles.avatarImg, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Ionicons name="person" size={26} color="#fff" />
+      </View>
+    );
+  }
+  return <Image source={{ uri }} style={railStyles.avatarImg} onError={() => setFailed(true)} />;
+}
+
 function FollowingRail({ followingList, getAvatarUrl }) {
   const [expanded, setExpanded] = useState(false);
   const [viewingUser, setViewingUser] = useState(null);
@@ -2611,7 +2623,7 @@ function FollowingRail({ followingList, getAvatarUrl }) {
 
   const scheduleHide = () => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setExpanded(false), 1000);
+    hideTimer.current = setTimeout(() => setExpanded(false), 2500);
   };
 
   const handleToggle = () => {
@@ -2660,7 +2672,10 @@ function FollowingRail({ followingList, getAvatarUrl }) {
                   onPress={() => openUserCollections(person)}
                   activeOpacity={0.8}
                 >
-                  <Image source={{ uri: getAvatarUrl(person.id) }} style={railStyles.avatarImg} />
+                  <FollowingAvatarImg uri={getAvatarUrl(person.id)} />
+                  <Text style={railStyles.avatarLabel} numberOfLines={1}>
+                    {person.display_name || `@${person.username}`}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -2780,14 +2795,16 @@ const railStyles = StyleSheet.create({
     alignItems: 'center',
   },
   avatarPanel: {
-    backgroundColor: 'rgba(20,20,20,0.6)',
+    backgroundColor: 'rgba(20,20,20,0.68)',
     borderRadius: 24,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     marginTop: 8,
-    maxHeight: 300,
+    maxHeight: 360,
+    width: 92,
   },
-  avatarBtn: { paddingVertical: 8, alignItems: 'center' },
-  avatarImg: { width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: '#fff', backgroundColor: '#ccc' },
+  avatarBtn: { paddingVertical: 10, alignItems: 'center' },
+  avatarImg: { width: 68, height: 68, borderRadius: 34, borderWidth: 2, borderColor: '#fff', backgroundColor: '#666' },
+  avatarLabel: { fontSize: 11, fontWeight: '600', color: '#fff', marginTop: 4, maxWidth: 76, textAlign: 'center' },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
