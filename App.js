@@ -922,27 +922,32 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  // Lista de gente que sigo (para la pestaña vertical de colecciones públicas en el Home)
+  // Lista de gente que sigo (para la pestaña vertical de colecciones públicas en el Home).
+  // Se expone como función reutilizable para poder refrescarla al toque cuando
+  // el usuario sigue/deja de seguir a alguien desde el perfil (no solo al loguearse).
+  const refreshFollowingList = async (uid) => {
+    if (!uid) { setFollowingList([]); return; }
+    try {
+      const { data: followRows, error: followErr } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', uid);
+      if (followErr) return;
+      const ids = (followRows || []).map(r => r.following_id);
+      if (ids.length === 0) { setFollowingList([]); return; }
+      const { data: profiles, error: profErr } = await supabase
+        .from('profiles')
+        .select('id, username, display_name')
+        .in('id', ids);
+      if (profErr) return;
+      setFollowingList(profiles || []);
+    } catch (e) {}
+  };
+
   useEffect(() => {
-    if (!userProfile?.id) { setFollowingList([]); return; }
     let cancelled = false;
-    (async () => {
-      try {
-        const { data: followRows, error: followErr } = await supabase
-          .from('follows')
-          .select('following_id')
-          .eq('follower_id', userProfile.id);
-        if (followErr || cancelled) return;
-        const ids = (followRows || []).map(r => r.following_id);
-        if (ids.length === 0) { setFollowingList([]); return; }
-        const { data: profiles, error: profErr } = await supabase
-          .from('profiles')
-          .select('id, username, display_name')
-          .in('id', ids);
-        if (profErr || cancelled) return;
-        setFollowingList(profiles || []);
-      } catch (e) {}
-    })();
+    if (!userProfile?.id) { setFollowingList([]); return; }
+    (async () => { if (!cancelled) await refreshFollowingList(userProfile.id); })();
     return () => { cancelled = true; };
   }, [userProfile?.id]);
 
@@ -1312,6 +1317,7 @@ export default function App() {
             userInterests={userInterests}
             avatarUrl={getAvatarUrl(userProfile?.id)}
             onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
+            onFollowingChanged={() => refreshFollowingList(userProfile?.id)}
             onInterestsChange={async (interests) => {
               await supabase.auth.updateUser({ data: { interests } });
               setUserInterests(interests);
@@ -1474,7 +1480,7 @@ function InterestTile({ cat, active, onPress, disabled }) {
   );
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks }) {
+function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1605,6 +1611,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
         setMyFollowing(prev => ({ ...prev, [targetId]: true }));
         setFollowingCount(c => c + 1);
       }
+      onFollowingChanged?.();
     } catch (e) {
       Alert.alert('Error', 'No se pudo actualizar. Probá de nuevo.');
     } finally {
