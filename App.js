@@ -1378,19 +1378,16 @@ export default function App() {
             onUrlChange={setCurrentBrowserUrl}
           />
         ) : activeTab === 'home' ? (
-          <>
-            <HomeView
-              onOpenUrl={openUrl}
-              customStores={customStores}
-              onRemoveCustom={removeCustomStore}
-              country={country}
-              countryStores={STORES_BY_COUNTRY[country] || STORES}
-              onChangeCountry={changeCountry}
-              storesOrderSwapped={storesOrderSwapped}
-              onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
-            />
-            {!!userProfile && <FollowingRail followingList={followingList} getAvatarUrl={getAvatarUrl} onOpenUrl={openUrl} browserUrl={browserUrl} />}
-          </>
+          <HomeView
+            onOpenUrl={openUrl}
+            customStores={customStores}
+            onRemoveCustom={removeCustomStore}
+            country={country}
+            countryStores={STORES_BY_COUNTRY[country] || STORES}
+            onChangeCountry={changeCountry}
+            storesOrderSwapped={storesOrderSwapped}
+            onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
+          />
         ) : activeTab === 'search' ? (
           <SearchView
             onMessage={handleWebMessage}
@@ -1476,7 +1473,17 @@ export default function App() {
           />
         )}
       </View>
- 
+
+      {!!userProfile && (
+        <FollowingRail
+          followingList={followingList}
+          getAvatarUrl={getAvatarUrl}
+          onOpenUrl={openUrl}
+          browserUrl={browserUrl}
+          active={activeTab === 'home' && !browserUrl}
+        />
+      )}
+
       {collectionModal && (
         <CollectionModal
           pick={collectionModal}
@@ -2897,7 +2904,7 @@ function FollowingAvatarImg({ uri }) {
   return <Image source={{ uri }} style={railStyles.avatarImg} onError={() => setFailed(true)} />;
 }
 
-function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl }) {
+function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl, active = true }) {
   const [expanded, setExpanded] = useState(false);
   const [viewingUser, setViewingUser] = useState(null);
   const [viewingCollections, setViewingCollections] = useState([]);
@@ -2943,10 +2950,11 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl }) {
     }
   };
 
-  if (!followingList || followingList.length === 0) return null;
+  const showRail = active && !!followingList && followingList.length > 0;
 
   return (
     <>
+      {showRail && (
       <View style={railStyles.container} pointerEvents="box-none">
         <TouchableOpacity style={railStyles.handle} onPress={handleToggle} activeOpacity={0.8}>
           <Ionicons name={expanded ? 'chevron-forward' : 'people'} size={20} color="#fff" />
@@ -2971,6 +2979,7 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl }) {
           </View>
         )}
       </View>
+      )}
 
       <Modal
         visible={!!viewingUser && !browserUrl}
