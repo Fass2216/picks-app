@@ -3709,11 +3709,33 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
             columnWrapperStyle={{ gap: 10 }}
             contentContainerStyle={{ gap: 10, paddingBottom: 20 }}
             renderItem={({ item: p }) => (
-              <TouchableOpacity style={styles.pickCard} onPress={() => onOpen(p.url)} onLongPress={() => onRemove(p.id)} activeOpacity={0.88}>
-                <Image source={{ uri: p.img }} style={styles.pickImg} />
-                <View style={styles.pickMeta}>
-                  <Text style={styles.pickTitle} numberOfLines={2}>{p.name}</Text>
-                  {p.price ? <Text style={styles.pickPrice}>{p.price}</Text> : null}
+              <TouchableOpacity
+                style={styles.pickCard}
+                activeOpacity={0.85}
+                onPress={() => onOpen(p.url)}
+                onLongPress={() => onRemove(p.id)}
+              >
+                <View style={styles.pickImgWrap}>
+                  <Image source={{ uri: p.img }} style={styles.pickImg} resizeMode="cover" />
+                </View>
+                <View style={styles.pickInfo}>
+                  <Text style={styles.pickName} numberOfLines={2}>{p.name}</Text>
+                  <View style={styles.pickMeta}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
+                      {(() => { const c = getDomainCountry(p.domain, p.url); return c ? <Text style={{ fontSize: 11 }}>{COUNTRY_INFO[c].flag}</Text> : null; })()}
+                      <Text style={[styles.pickDomain, { flexShrink: 1 }]} numberOfLines={1}>{getStoreDisplayName(p.domain)}</Text>
+                    </View>
+                    {p.price ? <Text style={styles.pickPrice} numberOfLines={1}>{p.price}</Text> : null}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.shareBtn}
+                    onPress={() => sharePick(p)}
+                    hitSlop={8}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="share-outline" size={14} color={COLORS.textSecondary} />
+                    <Text style={styles.shareBtnText}>Compartir</Text>
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             )}
