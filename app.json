@@ -3,6 +3,7 @@
     "name": "picks-app",
     "slug": "picks-app",
     "version": "1.0.0",
+    "scheme": "picks",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

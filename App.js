@@ -841,6 +841,46 @@ export default function App() {
     try { await AsyncStorage.setItem(APP_BACKGROUND_STORAGE_KEY, id || ''); } catch (e) {}
   };
 
+  // ── Colección compartida (deep link picks://collection/<id>) ────────────────
+  const [sharedCollectionId, setSharedCollectionId] = useState(null);
+  const [sharedCollection, setSharedCollection] = useState(null);
+  const [loadingSharedCollection, setLoadingSharedCollection] = useState(false);
+  const [sharedCollectionError, setSharedCollectionError] = useState('');
+
+  function extractSharedCollectionId(url) {
+    if (!url) return null;
+    const m = url.match(/collection\/([^/?#]+)/);
+    return m ? m[1] : null;
+  }
+
+  useEffect(() => {
+    const handleUrl = (url) => {
+      const id = extractSharedCollectionId(url);
+      if (id) setSharedCollectionId(id);
+    };
+    Linking.getInitialURL().then((url) => { if (url) handleUrl(url); }).catch(() => {});
+    const sub = Linking.addEventListener('url', (event) => handleUrl(event.url));
+    return () => sub?.remove?.();
+  }, []);
+
+  useEffect(() => {
+    if (!sharedCollectionId) return;
+    let cancelled = false;
+    setLoadingSharedCollection(true);
+    setSharedCollectionError('');
+    setSharedCollection(null);
+    fetch(`${BACKEND_URL}/api/collections/${sharedCollectionId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (!data.collection) { setSharedCollectionError('Esta colección ya no está disponible.'); return; }
+        setSharedCollection(data.collection);
+      })
+      .catch(() => { if (!cancelled) setSharedCollectionError('No se pudo cargar la colección.'); })
+      .finally(() => { if (!cancelled) setLoadingSharedCollection(false); });
+    return () => { cancelled = true; };
+  }, [sharedCollectionId]);
+
   // Cargar tiendas custom, orden y país guardados al arrancar (esto no depende de la cuenta)
   useEffect(() => {
     (async () => {
@@ -1457,6 +1497,74 @@ export default function App() {
           }}
         />
       )}
+
+      <Modal
+        visible={!!sharedCollectionId}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setSharedCollectionId(null)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
+            borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+          }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.textPrimary }} numberOfLines={1}>
+                {sharedCollection?.name || 'Colección compartida'}
+              </Text>
+              {!!sharedCollection && (
+                <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginTop: 2 }}>
+                  {sharedCollection.picks.length} {sharedCollection.picks.length === 1 ? 'Pick' : 'Picks'}
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity onPress={() => setSharedCollectionId(null)} style={{ padding: 6 }}>
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          {loadingSharedCollection ? (
+            <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+          ) : !!sharedCollectionError ? (
+            <Text style={{ fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }}>
+              {sharedCollectionError}
+            </Text>
+          ) : sharedCollection && sharedCollection.picks.length > 0 ? (
+            <ScrollView contentContainerStyle={styles.picksGridContent}>
+              <View style={styles.picksGrid}>
+                {sharedCollection.picks.map(p => {
+                  let domain = 'web';
+                  try { domain = new URL(p.url).hostname.replace(/^www\./, ''); } catch (e) {}
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.pickCard}
+                      activeOpacity={0.85}
+                      onPress={() => { setSharedCollectionId(null); openUrl(p.url); }}
+                    >
+                      <View style={styles.pickImgWrap}>
+                        <Image source={{ uri: p.img }} style={styles.pickImg} resizeMode="cover" />
+                      </View>
+                      <View style={styles.pickInfo}>
+                        <Text style={styles.pickName} numberOfLines={2}>{p.name}</Text>
+                        <View style={styles.pickMeta}>
+                          <Text style={[styles.pickDomain, { flexShrink: 1 }]} numberOfLines={1}>{getStoreDisplayName(domain)}</Text>
+                          {(p.price_current || p.price_saved) ? <Text style={styles.pickPrice} numberOfLines={1}>${p.price_current || p.price_saved}</Text> : null}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          ) : (
+            <Text style={{ fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }}>
+              Esta colección todavía no tiene Picks públicos.
+            </Text>
+          )}
+        </SafeAreaView>
+      </Modal>
 
       <TabBar
         activeTab={browserUrl ? 'home' : activeTab}
@@ -3601,6 +3709,29 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
     } catch (e) {}
   }
 
+  // Comparte una colección GUARDADA (con id) como link de Picks — abre la app
+  // directo si la tenés instalada. Requiere que la colección sea pública.
+  async function shareCollectionLink(col, list) {
+    if (!col) return shareCollection(list, 'Mis Picks');
+    if (list.length === 0) return;
+    if (!col.isPublic) {
+      Alert.alert(
+        'Colección privada',
+        'Para compartir un link tenés que marcar la colección como pública primero (el interruptor de arriba).'
+      );
+      return;
+    }
+    const link = `${BACKEND_URL}/c/${col.id}`;
+    try {
+      await Share.share({
+        message: `${col.name} 🧡 — Miralo en Picks\n${link}`,
+        title: col.name,
+        url: link,
+      });
+      track('collection_link_shared', { collection_id: col.id, pick_count: list.length });
+    } catch (e) {}
+  }
+
   // Países presentes en los picks
   const countryMap = {};
   picks.forEach(p => {
@@ -3658,7 +3789,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
           <Text style={styles.title}>{col?.name}</Text>
           {colPicks.length > 0 && (
             <TouchableOpacity
-              onPress={() => shareCollection(colPicks, col?.name || 'Mi colección')}
+              onPress={() => shareCollectionLink(col, colPicks)}
               style={styles.shareCollectionBtn}
               hitSlop={10}
               activeOpacity={0.7}
