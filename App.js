@@ -2165,6 +2165,14 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                 </Text>
             }
           </TouchableOpacity>
+
+          {picksCount > 0 && (
+            <TouchableOpacity onPress={handleClearMyPicks} style={{ marginTop: 24, alignSelf: 'center' }}>
+              <Text style={{ color: COLORS.textTertiary, fontSize: 12, textAlign: 'center' }}>
+                Vaciar los {picksCount} picks guardados en este dispositivo
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
