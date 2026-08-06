@@ -797,6 +797,12 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [picksLoaded, setPicksLoaded] = useState(false);
+  // Refs (no state) con la key de storage de la cuenta actualmente cargada.
+  // Se usan en vez de userProfile?.id en los efectos de guardado para evitar
+  // que, al cambiar de cuenta, se llegue a guardar el pick de la cuenta VIEJA
+  // bajo la key de la cuenta NUEVA (carrera entre el efecto de carga y el de guardado).
+  const activePicksKeyRef = useRef(null);
+  const activeCollectionsKeyRef = useRef(null);
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Avatar URL siempre se deriva del ID del usuario (sin depender de metadata)
@@ -852,11 +858,16 @@ export default function App() {
   useEffect(() => {
     if (!authChecked) return;
     let cancelled = false;
+    const uid = userProfile?.id || null;
+    const pKey = picksStorageKey(uid);
+    const cKey = collectionsStorageKey(uid);
+    // Bloquear guardados YA MISMO (síncrono, vía ref) para que el efecto de
+    // guardado no llegue a escribir los picks de la cuenta anterior bajo la
+    // key de esta cuenta nueva mientras termina de cargar.
+    activePicksKeyRef.current = null;
+    activeCollectionsKeyRef.current = null;
+    setPicksLoaded(false);
     (async () => {
-      setPicksLoaded(false);
-      const uid = userProfile?.id || null;
-      const pKey = picksStorageKey(uid);
-      const cKey = collectionsStorageKey(uid);
       try {
         await runLegacyMigrationOnce(pKey, cKey);
 
@@ -868,10 +879,17 @@ export default function App() {
         const loadedPicks = sp ? JSON.parse(sp) : [];
         setPicks(loadedPicks);
         setCollections(scol ? JSON.parse(scol) : []);
+        activePicksKeyRef.current = pKey;
+        activeCollectionsKeyRef.current = cKey;
         // Re-sincronizar picks de esta cuenta al backend (por si reinició y perdió datos)
         syncAllPicksToBackend(loadedPicks);
       } catch (e) {
-        if (!cancelled) { setPicks([]); setCollections([]); }
+        if (!cancelled) {
+          setPicks([]);
+          setCollections([]);
+          activePicksKeyRef.current = pKey;
+          activeCollectionsKeyRef.current = cKey;
+        }
       } finally {
         if (!cancelled) setPicksLoaded(true);
       }
@@ -898,15 +916,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!picksLoaded) return;
-    AsyncStorage.setItem(collectionsStorageKey(userProfile?.id), JSON.stringify(collections)).catch(() => {});
-  }, [collections, picksLoaded, userProfile?.id]);
+    if (!picksLoaded || !activeCollectionsKeyRef.current) return;
+    AsyncStorage.setItem(activeCollectionsKeyRef.current, JSON.stringify(collections)).catch(() => {});
+  }, [collections, picksLoaded]);
 
-  // Persistir picks cuando cambian (guardados por cuenta, no por dispositivo)
+  // Persistir picks cuando cambian (guardados por cuenta, no por dispositivo).
+  // Usa activePicksKeyRef (no userProfile?.id) para evitar guardar bajo la
+  // cuenta equivocada durante el instante en que se está cambiando de cuenta.
   useEffect(() => {
-    if (!picksLoaded) return;
-    AsyncStorage.setItem(picksStorageKey(userProfile?.id), JSON.stringify(picks)).catch(() => {});
-  }, [picks, picksLoaded, userProfile?.id]);
+    if (!picksLoaded || !activePicksKeyRef.current) return;
+    AsyncStorage.setItem(activePicksKeyRef.current, JSON.stringify(picks)).catch(() => {});
+  }, [picks, picksLoaded]);
  
   // Persistir tiendas custom cuando cambian
   useEffect(() => {
