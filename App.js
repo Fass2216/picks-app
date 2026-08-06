@@ -27,6 +27,8 @@ import {
   Switch,
   LayoutAnimation,
   UIManager,
+  Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -877,12 +879,15 @@ export default function App() {
         ]);
         if (cancelled) return;
         const loadedPicks = sp ? JSON.parse(sp) : [];
+        const loadedCollections = scol ? JSON.parse(scol) : [];
         setPicks(loadedPicks);
-        setCollections(scol ? JSON.parse(scol) : []);
+        setCollections(loadedCollections);
         activePicksKeyRef.current = pKey;
         activeCollectionsKeyRef.current = cKey;
-        // Re-sincronizar picks de esta cuenta al backend (por si reinició y perdió datos)
-        syncAllPicksToBackend(loadedPicks);
+        // Re-sincronizar picks de esta cuenta al backend (por si reinició y perdió datos).
+        // Se pasan las colecciones recién leídas (no el estado, que puede estar desactualizado
+        // en este mismo flush) para calcular is_public correctamente.
+        syncAllPicksToBackend(loadedPicks, loadedCollections);
       } catch (e) {
         if (!cancelled) {
           setPicks([]);
@@ -1033,19 +1038,39 @@ export default function App() {
     track('country_changed', { country: code });
   }
 
+  // Un pick es público si pertenece a alguna colección marcada como pública.
+  function computeIsPublic(pickId, cols) {
+    return (cols || []).some(c => c.isPublic && c.pickIds?.includes(pickId));
+  }
+
   // Re-sincroniza los picks de la cuenta activa al backend.
   // Se llama siempre que carga (o cambia) la cuenta, independiente de si hay permisos de notificaciones.
-  async function syncAllPicksToBackend(allPicks) {
+  async function syncAllPicksToBackend(allPicks, cols) {
     try {
       if (!allPicks || allPicks.length === 0) return;
       const device_id = await getOrCreateDeviceId();
+      const user_id = userProfile?.id || null;
+      const useCols = cols !== undefined ? cols : collections;
       for (const pick of allPicks) {
         fetch(`${BACKEND_URL}/api/picks`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device_id, pick }),
+          body: JSON.stringify({ device_id, user_id, pick: { ...pick, is_public: computeIsPublic(pick.id, useCols) } }),
         }).catch(() => {});
       }
+    } catch (e) {}
+  }
+
+  // Notifica al backend que cambió la visibilidad pública de un pick puntual
+  // (se usa al togglear una colección pública/privada, sin re-mandar todo el objeto).
+  async function syncPickVisibility(pickId, isPublic) {
+    try {
+      const device_id = await getOrCreateDeviceId();
+      await fetch(`${BACKEND_URL}/api/picks/${pickId}/visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id, is_public: isPublic }),
+      });
     } catch (e) {}
   }
 
@@ -1082,10 +1107,11 @@ export default function App() {
   async function syncPickToBackend(pick) {
     try {
       const device_id = await getOrCreateDeviceId();
+      const user_id = userProfile?.id || null;
       await fetch(`${BACKEND_URL}/api/picks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id, pick }),
+        body: JSON.stringify({ device_id, user_id, pick: { ...pick, is_public: computeIsPublic(pick.id, collections) } }),
       });
     } catch (e) {}
   }
@@ -1274,7 +1300,9 @@ export default function App() {
               openUrl(url);
             }}
             onToggleCollectionPublic={(colId, isPublic) => {
+              const col = collections.find(c => c.id === colId);
               setCollections(prev => prev.map(c => c.id === colId ? { ...c, isPublic } : c));
+              (col?.pickIds || []).forEach(pid => syncPickVisibility(pid, isPublic));
               track('collection_visibility_changed', { isPublic });
             }}
           />
@@ -1291,11 +1319,13 @@ export default function App() {
               const newCol = { id: 'c-' + Date.now(), name: newColName, pickIds: [collectionModal.id], isPublic: false };
               setCollections(prev => [...prev, newCol]);
             } else if (colId) {
+              const targetCol = collections.find(c => c.id === colId);
               setCollections(prev => prev.map(c =>
                 c.id === colId && !c.pickIds.includes(collectionModal.id)
                   ? { ...c, pickIds: [...c.pickIds, collectionModal.id] }
                   : c
               ));
+              if (targetCol?.isPublic) syncPickVisibility(collectionModal.id, true);
             }
             setCollectionModal(null);
           }}
@@ -1420,6 +1450,10 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
   const [followActionLoading, setFollowActionLoading] = useState({});
   const [peopleSearchError, setPeopleSearchError] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [viewingPerson, setViewingPerson] = useState(null);
+  const [viewingPicks, setViewingPicks] = useState([]);
+  const [loadingViewingPicks, setLoadingViewingPicks] = useState(false);
+  const [viewingPicksError, setViewingPicksError] = useState('');
 
   // Resetear error si cambia el URL (ej: después de subir nueva foto)
   useEffect(() => { setAvatarError(false); }, [avatarUrl]);
@@ -1513,6 +1547,22 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
       Alert.alert('Error', 'No se pudo actualizar. Probá de nuevo.');
     } finally {
       setFollowActionLoading(prev => ({ ...prev, [targetId]: false }));
+    }
+  };
+
+  const openPersonPicks = async (person) => {
+    setViewingPerson(person);
+    setViewingPicks([]);
+    setViewingPicksError('');
+    setLoadingViewingPicks(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/picks/public/${person.id}`);
+      const data = await res.json();
+      setViewingPicks(data.picks || []);
+    } catch (e) {
+      setViewingPicksError('No se pudieron cargar sus picks. Probá de nuevo.');
+    } finally {
+      setLoadingViewingPicks(false);
     }
   };
 
@@ -2030,10 +2080,10 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
                   const busy = !!followActionLoading[person.id];
                   return (
                     <View key={person.id} style={profileStyles.personRow}>
-                      <View style={{ flex: 1 }}>
+                      <TouchableOpacity style={{ flex: 1 }} onPress={() => openPersonPicks(person)} activeOpacity={0.7}>
                         <Text style={profileStyles.personName}>{person.display_name || `@${person.username}`}</Text>
                         <Text style={profileStyles.personUsername}>@{person.username}</Text>
-                      </View>
+                      </TouchableOpacity>
                       <TouchableOpacity
                         style={[profileStyles.followBtn, following && profileStyles.followBtnActive]}
                         onPress={() => toggleFollow(person.id)}
@@ -2064,6 +2114,60 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={!!viewingPerson}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setViewingPerson(null)}
+      >
+        <SafeAreaView style={profileStyles.container} edges={['top']}>
+          <View style={profileStyles.viewingHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={profileStyles.viewingTitle}>
+                {viewingPerson?.display_name || `@${viewingPerson?.username}`}
+              </Text>
+              <Text style={profileStyles.viewingSub}>@{viewingPerson?.username}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setViewingPerson(null)} style={{ padding: 6 }}>
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          {loadingViewingPicks ? (
+            <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+          ) : !!viewingPicksError ? (
+            <Text style={[profileStyles.errorText, { textAlign: 'center', marginTop: 20 }]}>{viewingPicksError}</Text>
+          ) : viewingPicks.length === 0 ? (
+            <Text style={[profileStyles.sectionSub, { textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }]}>
+              Todavía no tiene picks públicos.
+            </Text>
+          ) : (
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              {viewingPicks.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={profileStyles.viewingPickRow}
+                  onPress={() => Linking.openURL(p.url).catch(() => {})}
+                  activeOpacity={0.75}
+                >
+                  {p.img
+                    ? <Image source={{ uri: p.img }} style={profileStyles.viewingPickImg} />
+                    : <View style={[profileStyles.viewingPickImg, { justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="image-outline" size={20} color={COLORS.textTertiary} />
+                      </View>
+                  }
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={profileStyles.viewingPickName} numberOfLines={2}>{p.name}</Text>
+                    {!!(p.price_current || p.price_saved) && (
+                      <Text style={profileStyles.viewingPickPrice}>${p.price_current || p.price_saved}</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
       </SafeAreaView>
     );
   }
@@ -2253,6 +2357,21 @@ const profileStyles = StyleSheet.create({
   },
   searchAtSign: { fontSize: 15, color: COLORS.textTertiary, fontWeight: '600' },
   searchInputField: { flex: 1, paddingVertical: 13, paddingLeft: 2, fontSize: 15, color: COLORS.textPrimary },
+  viewingHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
+    borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+  },
+  viewingTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
+  viewingSub:   { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
+  viewingPickRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
+    padding: 10, marginBottom: 10,
+  },
+  viewingPickImg: { width: 56, height: 56, borderRadius: 10, backgroundColor: COLORS.card },
+  viewingPickName: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
+  viewingPickPrice: { fontSize: 13, fontWeight: '700', color: COLORS.accent, marginTop: 4 },
   // Auth styles
   authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
   authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
