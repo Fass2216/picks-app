@@ -3171,81 +3171,36 @@ const railStyles = StyleSheet.create({
 
 // Muestra las categorías de interés del usuario como chips (misma apariencia
 // que "Mis intereses" en Perfil). Al tocar una, las tiendas destacadas de esa
-// categoría aparecen debajo — cambian cada vez que se cambia de categoría.
-function InterestStoresSection({ interests, country, onOpenUrl }) {
-  const [storesByCat, setStoresByCat] = useState({});
-  const [selectedCat, setSelectedCat] = useState(null);
-
-  useEffect(() => {
-    if (!interests || interests.length === 0) {
-      setStoresByCat({});
-      setSelectedCat(null);
-      return;
-    }
-    let cancelled = false;
-    Promise.all(
-      interests.map((cat) =>
-        fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${cat}&limit=5`)
-          .then((r) => r.json())
-          .then((list) => [cat, Array.isArray(list) ? list : []])
-          .catch(() => [cat, []])
-      )
-    ).then((results) => {
-      if (cancelled) return;
-      const map = {};
-      results.forEach(([cat, list]) => { if (list.length) map[cat] = list; });
-      setStoresByCat(map);
-      setSelectedCat((prev) => (prev && map[prev]) ? prev : (Object.keys(map)[0] || null));
-    });
-    return () => { cancelled = true; };
-  }, [JSON.stringify(interests), country]);
-
-  const cats = Object.keys(storesByCat);
-  if (cats.length === 0) return null;
-
-  const activeList = selectedCat ? (storesByCat[selectedCat] || []) : [];
-
+// categoría cambian cuál es la lista mostrada en la pestaña "Destacadas".
+function InterestCategoryChips({ categories, selected, onSelect }) {
+  if (!categories || categories.length === 0) return null;
   return (
-    <View style={styles.interestStoresSection}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
-        {cats.map((catId) => {
-          const catDef = INTEREST_CATEGORIES.find((c) => c.id === catId);
-          const active = catId === selectedCat;
-          return (
-            <TouchableOpacity
-              key={catId}
-              style={[styles.interestCatChip, active && styles.interestCatChipActive]}
-              activeOpacity={0.85}
-              onPress={() => setSelectedCat(catId)}
-            >
-              {!!catDef?.icon && (
-                <Ionicons name={catDef.icon} size={14} color={active ? '#fff' : COLORS.textSecondary} />
-              )}
-              <Text style={[styles.interestCatChipLabel, active && styles.interestCatChipLabelActive]}>
-                {catDef?.label || catId}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {activeList.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.interestStoresChipsRow}>
-          {activeList.map((s) => (
-            <TouchableOpacity
-              key={s.domain}
-              style={[styles.interestStoreChip, { backgroundColor: s.bg || '#2C2C2C' }]}
-              activeOpacity={0.8}
-              onPress={() => onOpenUrl(s.url)}
-            >
-              <Text style={[styles.interestStoreChipText, { color: s.fg || '#FFFFFF' }]} numberOfLines={1}>
-                {s.name || s.short}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-    </View>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.interestStoresSection}
+      contentContainerStyle={{ paddingRight: 8 }}
+    >
+      {categories.map((catId) => {
+        const catDef = INTEREST_CATEGORIES.find((c) => c.id === catId);
+        const active = catId === selected;
+        return (
+          <TouchableOpacity
+            key={catId}
+            style={[styles.interestCatChip, active && styles.interestCatChipActive]}
+            activeOpacity={0.85}
+            onPress={() => onSelect(active ? null : catId)}
+          >
+            {!!catDef?.icon && (
+              <Ionicons name={catDef.icon} size={14} color={active ? '#fff' : COLORS.textSecondary} />
+            )}
+            <Text style={[styles.interestCatChipLabel, active && styles.interestCatChipLabelActive]}>
+              {catDef?.label || catId}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -3254,6 +3209,39 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeSection, setStoreSection] = useState('destacadas'); // 'destacadas' | 'mis'
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
+  const [interestStoresByCat, setInterestStoresByCat] = useState({}); // categoria -> tiendas del backend
+  const [selectedInterestCat, setSelectedInterestCat] = useState(null); // categoria elegida en los chips, o null = todas
+
+  // Trae, para cada categoría de interés del usuario, las tiendas de la base
+  // compartida del backend. Al elegir una categoría en los chips, la pestaña
+  // "Destacadas" se filtra a solo esas tiendas (sacando las que no correspondan).
+  useEffect(() => {
+    if (!userInterests || userInterests.length === 0) {
+      setInterestStoresByCat({});
+      setSelectedInterestCat(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      userInterests.map((cat) =>
+        fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${cat}&limit=10`)
+          .then((r) => r.json())
+          .then((list) => [cat, Array.isArray(list) ? list : []])
+          .catch(() => [cat, []])
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const map = {};
+      results.forEach(([cat, list]) => { if (list.length) map[cat] = list; });
+      setInterestStoresByCat(map);
+      setSelectedInterestCat((prev) => (prev && map[prev]) ? prev : null);
+    });
+    return () => { cancelled = true; };
+  }, [JSON.stringify(userInterests), country]);
+
+  const destacadasStores = selectedInterestCat
+    ? (interestStoresByCat[selectedInterestCat] || [])
+    : countryStores;
 
   const titleScale   = useRef(new Animated.Value(2.2)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
@@ -3264,13 +3252,14 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
     const domains = [...new Set([
       ...(countryStores || []).map(s => s.domain),
       ...(customStores || []).map(s => s.domain),
+      ...Object.values(interestStoresByCat).flat().map(s => s.domain),
     ])].filter(d => d && !(d in storeImages));
     if (domains.length === 0) return;
     fetch(`${BACKEND_URL}/api/store-images?domains=${domains.join(',')}`)
       .then(r => r.json())
       .then(data => setStoreImages(prev => ({ ...prev, ...(data.images || {}) })))
       .catch(() => {});
-  }, [countryStores, customStores]);
+  }, [countryStores, customStores, interestStoresByCat]);
 
   useEffect(() => {
     Animated.parallel([
@@ -3380,7 +3369,11 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
         </View>
       </View>
 
-      <InterestStoresSection interests={userInterests} country={country} onOpenUrl={onOpenUrl} />
+      <InterestCategoryChips
+        categories={Object.keys(interestStoresByCat)}
+        selected={selectedInterestCat}
+        onSelect={setSelectedInterestCat}
+      />
 
       <View style={styles.searchCard}>
         <View style={styles.searchIconWrap}>
@@ -3413,7 +3406,9 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
           onPress={() => setStoreSection('destacadas')}
         >
           <Text style={[styles.storeSectionTabText, storeSection === 'destacadas' && styles.storeSectionTabTextActive]}>
-            Destacadas
+            {selectedInterestCat
+              ? (INTEREST_CATEGORIES.find(c => c.id === selectedInterestCat)?.label || 'Destacadas')
+              : 'Destacadas'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -3427,11 +3422,18 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
       </View>
 
       {storeSection === 'destacadas' ? (
-        <MasonryStoreGrid
-          stores={countryStores}
-          storeImages={storeImages}
-          onPress={(store) => { track('store_opened', { store: store.name, type: 'predefined' }); onOpenUrl(store.url); }}
-        />
+        destacadasStores.length > 0 ? (
+          <MasonryStoreGrid
+            stores={destacadasStores}
+            storeImages={storeImages}
+            onPress={(store) => { track('store_opened', { store: store.name, type: selectedInterestCat ? 'category' : 'predefined' }); onOpenUrl(store.url); }}
+          />
+        ) : (
+          <View style={styles.emptyStores}>
+            <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
+            <Text style={styles.emptyStoresText}>Todavía no hay tiendas cargadas en esta categoría</Text>
+          </View>
+        )
       ) : (
         customStores && customStores.length > 0 ? (
           <View>
@@ -4960,12 +4962,6 @@ const styles = StyleSheet.create({
   interestCatChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   interestCatChipLabel: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500' },
   interestCatChipLabelActive: { color: '#fff', fontWeight: '600' },
-  interestStoresChipsRow: { marginTop: 10 },
-  interestStoreChip: {
-    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
-    marginRight: 8, minWidth: 88, alignItems: 'center', justifyContent: 'center',
-  },
-  interestStoreChipText: { fontSize: 12, fontWeight: '600' },
   sectionTitle: {
     fontSize: 12, color: COLORS.textSecondary, letterSpacing: 2,
     textTransform: 'uppercase', marginBottom: 12,
