@@ -3169,14 +3169,17 @@ const railStyles = StyleSheet.create({
   collectionCount: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
 });
 
-// Muestra, para cada categoría de interés del usuario, las tiendas top de la
-// base de datos compartida del backend (curadas + agregadas por la comunidad).
+// Muestra las categorías de interés del usuario como chips (misma apariencia
+// que "Mis intereses" en Perfil). Al tocar una, las tiendas destacadas de esa
+// categoría aparecen debajo — cambian cada vez que se cambia de categoría.
 function InterestStoresSection({ interests, country, onOpenUrl }) {
   const [storesByCat, setStoresByCat] = useState({});
+  const [selectedCat, setSelectedCat] = useState(null);
 
   useEffect(() => {
     if (!interests || interests.length === 0) {
       setStoresByCat({});
+      setSelectedCat(null);
       return;
     }
     let cancelled = false;
@@ -3192,6 +3195,7 @@ function InterestStoresSection({ interests, country, onOpenUrl }) {
       const map = {};
       results.forEach(([cat, list]) => { if (list.length) map[cat] = list; });
       setStoresByCat(map);
+      setSelectedCat((prev) => (prev && map[prev]) ? prev : (Object.keys(map)[0] || null));
     });
     return () => { cancelled = true; };
   }, [JSON.stringify(interests), country]);
@@ -3199,33 +3203,48 @@ function InterestStoresSection({ interests, country, onOpenUrl }) {
   const cats = Object.keys(storesByCat);
   if (cats.length === 0) return null;
 
+  const activeList = selectedCat ? (storesByCat[selectedCat] || []) : [];
+
   return (
     <View style={styles.interestStoresSection}>
-      {cats.map((catId) => {
-        const catDef = INTEREST_CATEGORIES.find((c) => c.id === catId);
-        const list = storesByCat[catId];
-        return (
-          <View key={catId} style={styles.interestStoresRow}>
-            <Text style={styles.interestStoresLabel}>
-              {catDef?.emoji ? `${catDef.emoji} ` : ''}{catDef?.label || catId}
-            </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {list.map((s) => (
-                <TouchableOpacity
-                  key={s.domain}
-                  style={[styles.interestStoreChip, { backgroundColor: s.bg || '#2C2C2C' }]}
-                  activeOpacity={0.8}
-                  onPress={() => onOpenUrl(s.url)}
-                >
-                  <Text style={[styles.interestStoreChipText, { color: s.fg || '#FFFFFF' }]} numberOfLines={1}>
-                    {s.name || s.short}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        );
-      })}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
+        {cats.map((catId) => {
+          const catDef = INTEREST_CATEGORIES.find((c) => c.id === catId);
+          const active = catId === selectedCat;
+          return (
+            <TouchableOpacity
+              key={catId}
+              style={[styles.interestCatChip, active && styles.interestCatChipActive]}
+              activeOpacity={0.85}
+              onPress={() => setSelectedCat(catId)}
+            >
+              {!!catDef?.icon && (
+                <Ionicons name={catDef.icon} size={14} color={active ? '#fff' : COLORS.textSecondary} />
+              )}
+              <Text style={[styles.interestCatChipLabel, active && styles.interestCatChipLabelActive]}>
+                {catDef?.label || catId}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {activeList.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.interestStoresChipsRow}>
+          {activeList.map((s) => (
+            <TouchableOpacity
+              key={s.domain}
+              style={[styles.interestStoreChip, { backgroundColor: s.bg || '#2C2C2C' }]}
+              activeOpacity={0.8}
+              onPress={() => onOpenUrl(s.url)}
+            >
+              <Text style={[styles.interestStoreChipText, { color: s.fg || '#FFFFFF' }]} numberOfLines={1}>
+                {s.name || s.short}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -4931,12 +4950,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   searchInput: { flex: 1, fontSize: 14, color: COLORS.textPrimary, paddingVertical: 4 },
-  interestStoresSection: { marginBottom: 6 },
-  interestStoresRow: { marginBottom: 14 },
-  interestStoresLabel: {
-    fontSize: 12, color: COLORS.textSecondary, letterSpacing: 0.5,
-    marginBottom: 8, fontWeight: '500',
+  interestStoresSection: { marginBottom: 20 },
+  interestCatChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
+    marginRight: 8, backgroundColor: COLORS.surface,
+    borderWidth: 1, borderColor: COLORS.border,
   },
+  interestCatChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  interestCatChipLabel: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500' },
+  interestCatChipLabelActive: { color: '#fff', fontWeight: '600' },
+  interestStoresChipsRow: { marginTop: 10 },
   interestStoreChip: {
     paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
     marginRight: 8, minWidth: 88, alignItems: 'center', justifyContent: 'center',
