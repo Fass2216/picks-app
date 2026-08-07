@@ -1111,6 +1111,44 @@ export default function App() {
     setCustomStores(prev => [...prev, newStore]);
     track('custom_store_added', { store: newStore.name, domain: newStore.domain });
     showToast('Agregada a tus tiendas');
+    syncCustomStoreToBackend(newStore);
+  }
+
+  // Intenta inferir a qué categoría de interés pertenece una tienda a partir
+  // de su nombre y dominio, usando las mismas palabras clave que ya usamos
+  // para personalizar Explorar. Best-effort: si no matchea nada, devuelve null
+  // y esa tienda simplemente no se suma a la base compartida (sigue quedando
+  // en "Mis tiendas" localmente, como siempre).
+  function inferStoreCategory(name = '', domain = '') {
+    const text = `${name} ${domain}`.toLowerCase();
+    for (const catId of Object.keys(INTEREST_KEYWORDS)) {
+      const kws = INTEREST_KEYWORDS[catId] || [];
+      if (kws.some((kw) => text.includes(kw))) return catId;
+    }
+    return null;
+  }
+
+  // Cuando el usuario agrega una tienda propia a "Mis tiendas", la suma
+  // automáticamente a la base de tiendas compartida del backend (si logramos
+  // inferirle una categoría), para que le sirva a todos los usuarios.
+  async function syncCustomStoreToBackend(s) {
+    try {
+      const category = inferStoreCategory(s.name, s.domain);
+      if (!category) return;
+      const device_id = await getOrCreateDeviceId();
+      const user_id = userProfile?.id || null;
+      await fetch(`${BACKEND_URL}/api/stores`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id, user_id,
+          store: {
+            domain: s.domain, name: s.name, category, country: country || 'UY',
+            url: s.url, bg: s.bg, fg: s.fg, short: s.short,
+          },
+        }),
+      });
+    } catch (e) {}
   }
  
   function removeCustomStore(domain) {
@@ -1387,6 +1425,7 @@ export default function App() {
             onChangeCountry={changeCountry}
             storesOrderSwapped={storesOrderSwapped}
             onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
+            userInterests={userInterests}
           />
         ) : activeTab === 'search' ? (
           <SearchView
@@ -3130,7 +3169,68 @@ const railStyles = StyleSheet.create({
   collectionCount: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
 });
 
-function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder }) {
+// Muestra, para cada categoría de interés del usuario, las tiendas top de la
+// base de datos compartida del backend (curadas + agregadas por la comunidad).
+function InterestStoresSection({ interests, country, onOpenUrl }) {
+  const [storesByCat, setStoresByCat] = useState({});
+
+  useEffect(() => {
+    if (!interests || interests.length === 0) {
+      setStoresByCat({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      interests.map((cat) =>
+        fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${cat}&limit=5`)
+          .then((r) => r.json())
+          .then((list) => [cat, Array.isArray(list) ? list : []])
+          .catch(() => [cat, []])
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const map = {};
+      results.forEach(([cat, list]) => { if (list.length) map[cat] = list; });
+      setStoresByCat(map);
+    });
+    return () => { cancelled = true; };
+  }, [JSON.stringify(interests), country]);
+
+  const cats = Object.keys(storesByCat);
+  if (cats.length === 0) return null;
+
+  return (
+    <View style={styles.interestStoresSection}>
+      {cats.map((catId) => {
+        const catDef = INTEREST_CATEGORIES.find((c) => c.id === catId);
+        const list = storesByCat[catId];
+        return (
+          <View key={catId} style={styles.interestStoresRow}>
+            <Text style={styles.interestStoresLabel}>
+              {catDef?.emoji ? `${catDef.emoji} ` : ''}{catDef?.label || catId}
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {list.map((s) => (
+                <TouchableOpacity
+                  key={s.domain}
+                  style={[styles.interestStoreChip, { backgroundColor: s.bg || '#2C2C2C' }]}
+                  activeOpacity={0.8}
+                  onPress={() => onOpenUrl(s.url)}
+                >
+                  <Text style={[styles.interestStoreChipText, { color: s.fg || '#FFFFFF' }]} numberOfLines={1}>
+                    {s.name || s.short}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [] }) {
   const [input, setInput] = useState('');
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeSection, setStoreSection] = useState('destacadas'); // 'destacadas' | 'mis'
@@ -3260,7 +3360,9 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
           </TouchableOpacity>
         </View>
       </View>
- 
+
+      <InterestStoresSection interests={userInterests} country={country} onOpenUrl={onOpenUrl} />
+
       <View style={styles.searchCard}>
         <View style={styles.searchIconWrap}>
           <Ionicons name="search" size={22} color={COLORS.accent} />
@@ -4829,6 +4931,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   searchInput: { flex: 1, fontSize: 14, color: COLORS.textPrimary, paddingVertical: 4 },
+  interestStoresSection: { marginBottom: 6 },
+  interestStoresRow: { marginBottom: 14 },
+  interestStoresLabel: {
+    fontSize: 12, color: COLORS.textSecondary, letterSpacing: 0.5,
+    marginBottom: 8, fontWeight: '500',
+  },
+  interestStoreChip: {
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
+    marginRight: 8, minWidth: 88, alignItems: 'center', justifyContent: 'center',
+  },
+  interestStoreChipText: { fontSize: 12, fontWeight: '600' },
   sectionTitle: {
     fontSize: 12, color: COLORS.textSecondary, letterSpacing: 2,
     textTransform: 'uppercase', marginBottom: 12,
