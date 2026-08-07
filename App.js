@@ -3215,8 +3215,9 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
   const [selectedInterestCat, setSelectedInterestCat] = useState(null); // categoria elegida en los chips, o null = todas
 
   // Trae, para cada categoría de interés del usuario, las tiendas de la base
-  // compartida del backend. Al elegir una categoría en los chips, la pestaña
-  // "Destacadas" se filtra a solo esas tiendas (sacando las que no correspondan).
+  // compartida del backend. Al abrir el Home arranca mostrando la primera
+  // categoría de interés (ya no existe una "destacadas" genérica); al elegir
+  // otra categoría en los chips, la lista de tiendas cambia a esa.
   useEffect(() => {
     if (!userInterests || userInterests.length === 0) {
       setInterestStoresByCat({});
@@ -3236,7 +3237,9 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
       const map = {};
       results.forEach(([cat, list]) => { if (list.length) map[cat] = list; });
       setInterestStoresByCat(map);
-      setSelectedInterestCat((prev) => (prev && map[prev]) ? prev : null);
+      // Si la categoría elegida ya no está disponible, cae a la primera de la
+      // lista (orden = mismo orden que "Mis intereses" en Perfil).
+      setSelectedInterestCat((prev) => (prev && map[prev]) ? prev : (Object.keys(map)[0] || null));
     });
     return () => { cancelled = true; };
   }, [JSON.stringify(userInterests), country]);
