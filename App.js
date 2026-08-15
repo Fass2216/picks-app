@@ -827,6 +827,12 @@ export default function App() {
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   const [followingList, setFollowingList] = useState([]);  // [{id, username, display_name}] gente que sigo
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
+  // "Comparar en otras tiendas": lista de tiendas de la categoría (para el
+  // modal de selección múltiple) + qué se terminó eligiendo, para pasarle a
+  // la pestaña Buscar como tiendas extra + query pre-cargada.
+  const [compareOptions, setCompareOptions] = useState(null); // { query, stores: [...] } | null = modal cerrado
+  const [compareSelected, setCompareSelected] = useState({}); // { [domain]: true }
+  const [searchPreset, setSearchPreset] = useState(null); // { query, stores } que le pasamos a SearchView
   // Avatar URL siempre se deriva del ID del usuario (sin depender de metadata)
   const [avatarCacheBust, setAvatarCacheBust] = useState('');
   const getAvatarUrl = (uid) => uid
@@ -1165,6 +1171,8 @@ export default function App() {
   // catalogada la tienda que se está navegando (base compartida del backend)
   // y ofrece abrir el mismo producto buscado en las otras tiendas top de esa
   // categoría, usando Google Shopping restringido al dominio de cada una.
+  // Abre el modal de selección múltiple con las tiendas de la misma categoría
+  // que la que se está navegando. El usuario puede tildar varias.
   async function compareInOtherStores() {
     const url = getActiveBrowserUrl();
     if (!url) return;
@@ -1186,25 +1194,31 @@ export default function App() {
         return;
       }
       const productQuery = (currentPageTitle || '').trim();
-      Alert.alert(
-        'Buscar en otras tiendas',
-        productQuery ? `"${productQuery.slice(0, 60)}"` : 'Elegí una tienda para comparar',
-        [
-          ...others.slice(0, 6).map(s => ({
-            text: s.name,
-            onPress: () => {
-              const searchUrl = productQuery
-                ? `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(productQuery + ' site:' + s.domain)}`
-                : s.url;
-              track('compare_category_store_opened', { from: reg, to: s.domain, category: found.category });
-              openUrl(searchUrl, 'Comparar');
-            },
-          })),
-          { text: 'Cancelar', style: 'cancel' },
-        ]
-      );
       track('compare_category_opened', { domain: reg, category: found.category });
+      setCompareSelected({});
+      setCompareOptions({ query: productQuery, stores: others.slice(0, 8), category: found.category, fromDomain: reg });
     } catch (e) {}
+  }
+
+  // Confirma la selección del modal de comparar: manda a la pestaña Buscar
+  // con esas tiendas cargadas (usan el mismo buscador inyectado que ya usan
+  // las tiendas "Mis tiendas") y la query del producto ya escrita.
+  function confirmCompareSelection() {
+    if (!compareOptions) return;
+    const chosen = compareOptions.stores.filter(s => compareSelected[s.domain]);
+    if (chosen.length === 0) {
+      showToast('Elegí al menos una tienda');
+      return;
+    }
+    track('compare_category_stores_chosen', {
+      from: compareOptions.fromDomain,
+      category: compareOptions.category,
+      count: chosen.length,
+    });
+    setSearchPreset({ query: compareOptions.query, stores: chosen, nonce: Date.now() });
+    setCompareOptions(null);
+    closeBrowser();
+    setActiveTab('search');
   }
  
   function showToast(msg) {
@@ -1484,6 +1498,8 @@ export default function App() {
             countryStores={STORES_BY_COUNTRY[country] || STORES}
             country={country}
             onOpenUrl={openUrl}
+            preset={searchPreset}
+            onPresetConsumed={() => setSearchPreset(null)}
           />
         ) : activeTab === 'explorar' ? (
           <ExplorarScreen
@@ -1665,6 +1681,84 @@ export default function App() {
               Esta colección todavía no tiene Picks públicos.
             </Text>
           )}
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={!!compareOptions}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setCompareOptions(null)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingHorizontal: 20, paddingTop: 12, paddingBottom: 14,
+            borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+          }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.textPrimary }}>
+                Comparar en otras tiendas
+              </Text>
+              {!!compareOptions?.query && (
+                <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginTop: 2 }} numberOfLines={1}>
+                  "{compareOptions.query}"
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity onPress={() => setCompareOptions(null)} style={{ padding: 6 }}>
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12 }}>
+            <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 14 }}>
+              Elegí una o más tiendas — te lleva a Buscar con cada una lista para ver sus resultados.
+            </Text>
+            {(compareOptions?.stores || []).map((s) => {
+              const checked = !!compareSelected[s.domain];
+              return (
+                <TouchableOpacity
+                  key={s.domain}
+                  onPress={() => setCompareSelected(prev => ({ ...prev, [s.domain]: !prev[s.domain] }))}
+                  activeOpacity={0.7}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 12,
+                    paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.borderSoft,
+                  }}
+                >
+                  <View style={{
+                    width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
+                    borderColor: checked ? COLORS.accent : COLORS.border,
+                    backgroundColor: checked ? COLORS.accent : 'transparent',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {checked && <Ionicons name="checkmark" size={15} color="#fff" />}
+                  </View>
+                  <View style={{
+                    width: 32, height: 32, borderRadius: 8, backgroundColor: s.bg || '#2C2C2C',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Text style={{ color: s.fg || '#fff', fontSize: 12, fontWeight: '700' }}>{s.short}</Text>
+                  </View>
+                  <Text style={{ fontSize: 15, color: COLORS.textPrimary, flex: 1 }}>{s.name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <View style={{ padding: 20, borderTopWidth: 0.5, borderTopColor: COLORS.border }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center',
+                opacity: Object.values(compareSelected).some(Boolean) ? 1 : 0.4,
+              }}
+              onPress={confirmCompareSelection}
+              disabled={!Object.values(compareSelected).some(Boolean)}
+            >
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>
+                Buscar en {Object.values(compareSelected).filter(Boolean).length || ''} tienda{Object.values(compareSelected).filter(Boolean).length === 1 ? '' : 's'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </SafeAreaView>
       </Modal>
 
@@ -4299,7 +4393,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
   );
 }
 
-function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl }) {
+function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState(0);
@@ -4459,7 +4553,35 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     isCustom: true,
   }));
 
+  // Tiendas "extra" que llegan desde "Comparar en otras tiendas" (BrowserView):
+  // no siempre son parte de countryStores/customStores, así que se agregan
+  // como pestañas temporales. Usan el mismo buscador inyectado que las custom.
+  const [extraStores, setExtraStores] = useState([]);
+  const lastPresetNonce = useRef(null);
+
+  useEffect(() => {
+    if (preset && preset.nonce !== lastPresetNonce.current) {
+      lastPresetNonce.current = preset.nonce;
+      setExtraStores(preset.stores || []);
+      setInputText(preset.query || '');
+      setQuery(preset.query || '');
+      setSuggestedStores([]);
+      setSelectedStore(0);
+      searchInjected.current = false;
+      if (onPresetConsumed) onPresetConsumed();
+    }
+  }, [preset]);
+
+  const knownDomains = new Set([
+    ...predefinedSearchable.map(s => s.domain),
+    ...customSearchable.map(s => s.domain),
+  ]);
+  const dedupedExtra = extraStores
+    .filter(s => !knownDomains.has(s.domain))
+    .map(s => ({ ...s, isCustom: true }));
+
   const searchableStores = [
+    ...dedupedExtra,
     ...predefinedSearchable,
     ...customSearchable,
   ];
