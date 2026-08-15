@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
@@ -4306,54 +4305,9 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
   const [pickingImage, setPickingImage] = useState(false);
   const [nlLoading, setNlLoading] = useState(false);
   const [suggestedStores, setSuggestedStores] = useState([]);
-  const [isListening, setIsListening] = useState(false);
   const searchInjected = useRef(false);
   const webRef = useRef(null);
   const inputRef = useRef(null);
-  const finalTranscriptRef = useRef('');
-
-  // Búsqueda por voz: usa el reconocimiento de voz nativo del teléfono (sin
-  // mandar audio a ningún servidor). Al terminar de hablar, el texto
-  // reconocido se busca solo, pasando por el mismo camino conversacional
-  // que si se hubiera escrito.
-  useSpeechRecognitionEvent('start', () => setIsListening(true));
-  useSpeechRecognitionEvent('result', (event) => {
-    const transcript = event.results?.[0]?.transcript || '';
-    setInputText(transcript);
-    if (event.isFinal) finalTranscriptRef.current = transcript;
-  });
-  useSpeechRecognitionEvent('end', () => {
-    setIsListening(false);
-    const t = finalTranscriptRef.current.trim();
-    finalTranscriptRef.current = '';
-    if (t) doSearch(t);
-  });
-  useSpeechRecognitionEvent('error', (event) => {
-    setIsListening(false);
-    if (event.error !== 'no-speech' && event.error !== 'aborted') {
-      Alert.alert('No pudimos escucharte', 'Probá de nuevo o escribí tu búsqueda.');
-    }
-  });
-
-  async function handleMicPress() {
-    if (isListening) {
-      ExpoSpeechRecognitionModule.stop();
-      return;
-    }
-    try {
-      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!granted) {
-        Alert.alert('Permiso necesario', 'Necesitamos acceso al micrófono para buscar por voz.');
-        return;
-      }
-      finalTranscriptRef.current = '';
-      setInputText('');
-      ExpoSpeechRecognitionModule.start({ lang: 'es-UY', interimResults: true });
-      track('voice_search_started', {});
-    } catch (e) {
-      Alert.alert('No pudimos activar el micrófono', 'Probá escribiendo tu búsqueda.');
-    }
-  }
 
   // Búsqueda conversacional: cuando el usuario escribe una frase (no un
   // producto suelto), se la mandamos a la IA para que la convierta en una
@@ -4595,13 +4549,6 @@ true;
             ? <ActivityIndicator size="small" color="#fff" />
             : <Ionicons name="camera-outline" size={18} color="#fff" />
           }
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.searchBtn, { paddingHorizontal: 12 }, isListening && { backgroundColor: '#D64545' }]}
-          onPress={handleMicPress}
-          activeOpacity={0.7}
-        >
-          <Ionicons name={isListening ? 'mic' : 'mic-outline'} size={18} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.searchBtn, !inputText.trim() && { opacity: 0.4 }]}

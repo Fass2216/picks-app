@@ -51,14 +51,6 @@
           "photosPermission": "Picks necesita acceso a tu galería para cambiar tu foto de perfil.",
           "cameraPermission": "Picks necesita acceso a tu cámara para tomar una foto de perfil."
         }
-      ],
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "Picks necesita acceso al micrófono para buscar por voz.",
-          "speechRecognitionPermission": "Picks necesita reconocimiento de voz para buscar por voz.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
-        }
       ]
     ]
   }
