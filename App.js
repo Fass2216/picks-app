@@ -1856,6 +1856,12 @@ function personDisplayLabel(person) {
 
 function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, browserUrl, currentBackground, onBackgroundChange, onCheckOutOfStock, onRemoveOutOfStock }) {
   const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
+  // Al cerrar sesión, ProfileScreen no se desmonta (seguimos en la pestaña
+  // Perfil), así que `tab` se quedaba pegado en 'profile' — dejando la vista
+  // de login/registro en un estado raro que exigía tocar "Ingresar" a mano.
+  useEffect(() => {
+    if (!userProfile) setTab('login');
+  }, [userProfile]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -4502,6 +4508,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       searchInjected.current = false;
       setQuery(data.query);
       setSelectedStore(0);
+      setCompareMode(false);
       track('image_search', { query: data.query });
     } catch (e) {
       Alert.alert('No pudimos reconocer la imagen', 'Probá con otra foto o buscá escribiendo el producto.');
@@ -4557,12 +4564,18 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
   // no siempre son parte de countryStores/customStores, así que se agregan
   // como pestañas temporales. Usan el mismo buscador inyectado que las custom.
   const [extraStores, setExtraStores] = useState([]);
+  // Mientras estamos "en modo comparar" (recién llegamos desde el ícono de
+  // comparar), el buscador muestra SOLO las tiendas que se eligieron ahí, no
+  // mezcladas con el resto — así los resultados son realmente de esa
+  // categoría. Se apaga solo si el usuario arranca una búsqueda manual nueva.
+  const [compareMode, setCompareMode] = useState(false);
   const lastPresetNonce = useRef(null);
 
   useEffect(() => {
     if (preset && preset.nonce !== lastPresetNonce.current) {
       lastPresetNonce.current = preset.nonce;
       setExtraStores(preset.stores || []);
+      setCompareMode(true);
       setInputText(preset.query || '');
       setQuery(preset.query || '');
       setSuggestedStores([]);
@@ -4580,11 +4593,13 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     .filter(s => !knownDomains.has(s.domain))
     .map(s => ({ ...s, isCustom: true }));
 
-  const searchableStores = [
-    ...dedupedExtra,
-    ...predefinedSearchable,
-    ...customSearchable,
-  ];
+  const searchableStores = compareMode
+    ? dedupedExtra
+    : [
+        ...dedupedExtra,
+        ...predefinedSearchable,
+        ...customSearchable,
+      ];
 
   // Resetear inyección cuando cambia tienda o búsqueda
   useEffect(() => {
@@ -4596,6 +4611,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     if (!q) return;
     Keyboard.dismiss();
     setSuggestedStores([]);
+    setCompareMode(false);
     // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
     // se interpretan con IA antes de buscar; términos cortos van directo.
     const wordCount = q.split(/\s+/).length;
