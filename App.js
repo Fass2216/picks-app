@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
@@ -1159,6 +1160,52 @@ export default function App() {
     setCustomStores(prev => prev.filter(s => s.domain !== domain));
     showToast('Tienda eliminada');
   }
+
+  // "Buscar en otras tiendas de esta categoría": mira en qué categoría está
+  // catalogada la tienda que se está navegando (base compartida del backend)
+  // y ofrece abrir el mismo producto buscado en las otras tiendas top de esa
+  // categoría, usando Google Shopping restringido al dominio de cada una.
+  async function compareInOtherStores() {
+    const url = getActiveBrowserUrl();
+    if (!url) return;
+    let domain = '';
+    try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return; }
+    const reg = getRegisteredDomain(domain);
+    try {
+      const lookupRes = await fetch(`${BACKEND_URL}/api/stores/lookup?domain=${encodeURIComponent(reg)}&country=${country}`);
+      const found = await lookupRes.json();
+      if (!found || !found.category) {
+        showToast('No identificamos la categoría de esta tienda todavía');
+        return;
+      }
+      const storesRes = await fetch(`${BACKEND_URL}/api/stores?country=${country}&category=${found.category}&limit=8`);
+      const stores = await storesRes.json();
+      const others = (Array.isArray(stores) ? stores : []).filter(s => s.domain !== reg);
+      if (others.length === 0) {
+        showToast('No encontramos otras tiendas en esta categoría todavía');
+        return;
+      }
+      const productQuery = (currentPageTitle || '').trim();
+      Alert.alert(
+        'Buscar en otras tiendas',
+        productQuery ? `"${productQuery.slice(0, 60)}"` : 'Elegí una tienda para comparar',
+        [
+          ...others.slice(0, 6).map(s => ({
+            text: s.name,
+            onPress: () => {
+              const searchUrl = productQuery
+                ? `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(productQuery + ' site:' + s.domain)}`
+                : s.url;
+              track('compare_category_store_opened', { from: reg, to: s.domain, category: found.category });
+              openUrl(searchUrl, 'Comparar');
+            },
+          })),
+          { text: 'Cancelar', style: 'cancel' },
+        ]
+      );
+      track('compare_category_opened', { domain: reg, category: found.category });
+    } catch (e) {}
+  }
  
   function showToast(msg) {
     setToast(msg);
@@ -1416,6 +1463,7 @@ export default function App() {
             })}
             onToggleFavorite={toggleCurrentFavorite}
             onUrlChange={setCurrentBrowserUrl}
+            onCompare={compareInOtherStores}
           />
         ) : activeTab === 'home' ? (
           <HomeView
@@ -1434,6 +1482,8 @@ export default function App() {
             onMessage={handleWebMessage}
             customStores={customStores}
             countryStores={STORES_BY_COUNTRY[country] || STORES}
+            country={country}
+            onOpenUrl={openUrl}
           />
         ) : activeTab === 'explorar' ? (
           <ExplorarScreen
@@ -3478,7 +3528,7 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
   );
 }
  
-function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange }) {
+function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
   const webRef = useRef(null);
@@ -3552,6 +3602,11 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
         <TouchableOpacity onPress={() => webRef.current?.reload()} hitSlop={8}>
           <Ionicons name="refresh" size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
+        {!!onCompare && (
+          <TouchableOpacity onPress={onCompare} hitSlop={8}>
+            <Ionicons name="swap-horizontal-outline" size={21} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <WebView
@@ -4244,14 +4299,97 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
   );
 }
 
-function SearchView({ onMessage, customStores = [], countryStores = STORES }) {
+function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState(0);
   const [pickingImage, setPickingImage] = useState(false);
+  const [nlLoading, setNlLoading] = useState(false);
+  const [suggestedStores, setSuggestedStores] = useState([]);
+  const [isListening, setIsListening] = useState(false);
   const searchInjected = useRef(false);
   const webRef = useRef(null);
   const inputRef = useRef(null);
+  const finalTranscriptRef = useRef('');
+
+  // Búsqueda por voz: usa el reconocimiento de voz nativo del teléfono (sin
+  // mandar audio a ningún servidor). Al terminar de hablar, el texto
+  // reconocido se busca solo, pasando por el mismo camino conversacional
+  // que si se hubiera escrito.
+  useSpeechRecognitionEvent('start', () => setIsListening(true));
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results?.[0]?.transcript || '';
+    setInputText(transcript);
+    if (event.isFinal) finalTranscriptRef.current = transcript;
+  });
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+    const t = finalTranscriptRef.current.trim();
+    finalTranscriptRef.current = '';
+    if (t) doSearch(t);
+  });
+  useSpeechRecognitionEvent('error', (event) => {
+    setIsListening(false);
+    if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      Alert.alert('No pudimos escucharte', 'Probá de nuevo o escribí tu búsqueda.');
+    }
+  });
+
+  async function handleMicPress() {
+    if (isListening) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+    try {
+      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Permiso necesario', 'Necesitamos acceso al micrófono para buscar por voz.');
+        return;
+      }
+      finalTranscriptRef.current = '';
+      setInputText('');
+      ExpoSpeechRecognitionModule.start({ lang: 'es-UY', interimResults: true });
+      track('voice_search_started', {});
+    } catch (e) {
+      Alert.alert('No pudimos activar el micrófono', 'Probá escribiendo tu búsqueda.');
+    }
+  }
+
+  // Búsqueda conversacional: cuando el usuario escribe una frase (no un
+  // producto suelto), se la mandamos a la IA para que la convierta en una
+  // consulta corta + una categoría, y con eso sugerimos tiendas de esa
+  // categoría (además de igual buscar la consulta refinada en todas las tiendas).
+  async function runConversationalSearch(text) {
+    setNlLoading(true);
+    setSuggestedStores([]);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/search/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text }),
+      });
+      const data = await res.json();
+      const refined = (data.query || text).trim();
+      setInputText(refined);
+      searchInjected.current = false;
+      setQuery(refined);
+      setSelectedStore(0);
+      track('conversational_search', { category: data.category || '', query: refined });
+      if (data.category) {
+        fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${data.category}&limit=6`)
+          .then((r) => r.json())
+          .then((list) => setSuggestedStores(Array.isArray(list) ? list : []))
+          .catch(() => setSuggestedStores([]));
+      }
+    } catch (e) {
+      // Si falla la interpretación, degradamos a buscar el texto tal cual.
+      searchInjected.current = false;
+      setQuery(text);
+      setSelectedStore(0);
+    } finally {
+      setNlLoading(false);
+    }
+  }
 
   async function runImageSearch(pickerResult) {
     if (pickerResult.canceled || !pickerResult.assets?.[0]?.base64) return;
@@ -4331,10 +4469,18 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES }) {
     searchInjected.current = false;
   }, [selectedStore, query]);
 
-  function doSearch() {
-    const q = inputText.trim();
+  function doSearch(overrideText) {
+    const q = (overrideText !== undefined ? overrideText : inputText).trim();
     if (!q) return;
     Keyboard.dismiss();
+    setSuggestedStores([]);
+    // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
+    // se interpretan con IA antes de buscar; términos cortos van directo.
+    const wordCount = q.split(/\s+/).length;
+    if (wordCount >= 4) {
+      runConversationalSearch(q);
+      return;
+    }
     searchInjected.current = false;
     setQuery(q);
     setSelectedStore(0);
@@ -4428,7 +4574,7 @@ true;
             placeholderTextColor={COLORS.textTertiary}
             value={inputText}
             onChangeText={setInputText}
-            onSubmitEditing={doSearch}
+            onSubmitEditing={() => doSearch()}
             returnKeyType="search"
             autoCorrect={false}
             autoCapitalize="none"
@@ -4451,8 +4597,15 @@ true;
           }
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.searchBtn, { paddingHorizontal: 12 }, isListening && { backgroundColor: '#D64545' }]}
+          onPress={handleMicPress}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={isListening ? 'mic' : 'mic-outline'} size={18} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.searchBtn, !inputText.trim() && { opacity: 0.4 }]}
-          onPress={doSearch}
+          onPress={() => doSearch()}
           disabled={!inputText.trim()}
           activeOpacity={0.7}
         >
@@ -4460,7 +4613,12 @@ true;
         </TouchableOpacity>
       </View>
 
-      {!query ? (
+      {nlLoading ? (
+        <View style={styles.searchEmpty}>
+          <ActivityIndicator size="small" color={COLORS.accent} />
+          <Text style={[styles.searchEmptySubtitle, { marginTop: 10 }]}>Interpretando tu búsqueda…</Text>
+        </View>
+      ) : !query ? (
         /* Estado vacío */
         <View style={styles.searchEmpty}>
           <Ionicons name="search" size={48} color={COLORS.border} />
@@ -4471,6 +4629,28 @@ true;
         </View>
       ) : (
         <>
+          {suggestedStores.length > 0 && (
+            <View style={styles.nlSuggestRow}>
+              <Text style={styles.nlSuggestLabel}>Tiendas recomendadas para esto</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {suggestedStores.map((s) => (
+                  <TouchableOpacity
+                    key={s.domain}
+                    style={[styles.interestStoreChipSm, { backgroundColor: s.bg || '#2C2C2C' }]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (onOpenUrl) onOpenUrl(s.url, 'Buscar');
+                      track('conversational_search_store_opened', { store: s.name, category: s.category });
+                    }}
+                  >
+                    <Text style={{ color: s.fg || '#FFFFFF', fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
+                      {s.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
           {/* Selector de tienda */}
           <ScrollView
             horizontal
@@ -4967,6 +5147,12 @@ const styles = StyleSheet.create({
   interestCatChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   interestCatChipLabel: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500' },
   interestCatChipLabelActive: { color: '#fff', fontWeight: '600' },
+  nlSuggestRow: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  nlSuggestLabel: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500', marginBottom: 8 },
+  interestStoreChipSm: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    marginRight: 8, minWidth: 70, alignItems: 'center', justifyContent: 'center',
+  },
   sectionTitle: {
     fontSize: 12, color: COLORS.textSecondary, letterSpacing: 2,
     textTransform: 'uppercase', marginBottom: 12,
