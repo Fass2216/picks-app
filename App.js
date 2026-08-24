@@ -290,7 +290,15 @@ function getRegisteredDomain(domain) {
   }
   return parts.slice(-2).join('.');
 }
- 
+
+// El título de una pestaña del navegador suele venir como "Producto - Tienda"
+// o "Producto | Tienda" — para usarlo como búsqueda en OTRAS tiendas hay que
+// sacarle el nombre de la tienda de origen, si no la búsqueda nunca matchea.
+function cleanProductTitle(title) {
+  if (!title) return '';
+  return title.split(/[|·\-–—]/)[0].trim().slice(0, 60);
+}
+
 const CUSTOM_COLORS = [
   { bg: '#A55CA0', fg: '#FFFFFF' },
   { bg: '#3B7A57', fg: '#FFFFFF' },
@@ -1183,7 +1191,10 @@ export default function App() {
       const lookupRes = await fetch(`${BACKEND_URL}/api/stores/lookup?domain=${encodeURIComponent(reg)}&country=${country}`);
       const found = await lookupRes.json();
       if (!found || !found.category) {
-        showToast('No identificamos la categoría de esta tienda todavía');
+        Alert.alert(
+          'Todavía no la tenemos categorizada',
+          'Esta tienda no está en nuestra base compartida todavía, así que no podemos sugerirte dónde comparar. Se va a poder comparar en cuanto la sumemos a alguna categoría.'
+        );
         return;
       }
       const storesRes = await fetch(`${BACKEND_URL}/api/stores?country=${country}&category=${found.category}&limit=8`);
@@ -1193,7 +1204,7 @@ export default function App() {
         showToast('No encontramos otras tiendas en esta categoría todavía');
         return;
       }
-      const productQuery = (currentPageTitle || '').trim();
+      const productQuery = cleanProductTitle(currentPageTitle);
       track('compare_category_opened', { domain: reg, category: found.category });
       setCompareSelected({});
       setCompareOptions({ query: productQuery, stores: others.slice(0, 8), category: found.category, fromDomain: reg });
@@ -3363,6 +3374,7 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
   const [interestStoresByCat, setInterestStoresByCat] = useState({}); // categoria -> tiendas del backend
   const [selectedInterestCat, setSelectedInterestCat] = useState(null); // categoria elegida en los chips, o null = todas
+  const [interestStoresLoading, setInterestStoresLoading] = useState(false);
 
   // Trae, para cada categoría de interés del usuario, las tiendas de la base
   // compartida del backend. Al abrir el Home arranca mostrando la primera
@@ -3372,9 +3384,11 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
     if (!userInterests || userInterests.length === 0) {
       setInterestStoresByCat({});
       setSelectedInterestCat(null);
+      setInterestStoresLoading(false);
       return;
     }
     let cancelled = false;
+    setInterestStoresLoading(true);
     Promise.all(
       userInterests.map((cat) =>
         fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${cat}&limit=10`)
@@ -3390,6 +3404,7 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
       // Si la categoría elegida ya no está disponible, cae a la primera de la
       // lista (orden = mismo orden que "Mis intereses" en Perfil).
       setSelectedInterestCat((prev) => (prev && map[prev]) ? prev : (Object.keys(map)[0] || null));
+      setInterestStoresLoading(false);
     });
     return () => { cancelled = true; };
   }, [JSON.stringify(userInterests), country]);
@@ -3523,6 +3538,13 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
           </TouchableOpacity>
         </View>
       </View>
+
+      {interestStoresLoading && Object.keys(interestStoresByCat).length === 0 && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+          <ActivityIndicator size="small" color={COLORS.accent} />
+          <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Cargando tus categorías…</Text>
+        </View>
+      )}
 
       <InterestCategoryChips
         categories={Object.keys(interestStoresByCat)}
