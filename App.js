@@ -3121,7 +3121,7 @@ function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl, act
 
   const scheduleHide = () => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setExpanded(false), 2500);
+    hideTimer.current = setTimeout(() => setExpanded(false), 10000);
   };
 
   const handleToggle = () => {
