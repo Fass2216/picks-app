@@ -834,6 +834,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   const [unreadNotifCount, setUnreadNotifCount] = useState(0); // para el contador de la campanita
+  const [searchInitialQuery, setSearchInitialQuery] = useState(null); // texto libre pre-cargado desde "Mis tiendas" (modo Toda la web)
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
   // "Comparar en otras tiendas": lista de tiendas de la categoría (para el
   // modal de selección múltiple) + qué se terminó eligiendo, para pasarle a
@@ -1081,6 +1082,28 @@ export default function App() {
     } catch (e) { return false; }
   }
  
+  // Agrega una tienda nueva a "Mis tiendas" (usada tanto por el toggle de
+  // favorito en el browser como por el prompt "¿Agregar esta tienda?" de
+  // la búsqueda unificada en Mis tiendas).
+  function addCustomStore({ domain, name, url }) {
+    const cleanName = (name || domain.split('.')[0]).slice(0, 25);
+    const color = CUSTOM_COLORS[customStores.length % CUSTOM_COLORS.length];
+    const newStore = {
+      name: cleanName,
+      domain,
+      url: (url || `https://${domain}`).split('#')[0],
+      bg: color.bg,
+      fg: color.fg,
+      short: getInitials(cleanName),
+      custom: true,
+    };
+    setCustomStores(prev => [...prev, newStore]);
+    track('custom_store_added', { store: newStore.name, domain: newStore.domain });
+    showToast('Agregada a tus tiendas');
+    syncCustomStoreToBackend(newStore);
+    return newStore;
+  }
+
   function toggleCurrentFavorite() {
     const url = getActiveBrowserUrl();
     if (!url) return;
@@ -1102,20 +1125,15 @@ export default function App() {
     // No está en ninguna → agregar como custom
     const titleSource = currentPageTitle || reg.split('.')[0];
     const cleanName = titleSource.split(/[|·\-–—]/)[0].trim().slice(0, 25) || reg.split('.')[0];
-    const color = CUSTOM_COLORS[customStores.length % CUSTOM_COLORS.length];
-    const newStore = {
-      name: cleanName,
-      domain: reg,
-      url: url.split('#')[0],
-      bg: color.bg,
-      fg: color.fg,
-      short: getInitials(cleanName),
-      custom: true,
-    };
-    setCustomStores(prev => [...prev, newStore]);
-    track('custom_store_added', { store: newStore.name, domain: newStore.domain });
-    showToast('Agregada a tus tiendas');
-    syncCustomStoreToBackend(newStore);
+    addCustomStore({ domain: reg, name: cleanName, url: url.split('#')[0] });
+  }
+
+  // Handler para el prompt "¿Agregar esta tienda?" de la búsqueda unificada
+  // en Mis tiendas (HomeView, modo "Toda la web" con una URL/dominio directo).
+  function onAddCustomStoreByDomain(domain, url) {
+    if (!domain) return;
+    if (customStores.some(s => s.domain === domain)) return;
+    addCustomStore({ domain, name: domain.split('.')[0], url });
   }
 
   // Intenta inferir a qué categoría de interés pertenece una tienda a partir
@@ -1488,7 +1506,11 @@ export default function App() {
             storesOrderSwapped={storesOrderSwapped}
             onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
             userInterests={userInterests}
-            onOpenSearch={() => setActiveTab('search')}
+            onOpenSearchWithQuery={(text) => {
+              setSearchInitialQuery({ query: text, nonce: Date.now() });
+              setActiveTab('search');
+            }}
+            onAddCustomStoreByDomain={onAddCustomStoreByDomain}
             unreadNotifCount={unreadNotifCount}
             onOpenNotifications={() => setActiveTab('notifications')}
           />
@@ -1502,6 +1524,8 @@ export default function App() {
             preset={searchPreset}
             onPresetConsumed={() => setSearchPreset(null)}
             onBack={() => setActiveTab('home')}
+            initialQuery={searchInitialQuery}
+            onInitialQueryConsumed={() => setSearchInitialQuery(null)}
           />
         ) : activeTab === 'explorar' ? (
           <ExplorarScreen
@@ -3440,10 +3464,10 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearch, unreadNotifCount = 0, onOpenNotifications }) {
+function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
+  const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
-  const [storeSection, setStoreSection] = useState('destacadas'); // 'destacadas' | 'mis'
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
   const [interestStoresByCat, setInterestStoresByCat] = useState({}); // categoria -> tiendas del backend
   const [selectedInterestCat, setSelectedInterestCat] = useState(null); // categoria elegida en los chips, o null = todas
@@ -3544,29 +3568,60 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
     );
   }
  
-  function go() {
+  // Filtro en vivo de "Mis tiendas" por nombre (no navega a ningún lado, solo
+  // acota la grilla de abajo — es la forma de "buscar en tus tiendas").
+  const filteredCustomStores = (customStores || []).filter(s =>
+    !input.trim() || s.name.toLowerCase().includes(input.trim().toLowerCase())
+  );
+
+  function switchSearchMode(mode) {
+    setSearchMode(mode);
+    setInput('');
+  }
+
+  // Modo "Toda la web": si es una URL/dominio, abre directo (y si esa tienda
+  // todavía no está en Mis tiendas, pregunta si la querés agregar antes).
+  // Si es una frase/producto, manda a la pantalla de Buscar (con IA/mic).
+  function submitWebSearch() {
     const raw = input.trim();
     if (!raw) return;
     Keyboard.dismiss();
-    let url;
-    let searchType = 'url';
-    if (/^https?:\/\//.test(raw)) {
-      url = raw;
-      searchType = 'direct_url';
-    } else if (/\.[a-z]{2,}/i.test(raw) && !raw.includes(' ')) {
-      url = 'https://' + raw;
-      searchType = 'domain';
+    const isDirectUrl = /^https?:\/\//.test(raw);
+    const isDomain = !isDirectUrl && /\.[a-z]{2,}/i.test(raw) && !raw.includes(' ');
+    if (isDirectUrl || isDomain) {
+      const url = isDirectUrl ? raw : 'https://' + raw;
+      let domain = '';
+      try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
+      const reg = getRegisteredDomain(domain);
+      const known = countryStores.some(s => s.domain === reg) || (customStores || []).some(s => s.domain === reg);
+      track('search_url_entered', { type: isDirectUrl ? 'direct_url' : 'domain' });
+      if (!known && reg && reg !== 'web') {
+        Alert.alert(
+          '¿Agregar esta tienda?',
+          `${reg} todavía no está en Mis tiendas.`,
+          [
+            { text: 'Solo abrir', onPress: () => onOpenUrl(url) },
+            {
+              text: 'Agregar y abrir',
+              onPress: () => { onAddCustomStoreByDomain?.(reg, url); onOpenUrl(url); },
+            },
+            { text: 'Cancelar', style: 'cancel' },
+          ]
+        );
+      } else {
+        onOpenUrl(url);
+      }
     } else {
-      url = 'https://www.google.com/search?tbm=shop&q=' + encodeURIComponent(raw);
-      searchType = 'google_shopping';
       track('search_performed', { query: raw.toLowerCase(), query_length: raw.length });
+      onOpenSearchWithQuery?.(raw);
     }
-    if (searchType !== 'google_shopping') {
-      track('search_url_entered', { type: searchType });
-    }
-    onOpenUrl(url);
   }
- 
+
+  function submitSearch() {
+    if (searchMode === 'web') submitWebSearch();
+    // en modo 'mis' el input ya filtra en vivo — Enter no hace nada más
+  }
+
   return (
     <ScrollView
       style={styles.scroll}
@@ -3575,151 +3630,120 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.brandHeader}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View>
-            <Animated.Text style={[styles.brandName, {
-              opacity: titleOpacity,
-              transform: [
-                { scale: titleScale },
-                { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
-              ],
-            }]}>
-              Picks
-            </Animated.Text>
-            <Text style={styles.brandTagline}>Tu wishlist universal</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            {!!onOpenNotifications && (
-              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
-            )}
-            {!!onOpenSearch && (
-              <TouchableOpacity
-                style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.surface, borderWidth: 0.5, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center' }}
-                activeOpacity={0.7}
-                onPress={onOpenSearch}
-              >
-                <Ionicons name="search-outline" size={17} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.countryChip}
-              activeOpacity={0.7}
-              onPress={() => {
-                Alert.alert(
-                  'Seleccioná tu país',
-                  '',
-                  [
-                    ...Object.entries(COUNTRY_INFO).map(([code, info]) => ({
-                      text: `${info.flag}  ${info.name}`,
-                      onPress: () => onChangeCountry(code),
-                    })),
-                    { text: 'Cancelar', style: 'cancel' },
-                  ]
-                );
-              }}
-            >
-              <Text style={{ fontSize: 16 }}>{COUNTRY_INFO[country].flag}</Text>
-              <Text style={styles.countryChipText}>{COUNTRY_INFO[country].name}</Text>
-              <Ionicons name="chevron-down" size={11} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-          </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={homeExtraStyles.screenTitle}>Mis tiendas</Text>
+          {!!onOpenNotifications && (
+            <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
+          )}
         </View>
       </View>
 
+      {/* Buscador único: Mis tiendas (filtra la grilla) / Toda la web (abre o manda a Buscar) */}
+      <View style={homeExtraStyles.searchRow}>
+        <View style={homeExtraStyles.searchInputWrap}>
+          <Ionicons name="search-outline" size={17} color={COLORS.textSecondary} />
+          <TextInput
+            style={homeExtraStyles.searchInputField}
+            placeholder={searchMode === 'mis' ? 'Buscar en tus tiendas...' : 'Buscar en la web...'}
+            placeholderTextColor={COLORS.textTertiary}
+            value={input}
+            onChangeText={setInput}
+            onSubmitEditing={submitSearch}
+            returnKeyType={searchMode === 'mis' ? 'search' : 'go'}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {input.length > 0 && (
+            <TouchableOpacity onPress={() => setInput('')} hitSlop={10}>
+              <Ionicons name="close-circle" size={16} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <TouchableOpacity
+          style={homeExtraStyles.modeChip}
+          activeOpacity={0.7}
+          onPress={() => {
+            Alert.alert('Buscar en', '', [
+              { text: 'Mis tiendas', onPress: () => switchSearchMode('mis') },
+              { text: 'Toda la web', onPress: () => switchSearchMode('web') },
+              { text: 'Cancelar', style: 'cancel' },
+            ]);
+          }}
+        >
+          <Ionicons name={searchMode === 'mis' ? 'lock-closed-outline' : 'globe-outline' } size={13} color={COLORS.textPrimary} />
+          <Text style={homeExtraStyles.modeChipText}>{searchMode === 'mis' ? 'Mis tiendas' : 'Toda la web'}</Text>
+          <Ionicons name="chevron-down" size={11} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+      </View>
+
+      {searchMode === 'web' && (
+        <TouchableOpacity
+          style={[homeExtraStyles.webSearchBtn, !input.trim() && { opacity: 0.5 }]}
+          onPress={submitWebSearch}
+          disabled={!input.trim()}
+          activeOpacity={0.8}
+        >
+          <Text style={homeExtraStyles.webSearchBtnText}>Buscar en la web</Text>
+        </TouchableOpacity>
+      )}
+
+      <TrendsSection onOpenUrl={onOpenUrl} />
+
+      <Text style={homeExtraStyles.sectionHeading}>
+        Mis tiendas{customStores && customStores.length > 0 ? ` (${customStores.length})` : ''}
+      </Text>
+      {customStores && customStores.length > 0 ? (
+        filteredCustomStores.length > 0 ? (
+          <View>
+            <MasonryStoreGrid
+              stores={filteredCustomStores}
+              storeImages={storeImages}
+              onPress={(store) => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
+              onLongPress={confirmRemove}
+            />
+            <Text style={[styles.picksHint, { marginTop: 8, marginBottom: 8 }]}>Mantené presionada una tienda para eliminarla</Text>
+          </View>
+        ) : (
+          <View style={styles.emptyStores}>
+            <Ionicons name="search-outline" size={30} color={COLORS.textTertiary} />
+            <Text style={styles.emptyStoresText}>Ninguna tienda tuya coincide con "{input.trim()}"</Text>
+          </View>
+        )
+      ) : (
+        <View style={styles.emptyStores}>
+          <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
+          <Text style={styles.emptyStoresText}>Todavía no agregaste tiendas</Text>
+          <Text style={[styles.picksHint, { textAlign: 'center', marginTop: 4 }]}>
+            Tocá la estrella arriba en cualquier web para agregarla acá
+          </Text>
+        </View>
+      )}
+
+      <Text style={[homeExtraStyles.sectionHeading, { marginTop: 24 }]}>Descubrir tiendas por categoría</Text>
       {interestStoresLoading && Object.keys(interestStoresByCat).length === 0 && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <ActivityIndicator size="small" color={COLORS.accent} />
           <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Cargando tus categorías…</Text>
         </View>
       )}
-
       <InterestCategoryChips
         categories={Object.keys(interestStoresByCat)}
         selected={selectedInterestCat}
         onSelect={setSelectedInterestCat}
       />
-
-      <View style={styles.searchCard}>
-        <View style={styles.searchIconWrap}>
-          <Ionicons name="search" size={22} color={COLORS.accent} />
-        </View>
-        <TextInput
-          style={styles.searchInput}
-          placeholder='Buscar o pegar link'
-          placeholderTextColor={COLORS.textTertiary}
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={go}
-          returnKeyType="go"
-          autoCapitalize="none"
-          autoCorrect={false}
+      {destacadasStores.length > 0 ? (
+        <MasonryStoreGrid
+          stores={destacadasStores}
+          storeImages={storeImages}
+          onPress={(store) => { track('store_opened', { store: store.name, type: selectedInterestCat ? 'category' : 'predefined' }); onOpenUrl(store.url); }}
         />
-        {input.length > 0 && (
-          <TouchableOpacity onPress={go} hitSlop={10}>
-            <Ionicons name="arrow-forward-circle" size={28} color={COLORS.accent} />
-          </TouchableOpacity>
-        )}
-      </View>
- 
-      <TrendsSection onOpenUrl={onOpenUrl} />
-
-      {/* Pestañas: Tiendas destacadas / Mis tiendas */}
-      <View style={styles.storeSectionTabs}>
-        <TouchableOpacity
-          style={[styles.storeSectionTab, storeSection === 'destacadas' && styles.storeSectionTabActive]}
-          onPress={() => setStoreSection('destacadas')}
-        >
-          <Text style={[styles.storeSectionTabText, storeSection === 'destacadas' && styles.storeSectionTabTextActive]}>
-            {selectedInterestCat
-              ? (INTEREST_CATEGORIES.find(c => c.id === selectedInterestCat)?.label || 'Destacadas')
-              : 'Destacadas'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.storeSectionTab, storeSection === 'mis' && styles.storeSectionTabActive]}
-          onPress={() => setStoreSection('mis')}
-        >
-          <Text style={[styles.storeSectionTabText, storeSection === 'mis' && styles.storeSectionTabTextActive]}>
-            Mis tiendas{customStores && customStores.length > 0 ? ` (${customStores.length})` : ''}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {storeSection === 'destacadas' ? (
-        destacadasStores.length > 0 ? (
-          <MasonryStoreGrid
-            stores={destacadasStores}
-            storeImages={storeImages}
-            onPress={(store) => { track('store_opened', { store: store.name, type: selectedInterestCat ? 'category' : 'predefined' }); onOpenUrl(store.url); }}
-          />
-        ) : (
-          <View style={styles.emptyStores}>
-            <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
-            <Text style={styles.emptyStoresText}>Todavía no hay tiendas cargadas en esta categoría</Text>
-          </View>
-        )
       ) : (
-        customStores && customStores.length > 0 ? (
-          <View>
-            <MasonryStoreGrid
-              stores={customStores}
-              storeImages={storeImages}
-              onPress={(store) => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
-              onLongPress={confirmRemove}
-            />
-            <Text style={[styles.picksHint, { marginTop: 8 }]}>Mantené presionada una tienda para eliminarla</Text>
-          </View>
-        ) : (
-          <View style={styles.emptyStores}>
-            <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
-            <Text style={styles.emptyStoresText}>Todavía no agregaste tiendas</Text>
-            <Text style={[styles.picksHint, { textAlign: 'center', marginTop: 4 }]}>
-              Tocá la estrella arriba en cualquier web para agregarla acá
-            </Text>
-          </View>
-        )
+        <View style={styles.emptyStores}>
+          <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
+          <Text style={styles.emptyStoresText}>Todavía no hay tiendas cargadas en esta categoría</Text>
+        </View>
       )}
- 
+
       <View style={styles.infoCard}>
         <Ionicons
           name="hand-left-outline"
@@ -3736,7 +3760,70 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
     </ScrollView>
   );
 }
- 
+
+const homeExtraStyles = StyleSheet.create({
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  searchInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 44,
+  },
+  searchInputField: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    paddingVertical: 0,
+  },
+  modeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    height: 44,
+  },
+  modeChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  webSearchBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  webSearchBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  sectionHeading: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 10,
+  },
+});
+
 function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -4609,7 +4696,7 @@ function PicksView({
   );
 }
 
-function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack }) {
+function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState(0);
@@ -4794,6 +4881,19 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       if (onPresetConsumed) onPresetConsumed();
     }
   }, [preset]);
+
+  // Query pre-cargada desde "Mis tiendas" (modo Toda la web con texto libre):
+  // a diferencia de `preset`, NO acota a un set de tiendas — busca en todas
+  // las conocidas, como si el usuario la hubiera tipeado acá directamente.
+  const lastInitialQueryNonce = useRef(null);
+  useEffect(() => {
+    if (initialQuery && initialQuery.nonce !== lastInitialQueryNonce.current) {
+      lastInitialQueryNonce.current = initialQuery.nonce;
+      setInputText(initialQuery.query || '');
+      doSearch(initialQuery.query || '');
+      if (onInitialQueryConsumed) onInitialQueryConsumed();
+    }
+  }, [initialQuery]);
 
   const knownDomains = new Set([
     ...predefinedSearchable.map(s => s.domain),
