@@ -3731,7 +3731,16 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
     >
       <View style={styles.brandHeader}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={homeExtraStyles.screenTitle}>Mis tiendas</Text>
+          <Animated.Text style={[styles.brandName, {
+            fontSize: 26,
+            opacity: titleOpacity,
+            transform: [
+              { scale: titleScale },
+              { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+            ],
+          }]}>
+            Picks
+          </Animated.Text>
           {!!onOpenNotifications && (
             <TourTarget id="notif-bell">
               <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
@@ -5760,7 +5769,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           {/* Marca + toggle + campana + chips, flotando arriba del reel sin bloquear el swipe */}
           <View style={{ position: 'absolute', top: 14, left: 14, right: 14, zIndex: 5 }} pointerEvents="box-none">
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={[styles.brandName, { fontSize: 18, color: '#fff' }]}>Picks</Text>
+              <Text style={[styles.brandName, { fontSize: 18 }]}>Picks</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <TouchableOpacity
                   onPress={() => setViewMode('lista')}
