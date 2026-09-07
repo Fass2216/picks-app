@@ -3937,8 +3937,10 @@ function isBlockedRedirectUrl(targetUrl) {
 function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare, onBlockedRedirect }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
+  const [forceReloadUrl, setForceReloadUrl] = useState(null);
   const webRef = useRef(null);
   const canGoBackRef = useRef(false);
+  const lastSafeUrlRef = useRef(url);
 
   // Franja izquierda: captura swipe antes que el WebView
   const edgePan = useRef(
@@ -4024,9 +4026,32 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
 
       <WebView
         ref={webRef}
-        source={{ uri: url }}
+        source={{ uri: forceReloadUrl || url }}
         style={{ flex: 1, backgroundColor: COLORS.background }}
+        onLoadStart={(e) => {
+          // Primera línea de defensa: si el destino que arranca a cargar ya es
+          // Facebook/Meta, lo frenamos antes de que termine de reemplazar la
+          // página (evita, o al menos acorta, el "flash" del producto).
+          if (isBlockedRedirectUrl(e.nativeEvent.url)) {
+            webRef.current?.stopLoading();
+          }
+        }}
         onNavigationStateChange={(state) => {
+          // Segunda línea de defensa: algunas redirecciones (vía JS, en vez de
+          // un link/tap) no pasan por onShouldStartLoadWithRequest y logran
+          // empezar a cargar igual — acá detectamos que ya estamos en Facebook
+          // y volvemos de inmediato a la última página segura.
+          if (isBlockedRedirectUrl(state.url)) {
+            onBlockedRedirect?.();
+            webRef.current?.stopLoading();
+            if (state.canGoBack) {
+              webRef.current?.goBack();
+            } else {
+              setForceReloadUrl(lastSafeUrlRef.current);
+            }
+            return;
+          }
+          lastSafeUrlRef.current = state.url;
           setCurrentUrl(state.url);
           setCanGoBack(state.canGoBack);
           canGoBackRef.current = state.canGoBack;
