@@ -3975,6 +3975,13 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
           <Ionicons name="chevron-back" size={16} color={COLORS.accent} />
           <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.accent }}>{backLabel}</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => webRef.current?.goBack()}
+          disabled={!canGoBack}
+          hitSlop={8}
+        >
+          <Ionicons name="arrow-back-circle" size={24} color={canGoBack ? COLORS.textPrimary : COLORS.border} />
+        </TouchableOpacity>
         <View style={styles.browserUrl}>
           <Ionicons name="lock-closed" size={11} color={COLORS.textSecondary} />
           <Text style={styles.browserUrlText} numberOfLines={1}>
