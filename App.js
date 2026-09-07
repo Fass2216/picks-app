@@ -1514,6 +1514,7 @@ export default function App() {
             }}
             unreadNotifCount={unreadNotifCount}
             onOpenNotifications={() => setActiveTab('notifications')}
+            userProfile={userProfile}
           />
         ) : activeTab === 'auth' ? (
           <AuthScreen
@@ -5153,12 +5154,29 @@ function getStoreBgColor(storeName) {
   return found ? found.bg : '#555555';
 }
 
-function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick, unreadNotifCount = 0, onOpenNotifications }) {
+function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('reel'); // 'lista' | 'reel'
   const [reelHeight, setReelHeight] = useState(SCREEN.height - 160);
+  const [chip, setChip] = useState('para_vos'); // 'para_vos' | 'tendencias' | 'amigos'
+  const [exploreQuery, setExploreQuery] = useState('');
+  const [friendsFeed, setFriendsFeed] = useState([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+
+  const titleScale   = useRef(new Animated.Value(2.2)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const titleSkew    = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(titleScale, { toValue: 1, friction: 6, tension: 60, useNativeDriver: true }),
+      Animated.timing(titleOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+    ]).start(() => {
+      Animated.spring(titleSkew, { toValue: 1, friction: 5, tension: 80, useNativeDriver: true }).start();
+    });
+  }, []);
 
   // Vista con la que abrir Explorar la próxima vez (configurable en Configuración).
   useEffect(() => {
@@ -5166,6 +5184,44 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       .then((v) => { if (v === 'lista' || v === 'reel') setViewMode(v); })
       .catch(() => {});
   }, []);
+
+  // Feed de "Amigos": picks públicos de la gente que seguís. Se trae aparte
+  // porque no viene de /api/explorar (que es de productos de tiendas) sino
+  // de los Picks que guardó gente real de la comunidad.
+  useEffect(() => {
+    if (!userProfile) { setFriendsFeed([]); return; }
+    let cancelled = false;
+    setFriendsLoading(true);
+    (async () => {
+      try {
+        const { data: followRows } = await supabase.from('follows').select('following_id').eq('follower_id', userProfile.id);
+        const ids = (followRows || []).map(r => r.following_id);
+        if (ids.length === 0) { if (!cancelled) setFriendsFeed([]); return; }
+        const [{ data: profiles }, picksRes] = await Promise.all([
+          supabase.from('profiles').select('id, username, display_name').in('id', ids),
+          fetch(`${BACKEND_URL}/api/picks/public?user_ids=${ids.join(',')}`).then(r => r.json()),
+        ]);
+        const nameById = {};
+        (profiles || []).forEach(p => { nameById[p.id] = personDisplayLabel(p); });
+        const items = (picksRes.picks || []).map(p => {
+          let store = '';
+          try { store = getStoreDisplayName(new URL(p.url).hostname); } catch (e) {}
+          const price = parseFloat(p.price_current || p.price_saved) || null;
+          return {
+            title: p.name, img: p.img, url: p.url, price, store,
+            type: 'friend_pick',
+            actorName: nameById[p.user_id] || 'Alguien',
+          };
+        });
+        if (!cancelled) setFriendsFeed(items);
+      } catch (e) {
+        if (!cancelled) setFriendsFeed([]);
+      } finally {
+        if (!cancelled) setFriendsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userProfile?.id]);
 
   async function loadFeed(isRefresh = false) {
     if (!isRefresh) setLoading(true);
@@ -5203,6 +5259,26 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
   const isAlreadyPicked = (url) => picks.some(p => p.url === url);
 
+  // Keywords de "Mis intereses" — mismo criterio best-effort que se usa en
+  // el resto de la app (inferStoreCategory, personalización del Home).
+  const interestKeywords = userInterests.flatMap(id => INTEREST_KEYWORDS[id] || []);
+  const matchesInterests = (item) => {
+    if (interestKeywords.length === 0) return true; // sin intereses cargados, no filtramos
+    const t = (item.title || '').toLowerCase();
+    return interestKeywords.some(k => t.includes(k));
+  };
+  const matchesQuery = (item) => {
+    const q = exploreQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (item.title || '').toLowerCase().includes(q) || (item.store || '').toLowerCase().includes(q);
+  };
+
+  const chipBaseFeed =
+    chip === 'amigos' ? friendsFeed
+    : chip === 'tendencias' ? feed.filter(i => i.type === 'trending')
+    : feed.filter(matchesInterests); // 'para_vos'
+  const displayFeed = chipBaseFeed.filter(matchesQuery);
+
   // ── Lista card ──────────────────────────────────────────────────────────────
   function renderListCard({ item }) {
     const picked = isAlreadyPicked(item.url);
@@ -5221,16 +5297,22 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           </View>
         )}
         <View style={styles.explorarCardBody}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-            <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
-              <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
+          {item.type === 'friend_pick' ? (
+            <View style={[styles.explorarStoreBadge, { backgroundColor: COLORS.accent, marginBottom: 6, alignSelf: 'flex-start' }]}>
+              <Text style={styles.explorarStoreBadgeText}>🧡 {item.actorName} guardó un Pick</Text>
             </View>
-            {item.type === 'trending' && (
-              <View style={styles.explorarTrendingBadge}>
-                <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+              <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
+                <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
               </View>
-            )}
-          </View>
+              {item.type === 'trending' && (
+                <View style={styles.explorarTrendingBadge}>
+                  <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+                </View>
+              )}
+            </View>
+          )}
           <Text style={styles.explorarCardTitle} numberOfLines={2}>{item.title}</Text>
           {item.price ? (
             <Text style={styles.explorarCardPrice}>
@@ -5266,16 +5348,22 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
         {/* Info abajo a la izquierda */}
         <View style={styles.reelInfo}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
-              <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
+          {item.type === 'friend_pick' ? (
+            <View style={[styles.explorarStoreBadge, { backgroundColor: COLORS.accent, marginBottom: 10, alignSelf: 'flex-start' }]}>
+              <Text style={styles.explorarStoreBadgeText}>🧡 {item.actorName} guardó un Pick</Text>
             </View>
-            {item.type === 'trending' && (
-              <View style={styles.explorarTrendingBadge}>
-                <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
+                <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
               </View>
-            )}
-          </View>
+              {item.type === 'trending' && (
+                <View style={styles.explorarTrendingBadge}>
+                  <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+                </View>
+              )}
+            </View>
+          )}
           <Text style={styles.reelTitle} numberOfLines={3}>{item.title}</Text>
           {item.price ? (
             <Text style={styles.reelPrice}>
@@ -5314,103 +5402,172 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
     );
   }
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={{ color: COLORS.textSecondary, marginTop: 12, fontSize: 14 }}>Cargando novedades...</Text>
-      </View>
-    );
-  }
+  const emptyMessage =
+    chip === 'amigos'
+      ? (friendsLoading ? 'Cargando...' : !userProfile ? 'Iniciá sesión y seguí gente para ver esto.' : 'Nadie que seguís guardó Picks públicos todavía.')
+      : exploreQuery.trim()
+      ? 'No encontramos nada con esa búsqueda.'
+      : 'No hay novedades por acá todavía.';
 
-  if (feed.length === 0) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
-        <Ionicons name="compass-outline" size={48} color={COLORS.border} />
-        <Text style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: 16, marginTop: 12 }}>No hay novedades</Text>
-        <TouchableOpacity onPress={() => loadFeed()} style={{ marginTop: 20 }}>
-          <Text style={{ color: COLORS.accent, fontWeight: '500' }}>Reintentar</Text>
+  const chipsRow = (light) => (
+    <View style={{ flexDirection: 'row', gap: 8 }}>
+      {EXPLORAR_CHIPS.map(c => (
+        <TouchableOpacity
+          key={c.id}
+          style={[styles.chip, chip === c.id && styles.chipActive, light && chip !== c.id && { backgroundColor: 'rgba(0,0,0,0.35)', borderColor: 'rgba(255,255,255,0.4)' }]}
+          onPress={() => setChip(c.id)}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.chipText, chip === c.id && styles.chipTextActive, light && chip !== c.id && { color: '#fff' }]}>
+            {c.label}
+          </Text>
         </TouchableOpacity>
-      </View>
-    );
-  }
+      ))}
+    </View>
+  );
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Toggle Lista / Reel — solo visible en modo lista */}
+      {/* Header — solo visible en modo lista; en reel flota todo encima del video */}
       {viewMode === 'lista' && (
-        <View style={styles.explorarToggleBar}>
-          <Text style={styles.explorarHeaderTitle}>Explorar</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-            {!!onOpenNotifications && (
-              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
-            )}
-            <View style={styles.explorarToggle}>
-              <TouchableOpacity
-                style={[styles.explorarToggleBtn, viewMode === 'lista' && styles.explorarToggleBtnActive]}
-                onPress={() => setViewMode('lista')}
-              >
-                <Ionicons name="list-outline" size={16} color={viewMode === 'lista' ? COLORS.surface : COLORS.textSecondary} />
-                <Text style={[styles.explorarToggleText, viewMode === 'lista' && styles.explorarToggleTextActive]}>Lista</Text>
+        <>
+          <View style={styles.explorarToggleBar}>
+            <Animated.Text style={[styles.brandName, {
+              fontSize: 24,
+              opacity: titleOpacity,
+              transform: [
+                { scale: titleScale },
+                { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+              ],
+            }]}>
+              Picks
+            </Animated.Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+              <TouchableOpacity onPress={() => setViewMode('reel')} hitSlop={10} activeOpacity={0.7}>
+                <Ionicons name="play-circle-outline" size={22} color={COLORS.textSecondary} />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.explorarToggleBtn, viewMode === 'reel' && styles.explorarToggleBtnActive]}
-                onPress={() => setViewMode('reel')}
-              >
-                <Ionicons name="play-outline" size={16} color={viewMode === 'reel' ? COLORS.surface : COLORS.textSecondary} />
-                <Text style={[styles.explorarToggleText, viewMode === 'reel' && styles.explorarToggleTextActive]}>Reel</Text>
-              </TouchableOpacity>
+              {!!onOpenNotifications && (
+                <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
+              )}
             </View>
           </View>
-        </View>
+
+          <View style={explorarExtraStyles.searchWrap}>
+            <Ionicons name="search-outline" size={17} color={COLORS.textSecondary} />
+            <TextInput
+              style={explorarExtraStyles.searchInput}
+              placeholder="Buscar productos, marcas, ideas..."
+              placeholderTextColor={COLORS.textTertiary}
+              value={exploreQuery}
+              onChangeText={setExploreQuery}
+              autoCorrect={false}
+            />
+            {exploreQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setExploreQuery('')} hitSlop={10}>
+                <Ionicons name="close-circle" size={17} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
+            {chipsRow(false)}
+          </View>
+        </>
       )}
 
-      {viewMode === 'lista' ? (
-        <FlatList
-          data={feed}
-          renderItem={renderListCard}
-          keyExtractor={(item, i) => `lista-${i}-${item.url || ''}`}
-          contentContainerStyle={styles.explorarList}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          showsVerticalScrollIndicator={false}
-        />
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={COLORS.accent} />
+          <Text style={{ color: COLORS.textSecondary, marginTop: 12, fontSize: 14 }}>Cargando novedades...</Text>
+        </View>
+      ) : viewMode === 'lista' ? (
+        displayFeed.length === 0 ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+            <Ionicons name="compass-outline" size={40} color={COLORS.border} />
+            <Text style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: 15, marginTop: 12, textAlign: 'center' }}>{emptyMessage}</Text>
+            {chip !== 'amigos' && (
+              <TouchableOpacity onPress={() => loadFeed()} style={{ marginTop: 20 }}>
+                <Text style={{ color: COLORS.accent, fontWeight: '500' }}>Reintentar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <FlatList
+            data={displayFeed}
+            renderItem={renderListCard}
+            keyExtractor={(item, i) => `lista-${i}-${item.url || ''}`}
+            contentContainerStyle={styles.explorarList}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            showsVerticalScrollIndicator={false}
+          />
+        )
       ) : (
         <View
           style={{ flex: 1 }}
           onLayout={(e) => setReelHeight(e.nativeEvent.layout.height)}
         >
-          {/* Botón salir del reel */}
-          <TouchableOpacity
-            style={styles.reelExitBtn}
-            onPress={() => setViewMode('lista')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="list-outline" size={18} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', marginLeft: 6 }}>Lista</Text>
-          </TouchableOpacity>
-
-          {!!onOpenNotifications && (
-            <View style={{ position: 'absolute', top: 14, right: 14, zIndex: 5, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 18, padding: 8 }}>
-              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color="#fff" />
+          {/* Marca + toggle + campana + chips, flotando arriba del reel sin bloquear el swipe */}
+          <View style={{ position: 'absolute', top: 14, left: 14, right: 14, zIndex: 5 }} pointerEvents="box-none">
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={[styles.brandName, { fontSize: 18, color: '#fff' }]}>Picks</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TouchableOpacity
+                  onPress={() => setViewMode('lista')}
+                  hitSlop={10}
+                  activeOpacity={0.8}
+                  style={{ backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 16, padding: 7 }}
+                >
+                  <Ionicons name="list-outline" size={18} color="#fff" />
+                </TouchableOpacity>
+                {!!onOpenNotifications && (
+                  <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 16, padding: 7 }}>
+                    <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color="#fff" />
+                  </View>
+                )}
+              </View>
             </View>
-          )}
+            <View style={{ marginTop: 10 }}>
+              {chipsRow(true)}
+            </View>
+          </View>
 
-          <FlatList
-            data={feed}
-            renderItem={renderReelCard}
-            keyExtractor={(item, i) => `reel-${i}-${item.url || ''}`}
-            pagingEnabled
-            snapToAlignment="start"
-            decelerationRate="fast"
-            showsVerticalScrollIndicator={false}
-            getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
-          />
+          {displayFeed.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, backgroundColor: '#161616' }}>
+              <Text style={{ color: '#fff', fontWeight: '500', fontSize: 15, textAlign: 'center' }}>{emptyMessage}</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={displayFeed}
+              renderItem={renderReelCard}
+              keyExtractor={(item, i) => `reel-${i}-${item.url || ''}`}
+              pagingEnabled
+              snapToAlignment="start"
+              decelerationRate="fast"
+              showsVerticalScrollIndicator={false}
+              getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
+            />
+          )}
         </View>
       )}
     </View>
   );
 }
+
+const EXPLORAR_CHIPS = [
+  { id: 'para_vos', label: 'Para vos' },
+  { id: 'tendencias', label: 'Tendencias' },
+  { id: 'amigos', label: 'Amigos' },
+];
+
+const explorarExtraStyles = StyleSheet.create({
+  searchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.card, borderRadius: 12,
+    marginHorizontal: 16, marginBottom: 10, paddingHorizontal: 14, paddingVertical: 10,
+  },
+  searchInput: { flex: 1, fontSize: 14, color: COLORS.textPrimary },
+});
 
 // Menú inferior: 3 pestañas flotantes estilo Instagram. "Mis tiendas" y
 // "Buscar"/"Perfil" (login, editar perfil, configuración, comunidad) siguen
