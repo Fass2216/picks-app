@@ -3662,17 +3662,10 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
         <TouchableOpacity
           style={homeExtraStyles.modeChip}
           activeOpacity={0.7}
-          onPress={() => {
-            Alert.alert('Buscar en', '', [
-              { text: 'Mis tiendas', onPress: () => switchSearchMode('mis') },
-              { text: 'Toda la web', onPress: () => switchSearchMode('web') },
-              { text: 'Cancelar', style: 'cancel' },
-            ]);
-          }}
+          onPress={() => switchSearchMode(searchMode === 'mis' ? 'web' : 'mis')}
         >
           <Ionicons name={searchMode === 'mis' ? 'lock-closed-outline' : 'globe-outline' } size={13} color={COLORS.textPrimary} />
           <Text style={homeExtraStyles.modeChipText}>{searchMode === 'mis' ? 'Mis tiendas' : 'Toda la web'}</Text>
-          <Ionicons name="chevron-down" size={11} color={COLORS.textPrimary} />
         </TouchableOpacity>
       </View>
 
