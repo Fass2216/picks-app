@@ -2367,6 +2367,7 @@ function SettingsScreen({
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [checkingOutOfStock, setCheckingOutOfStock] = useState(false);
+  const [interestsExpanded, setInterestsExpanded] = useState(false);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -2538,7 +2539,13 @@ function SettingsScreen({
           <Text style={profileStyles.sectionEyebrow}>MIS INTERESES</Text>
           <Text style={profileStyles.sectionSub}>Para personalizar tu feed y las tiendas destacadas.</Text>
           <View style={profileStyles.interestsGrid}>
-            {INTEREST_CATEGORIES.map(cat => {
+            {(interestsExpanded
+              ? INTEREST_CATEGORIES
+              : [
+                  ...INTEREST_CATEGORIES.filter(c => userInterests.includes(c.id)),
+                  ...INTEREST_CATEGORIES.filter(c => !userInterests.includes(c.id)),
+                ].slice(0, 6)
+            ).map(cat => {
               const active = userInterests.includes(cat.id);
               return (
                 <InterestTile
@@ -2551,6 +2558,18 @@ function SettingsScreen({
               );
             })}
           </View>
+          {INTEREST_CATEGORIES.length > 6 && (
+            <TouchableOpacity
+              style={profileStyles.interestsMoreBtn}
+              onPress={() => setInterestsExpanded(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={profileStyles.interestsMoreText}>
+                {interestsExpanded ? 'Ver menos' : `Ver todas (${INTEREST_CATEGORIES.length})`}
+              </Text>
+              <Ionicons name={interestsExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={COLORS.accent} />
+            </TouchableOpacity>
+          )}
           {savingInterests && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
         </View>
 
@@ -3255,16 +3274,26 @@ const profileStyles = StyleSheet.create({
   sectionSub:    { fontSize: 13, color: COLORS.textSecondary, marginBottom: 18, lineHeight: 18 },
   interestsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   interestTile: {
+    height: 90,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 6,
     backgroundColor: COLORS.surface,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  interestsMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 14,
+    paddingVertical: 6,
+  },
+  interestsMoreText: { fontSize: 13, fontWeight: '600', color: COLORS.accent },
   interestTileActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   interestLabel:       { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500', textAlign: 'center' },
   interestLabelActive: { color: '#fff', fontWeight: '600' },
