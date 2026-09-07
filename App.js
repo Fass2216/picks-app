@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useContext, useMemo, createContext } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Notifications from 'expo-notifications';
@@ -1067,6 +1067,48 @@ export default function App() {
 
   useEffect(() => { refreshUnreadCount(); }, [refreshUnreadCount]);
 
+  // ── Tutorial de onboarding (globitos) ───────────────────────────────────────
+  const [tourActive, setTourActive] = useState(false);
+  const [tourStepIndex, setTourStepIndex] = useState(0);
+  const [tourTargets, setTourTargets] = useState({});
+  const registerTourTarget = useCallback((id, layout) => {
+    setTourTargets(prev => {
+      const ex = prev[id];
+      if (ex && ex.x === layout.x && ex.y === layout.y && ex.width === layout.width && ex.height === layout.height) return prev;
+      return { ...prev, [id]: layout };
+    });
+  }, []);
+  const tourCtxValue = useMemo(() => ({ registerTarget: registerTourTarget }), [registerTourTarget]);
+
+  // La primera vez que se abre la app (nunca antes visto), arranca el tour solo.
+  useEffect(() => {
+    AsyncStorage.getItem('onboarding-tour-seen-v1').then((seen) => {
+      if (!seen) setTimeout(() => setTourActive(true), 900);
+    }).catch(() => {});
+  }, []);
+
+  // Cada paso del tour puede requerir estar en otra pantalla — si no coincide, cambiamos de tab.
+  useEffect(() => {
+    if (!tourActive) return;
+    const step = TOUR_STEPS[tourStepIndex];
+    if (step && activeTab !== step.tab) setActiveTab(step.tab);
+  }, [tourActive, tourStepIndex]);
+
+  function tourNext() {
+    if (tourStepIndex >= TOUR_STEPS.length - 1) { tourFinish(); return; }
+    setTourStepIndex((i) => i + 1);
+  }
+  function tourFinish() {
+    setTourActive(false);
+    setTourStepIndex(0);
+    AsyncStorage.setItem('onboarding-tour-seen-v1', '1').catch(() => {});
+  }
+  function replayTour() {
+    setActiveTab('home');
+    setTourStepIndex(0);
+    setTimeout(() => setTourActive(true), 350);
+  }
+
   function getActiveBrowserUrl() {
     return currentBrowserUrl || browserUrl;
   }
@@ -1462,7 +1504,7 @@ export default function App() {
   }
  
   return (
-    <>
+    <TourContext.Provider value={tourCtxValue}>
       {!!getBackgroundSource(appBackground) && (
         <Image
           source={getBackgroundSource(appBackground)}
@@ -1586,6 +1628,7 @@ export default function App() {
             onOpenCommunity={() => setActiveTab('community')}
             onOpenEditProfile={() => setActiveTab('editProfile')}
             onClose={() => setActiveTab('picks')}
+            onReplayTour={replayTour}
             onLogout={async () => {
               setPicksLoaded(false);
               setPicks([]);
@@ -1860,8 +1903,19 @@ export default function App() {
           <Text style={styles.toastText}>{toast}</Text>
         </Animated.View>
       )}
+
+      {tourActive && !browserUrl && (
+        <TourOverlay
+          step={TOUR_STEPS[tourStepIndex]}
+          stepIndex={tourStepIndex}
+          totalSteps={TOUR_STEPS.length}
+          target={tourTargets[TOUR_STEPS[tourStepIndex]?.targetKey]}
+          onNext={tourNext}
+          onSkip={tourFinish}
+        />
+      )}
     </SafeAreaView>
-    </>
+    </TourContext.Provider>
   );
 }
 
@@ -2297,6 +2351,7 @@ function SettingsScreen({
   userProfile, userInterests, onInterestsChange, country, onChangeCountry,
   picksCount = 0, onClearMyPicks, onCheckOutOfStock, onRemoveOutOfStock,
   currentBackground, onBackgroundChange, onLogout, onOpenCommunity, onOpenEditProfile, onClose,
+  onReplayTour,
 }) {
   const [myProfileRow, setMyProfileRow] = useState(null);
   const [savingInterests, setSavingInterests] = useState(false);
@@ -2652,6 +2707,21 @@ function SettingsScreen({
             <Ionicons name="trash-outline" size={18} color={COLORS.danger || '#e0524a'} />
           </TouchableOpacity>
         </View>
+
+        {/* Ayuda */}
+        {!!onReplayTour && (
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>AYUDA</Text>
+            <TouchableOpacity style={profileStyles.notifRow} onPress={() => { onClose?.(); onReplayTour(); }} activeOpacity={0.7}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={profileStyles.notifRowLabel}>Ver tutorial de nuevo</Text>
+                <Text style={profileStyles.notifRowSub}>Repetí la guía de las funciones principales de la app</Text>
+              </View>
+              <Ionicons name="school-outline" size={18} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Fondo */}
         <View style={profileStyles.section}>
@@ -3633,7 +3703,9 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={homeExtraStyles.screenTitle}>Mis tiendas</Text>
           {!!onOpenNotifications && (
-            <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
+            <TourTarget id="notif-bell">
+              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
+            </TourTarget>
           )}
         </View>
       </View>
@@ -3659,14 +3731,16 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity
-          style={homeExtraStyles.modeChip}
-          activeOpacity={0.7}
-          onPress={() => switchSearchMode(searchMode === 'mis' ? 'web' : 'mis')}
-        >
-          <Ionicons name={searchMode === 'mis' ? 'lock-closed-outline' : 'globe-outline' } size={13} color={COLORS.textPrimary} />
-          <Text style={homeExtraStyles.modeChipText}>{searchMode === 'mis' ? 'Mis tiendas' : 'Toda la web'}</Text>
-        </TouchableOpacity>
+        <TourTarget id="search-mode-chip">
+          <TouchableOpacity
+            style={homeExtraStyles.modeChip}
+            activeOpacity={0.7}
+            onPress={() => switchSearchMode(searchMode === 'mis' ? 'web' : 'mis')}
+          >
+            <Ionicons name={searchMode === 'mis' ? 'lock-closed-outline' : 'globe-outline' } size={13} color={COLORS.textPrimary} />
+            <Text style={homeExtraStyles.modeChipText}>{searchMode === 'mis' ? 'Mis tiendas' : 'Toda la web'}</Text>
+          </TouchableOpacity>
+        </TourTarget>
       </View>
 
       {searchMode === 'web' && (
@@ -5563,7 +5637,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           </View>
 
           <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
-            {chipsRow(false)}
+            <TourTarget id="explorar-chips">
+              {chipsRow(false)}
+            </TourTarget>
           </View>
         </>
       )}
@@ -5665,6 +5741,177 @@ const explorarExtraStyles = StyleSheet.create({
 // Menú inferior: 3 pestañas flotantes estilo Instagram. "Mis tiendas" y
 // "Buscar"/"Perfil" (login, editar perfil, configuración, comunidad) siguen
 // existiendo como pantallas — se llega a ellas desde adentro de estas 3.
+// ============ TUTORIAL DE ONBOARDING (globitos sobre la UI real) ============
+// Contexto global: cualquier elemento envuelto en <TourTarget id="..."> se
+// "registra" (mide su posición real en pantalla) cada vez que se dibuja.
+// El tour recorre una lista de pasos, cada uno apuntando a un id ya registrado,
+// cambiando de pantalla (activeTab) cuando hace falta.
+const TourContext = createContext(null);
+
+function TourTarget({ id, style, children }) {
+  const ctx = useContext(TourContext);
+  const viewRef = useRef(null);
+  const measure = useCallback(() => {
+    if (!ctx) return;
+    requestAnimationFrame(() => {
+      viewRef.current?.measureInWindow?.((x, y, width, height) => {
+        if (width > 0 && height > 0) ctx.registerTarget(id, { x, y, width, height });
+      });
+    });
+  }, [ctx, id]);
+  return (
+    <View ref={viewRef} collapsable={false} onLayout={measure} style={style}>
+      {children}
+    </View>
+  );
+}
+
+const TOUR_STEPS = [
+  {
+    id: 'save-gesture',
+    tab: 'home',
+    targetKey: 'tab-picks',
+    placement: 'top',
+    title: 'Así se guarda un Pick',
+    body: 'En cualquier tienda, mantené presionada la imagen de un producto: se guarda solo acá, en "Mis Picks".',
+  },
+  {
+    id: 'tab-explorar',
+    tab: 'home',
+    targetKey: 'tab-explorar',
+    placement: 'top',
+    title: 'Explorar',
+    body: 'Descubrí productos para vos, en tendencia, o guardados por la gente que seguís.',
+  },
+  {
+    id: 'tab-home',
+    tab: 'home',
+    targetKey: 'tab-home',
+    placement: 'top',
+    title: 'Mis tiendas',
+    body: 'Todas tus tiendas favoritas juntas, con acceso directo a cada una.',
+  },
+  {
+    id: 'notif-bell',
+    tab: 'home',
+    targetKey: 'notif-bell',
+    placement: 'bottom',
+    title: 'Notificaciones',
+    body: 'Te avisamos acá si baja el precio de un Pick o vuelve a tener stock.',
+  },
+  {
+    id: 'search-modes',
+    tab: 'home',
+    targetKey: 'search-mode-chip',
+    placement: 'bottom',
+    title: 'Mis tiendas o toda la web',
+    body: 'Tocá acá para alternar: "Mis tiendas" busca solo en las que agregaste; "Toda la web" te deja escribir cualquier producto o sitio.',
+  },
+  {
+    id: 'explorar-chips',
+    tab: 'explorar',
+    targetKey: 'explorar-chips',
+    placement: 'bottom',
+    title: 'Para vos / Tendencias / Amigos',
+    body: 'Cambiá el feed de Explorar según tus intereses, lo más popular, o lo que guardó la gente que seguís.',
+  },
+];
+
+function TourOverlay({ step, stepIndex, totalSteps, target, onNext, onSkip }) {
+  const { width: W, height: H } = Dimensions.get('window');
+  if (!step) return null;
+  const pad = 8;
+  if (!target) {
+    // Todavía no se midió el elemento (recién se cambió de pantalla) — mostramos
+    // solo el fondo oscuro mientras tanto, sin globito, para no "flashear" mal ubicado.
+    return <View pointerEvents="auto" style={tourStyles.backdrop} />;
+  }
+  const rect = {
+    x: Math.max(0, target.x - pad),
+    y: Math.max(0, target.y - pad),
+    width: target.width + pad * 2,
+    height: target.height + pad * 2,
+  };
+  const isLast = stepIndex >= totalSteps - 1;
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      {/* Cuatro franjas oscuras alrededor del target = efecto "spotlight" */}
+      <View pointerEvents="auto" style={[tourStyles.dim, { top: 0, left: 0, right: 0, height: rect.y }]} />
+      <View pointerEvents="auto" style={[tourStyles.dim, { top: rect.y + rect.height, left: 0, right: 0, bottom: 0 }]} />
+      <View pointerEvents="auto" style={[tourStyles.dim, { top: rect.y, left: 0, width: rect.x, height: rect.height }]} />
+      <View pointerEvents="auto" style={[tourStyles.dim, { top: rect.y, left: rect.x + rect.width, right: 0, height: rect.height }]} />
+      <View pointerEvents="none" style={[tourStyles.ring, { top: rect.y, left: rect.x, width: rect.width, height: rect.height }]} />
+
+      <View
+        pointerEvents="box-none"
+        style={[
+          tourStyles.bubbleWrap,
+          step.placement === 'bottom'
+            ? { top: rect.y + rect.height + 14 }
+            : { bottom: H - rect.y + 14 },
+        ]}
+      >
+        <View style={tourStyles.bubble}>
+          <Text style={tourStyles.bubbleStep}>{stepIndex + 1} / {totalSteps}</Text>
+          <Text style={tourStyles.bubbleTitle}>{step.title}</Text>
+          <Text style={tourStyles.bubbleBody}>{step.body}</Text>
+          <View style={tourStyles.bubbleActions}>
+            <TouchableOpacity onPress={onSkip} hitSlop={8}>
+              <Text style={tourStyles.bubbleSkip}>Saltar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onNext} style={tourStyles.bubbleNextBtn} activeOpacity={0.85}>
+              <Text style={tourStyles.bubbleNextText}>{isLast ? 'Entendido' : 'Siguiente'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const tourStyles = StyleSheet.create({
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
+  dim: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.55)' },
+  ring: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+    borderRadius: 16,
+  },
+  bubbleWrap: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+  },
+  bubble: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  bubbleStep: { fontSize: 11, fontWeight: '700', color: COLORS.textTertiary, marginBottom: 4 },
+  bubbleTitle: { fontSize: 16, fontWeight: '800', color: COLORS.textPrimary, marginBottom: 4 },
+  bubbleBody: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 18 },
+  bubbleActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  bubbleSkip: { fontSize: 13, fontWeight: '600', color: COLORS.textTertiary },
+  bubbleNextBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+  },
+  bubbleNextText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+});
+
 function TabBar({ activeTab, setActiveTab, pickCount }) {
   return (
     <SafeAreaView edges={['bottom']} style={styles.tabBarWrap}>
@@ -5675,6 +5922,7 @@ function TabBar({ activeTab, setActiveTab, pickCount }) {
           iconActive="compass"
           isActive={activeTab === 'explorar'}
           onPress={() => setActiveTab('explorar')}
+          tourId="tab-explorar"
         />
         <Tab
           label="Mis tiendas"
@@ -5682,6 +5930,7 @@ function TabBar({ activeTab, setActiveTab, pickCount }) {
           iconActive="bag"
           isActive={activeTab === 'home'}
           onPress={() => setActiveTab('home')}
+          tourId="tab-home"
         />
         <Tab
           label="Mis Picks"
@@ -5690,16 +5939,17 @@ function TabBar({ activeTab, setActiveTab, pickCount }) {
           isActive={activeTab === 'picks'}
           onPress={() => setActiveTab('picks')}
           badge={pickCount}
+          tourId="tab-picks"
         />
       </View>
     </SafeAreaView>
   );
 }
 
-function Tab({ label, iconName, iconActive, isActive, onPress, badge }) {
+function Tab({ label, iconName, iconActive, isActive, onPress, badge, tourId }) {
   const color = isActive ? COLORS.accent : COLORS.textSecondary;
-  return (
-    <TouchableOpacity style={styles.tab} onPress={onPress} activeOpacity={0.6}>
+  const inner = (
+    <>
       <View style={styles.tabIconWrap}>
         <Ionicons name={isActive ? iconActive : iconName} size={24} color={color} />
         {badge > 0 && (
@@ -5711,6 +5961,11 @@ function Tab({ label, iconName, iconActive, isActive, onPress, badge }) {
       <Text style={[styles.tabLabel, { color, fontWeight: isActive ? '600' : '400' }]}>
         {label}
       </Text>
+    </>
+  );
+  return (
+    <TouchableOpacity style={styles.tab} onPress={onPress} activeOpacity={0.6}>
+      {tourId ? <TourTarget id={tourId} style={{ alignItems: 'center' }}>{inner}</TourTarget> : inner}
     </TouchableOpacity>
   );
 }
