@@ -833,6 +833,7 @@ export default function App() {
   const activeCollectionsKeyRef = useRef(null);
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0); // para el contador de la campanita
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
   // "Comparar en otras tiendas": lista de tiendas de la categoría (para el
   // modal de selección múltiple) + qué se terminó eligiendo, para pasarle a
@@ -1047,8 +1048,24 @@ export default function App() {
     setBrowserUrl(null);
     setCurrentBrowserUrl(null);
     setActiveTab(tab);
+    if (['home', 'explorar', 'picks'].includes(tab)) refreshUnreadCount();
   }
- 
+
+  // Contador de la campanita: eventos de precio/stock (por device_id, andan
+  // sin cuenta) + actividad social (por user_id, solo si hay sesión).
+  const refreshUnreadCount = useCallback(async () => {
+    try {
+      const device_id = await getOrCreateDeviceId();
+      const params = new URLSearchParams({ device_id });
+      if (userProfile?.id) params.set('user_id', userProfile.id);
+      const res = await fetch(`${BACKEND_URL}/api/notifications/unread-count?${params.toString()}`);
+      const data = await res.json();
+      setUnreadNotifCount(data.count || 0);
+    } catch (e) {}
+  }, [userProfile?.id]);
+
+  useEffect(() => { refreshUnreadCount(); }, [refreshUnreadCount]);
+
   function getActiveBrowserUrl() {
     return currentBrowserUrl || browserUrl;
   }
@@ -1472,6 +1489,8 @@ export default function App() {
             onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
             userInterests={userInterests}
             onOpenSearch={() => setActiveTab('search')}
+            unreadNotifCount={unreadNotifCount}
+            onOpenNotifications={() => setActiveTab('notifications')}
           />
         ) : activeTab === 'search' ? (
           <SearchView
@@ -1493,6 +1512,8 @@ export default function App() {
             onAddPick={(item) => {
               addPick({ title: item.title, img: item.img, link: item.url, price: item.price ? String(item.price) : '' });
             }}
+            unreadNotifCount={unreadNotifCount}
+            onOpenNotifications={() => setActiveTab('notifications')}
           />
         ) : activeTab === 'auth' ? (
           <AuthScreen
@@ -1557,6 +1578,14 @@ export default function App() {
             onOpenUrl={openUrl}
             onClose={() => setActiveTab('picks')}
           />
+        ) : activeTab === 'notifications' ? (
+          <NotificationsScreen
+            userProfile={userProfile}
+            onOpenUrl={openUrl}
+            onOpenCommunity={() => setActiveTab('community')}
+            onClose={() => setActiveTab('picks')}
+            onRead={() => setUnreadNotifCount(0)}
+          />
         ) : (
           <PicksView
             picks={picks}
@@ -1571,6 +1600,8 @@ export default function App() {
             onOpenEditProfile={() => setActiveTab('editProfile')}
             onOpenSettings={() => setActiveTab('settings')}
             onOpenCommunity={() => setActiveTab('community')}
+            unreadNotifCount={unreadNotifCount}
+            onOpenNotifications={() => setActiveTab('notifications')}
             onRemove={(id) => {
               const removed = picks.find(p => p.id === id);
               if (removed) track('pick_removed', { store: getStoreDisplayName(removed.domain), domain: removed.domain });
@@ -1772,7 +1803,7 @@ export default function App() {
         activeTab={
           browserUrl ? 'home'
           : activeTab === 'search' ? 'home'
-          : ['auth', 'editProfile', 'settings', 'community'].includes(activeTab) ? 'picks'
+          : ['auth', 'editProfile', 'settings', 'community', 'notifications'].includes(activeTab) ? 'picks'
           : activeTab
         }
         setActiveTab={changeTab}
@@ -2738,6 +2769,13 @@ function CommunityScreen({ userProfile, onOpenUrl, onClose }) {
         const { error: err } = await supabase.from('follows').insert({ follower_id: userProfile.id, following_id: targetId });
         if (err) throw err;
         setMyFollowing(prev => ({ ...prev, [targetId]: true }));
+        // Avisamos al backend para que le llegue como notificación in-app a
+        // la persona seguida (el backend no ve la tabla `follows` de Supabase).
+        fetch(`${BACKEND_URL}/api/notifications/social`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'new_follower', target_user_id: targetId, actor_user_id: userProfile.id }),
+        }).catch(() => {});
       }
       loadLists();
     } catch (e) {
@@ -2923,6 +2961,176 @@ function CommunityScreen({ userProfile, onOpenUrl, onClose }) {
     </SafeAreaView>
   );
 }
+
+// ── NotificationBell ─────────────────────────────────────────────────────────
+// Ícono chico para el header de las 3 pestañas principales, con el contador
+// de no leídas. El conteo en sí vive en App (se refresca al cambiar de
+// pestaña); acá solo se dibuja.
+function NotificationBell({ count = 0, onPress, color }) {
+  return (
+    <TouchableOpacity onPress={onPress} hitSlop={10} activeOpacity={0.7} style={{ position: 'relative' }}>
+      <Ionicons name="notifications-outline" size={21} color={color || COLORS.textSecondary} />
+      {count > 0 && (
+        <View style={notifStyles.badge}>
+          <Text style={notifStyles.badgeText}>{count > 9 ? '9+' : count}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diffMs = Date.now() - ts;
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h}h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d}d`;
+}
+
+const NOTIF_GROUPS = [
+  { id: 'precio', label: 'Precio', icon: 'pricetag-outline' },
+  { id: 'stock', label: 'Stock', icon: 'cube-outline' },
+  { id: 'social', label: 'Social', icon: 'people-outline' },
+];
+
+function notifIconFor(type) {
+  if (type === 'price_drop') return { name: 'trending-down-outline', color: '#22c55e' };
+  if (type === 'out_of_stock') return { name: 'close-circle-outline', color: '#ef4444' };
+  if (type === 'back_in_stock') return { name: 'checkmark-circle-outline', color: '#22c55e' };
+  if (type === 'new_follower') return { name: 'person-add-outline', color: COLORS.accent };
+  return { name: 'notifications-outline', color: COLORS.textSecondary };
+}
+
+// ── NotificationsScreen ───────────────────────────────────────────────────────
+function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose, onRead }) {
+  const [group, setGroup] = useState('precio');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const device_id = await getOrCreateDeviceId();
+        const params = new URLSearchParams({ device_id });
+        if (userProfile?.id) params.set('user_id', userProfile.id);
+        const res = await fetch(`${BACKEND_URL}/api/notifications/list?${params.toString()}`);
+        const data = await res.json();
+        setItems(Array.isArray(data) ? data : []);
+        // Se marcan como leídas al abrir la pantalla (no una por una).
+        fetch(`${BACKEND_URL}/api/notifications/mark-read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id, user_id: userProfile?.id || null }),
+        }).catch(() => {});
+        onRead?.();
+      } catch (e) {
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [userProfile?.id]);
+
+  const grouped = NOTIF_GROUPS.reduce((acc, g) => {
+    acc[g.id] = items.filter(n => n.group === g.id);
+    return acc;
+  }, {});
+  const list = grouped[group] || [];
+
+  const handlePress = (n) => {
+    if (n.data?.url) { onOpenUrl?.(n.data.url); return; }
+    if (n.type === 'new_follower') { onOpenCommunity?.(); return; }
+  };
+
+  return (
+    <SafeAreaView style={profileStyles.container} edges={['top']}>
+      <View style={profileStyles.viewingHeader}>
+        <TouchableOpacity onPress={onClose} style={{ padding: 6, marginRight: 4 }} hitSlop={10}>
+          <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+        <Text style={[profileStyles.viewingTitle, { flex: 1 }]}>Notificaciones</Text>
+      </View>
+
+      <View style={notifStyles.tabsRow}>
+        {NOTIF_GROUPS.map(g => {
+          const active = group === g.id;
+          const count = grouped[g.id]?.length || 0;
+          return (
+            <TouchableOpacity
+              key={g.id}
+              style={[notifStyles.tabBtn, active && notifStyles.tabBtnActive]}
+              onPress={() => setGroup(g.id)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name={g.icon} size={15} color={active ? '#fff' : COLORS.textSecondary} />
+              <Text style={[notifStyles.tabText, active && notifStyles.tabTextActive]}>
+                {g.label}{count > 0 ? ` (${count})` : ''}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {loading ? (
+        <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+      ) : list.length === 0 ? (
+        <Text style={[profileStyles.sectionSub, { textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }]}>
+          {group === 'precio' ? 'Sin novedades de precio todavía.'
+            : group === 'stock' ? 'Sin novedades de stock todavía.'
+            : 'Sin actividad social todavía.'}
+        </Text>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 30 }}>
+          {list.map(n => {
+            const icon = notifIconFor(n.type);
+            return (
+              <TouchableOpacity key={n.id} style={notifStyles.row} onPress={() => handlePress(n)} activeOpacity={0.75}>
+                <View style={[notifStyles.iconWrap, { backgroundColor: icon.color + '1A' }]}>
+                  <Ionicons name={icon.name} size={18} color={icon.color} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={notifStyles.title} numberOfLines={2}>{n.title}</Text>
+                  <Text style={notifStyles.body} numberOfLines={2}>{n.body}</Text>
+                  <Text style={notifStyles.time}>{timeAgo(n.created_at)}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const notifStyles = StyleSheet.create({
+  badge: {
+    position: 'absolute', top: -4, right: -6, backgroundColor: COLORS.accent,
+    borderRadius: 8, minWidth: 16, height: 16, paddingHorizontal: 3,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  badgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  tabsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 14 },
+  tabBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: COLORS.card, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  tabBtnActive: { backgroundColor: COLORS.textPrimary },
+  tabText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
+  tabTextActive: { color: '#fff' },
+  row: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
+    padding: 12, marginBottom: 10,
+  },
+  iconWrap: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  body: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
+  time: { fontSize: 11, color: COLORS.textTertiary, marginTop: 4 },
+});
 
 const profileStyles = StyleSheet.create({
   container:     { flex: 1, backgroundColor: COLORS.background },
@@ -3231,7 +3439,7 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearch }) {
+function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearch, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeSection, setStoreSection] = useState('destacadas'); // 'destacadas' | 'mis'
@@ -3380,6 +3588,9 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
             <Text style={styles.brandTagline}>Tu wishlist universal</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {!!onOpenNotifications && (
+              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
+            )}
             {!!onOpenSearch && (
               <TouchableOpacity
                 style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.surface, borderWidth: 0.5, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center' }}
@@ -3842,6 +4053,7 @@ function ShareCardContent({ pick, onImageReady }) {
 function PicksView({
   picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection, onToggleCollectionPublic,
   userProfile, avatarUrl, onOpenAuth, onOpenEditProfile, onOpenSettings, onOpenCommunity,
+  unreadNotifCount = 0, onOpenNotifications,
 }) {
   const [myProfileRow, setMyProfileRow] = useState(null);
   const [followerCount, setFollowerCount] = useState(0);
@@ -4146,6 +4358,9 @@ function PicksView({
             <TouchableOpacity onPress={() => shareCollection()} style={styles.shareCollectionBtn} hitSlop={10} activeOpacity={0.7}>
               <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
             </TouchableOpacity>
+          )}
+          {!!onOpenNotifications && (
+            <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
           )}
           {!!userProfile && (
             <TouchableOpacity onPress={onOpenSettings} hitSlop={10} activeOpacity={0.7}>
@@ -4938,7 +5153,7 @@ function getStoreBgColor(storeName) {
   return found ? found.bg : '#555555';
 }
 
-function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick }) {
+function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick, unreadNotifCount = 0, onOpenNotifications }) {
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -5126,21 +5341,26 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       {viewMode === 'lista' && (
         <View style={styles.explorarToggleBar}>
           <Text style={styles.explorarHeaderTitle}>Explorar</Text>
-          <View style={styles.explorarToggle}>
-            <TouchableOpacity
-              style={[styles.explorarToggleBtn, viewMode === 'lista' && styles.explorarToggleBtnActive]}
-              onPress={() => setViewMode('lista')}
-            >
-              <Ionicons name="list-outline" size={16} color={viewMode === 'lista' ? COLORS.surface : COLORS.textSecondary} />
-              <Text style={[styles.explorarToggleText, viewMode === 'lista' && styles.explorarToggleTextActive]}>Lista</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.explorarToggleBtn, viewMode === 'reel' && styles.explorarToggleBtnActive]}
-              onPress={() => setViewMode('reel')}
-            >
-              <Ionicons name="play-outline" size={16} color={viewMode === 'reel' ? COLORS.surface : COLORS.textSecondary} />
-              <Text style={[styles.explorarToggleText, viewMode === 'reel' && styles.explorarToggleTextActive]}>Reel</Text>
-            </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            {!!onOpenNotifications && (
+              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
+            )}
+            <View style={styles.explorarToggle}>
+              <TouchableOpacity
+                style={[styles.explorarToggleBtn, viewMode === 'lista' && styles.explorarToggleBtnActive]}
+                onPress={() => setViewMode('lista')}
+              >
+                <Ionicons name="list-outline" size={16} color={viewMode === 'lista' ? COLORS.surface : COLORS.textSecondary} />
+                <Text style={[styles.explorarToggleText, viewMode === 'lista' && styles.explorarToggleTextActive]}>Lista</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.explorarToggleBtn, viewMode === 'reel' && styles.explorarToggleBtnActive]}
+                onPress={() => setViewMode('reel')}
+              >
+                <Ionicons name="play-outline" size={16} color={viewMode === 'reel' ? COLORS.surface : COLORS.textSecondary} />
+                <Text style={[styles.explorarToggleText, viewMode === 'reel' && styles.explorarToggleTextActive]}>Reel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}
@@ -5169,6 +5389,12 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
             <Ionicons name="list-outline" size={18} color="#fff" />
             <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', marginLeft: 6 }}>Lista</Text>
           </TouchableOpacity>
+
+          {!!onOpenNotifications && (
+            <View style={{ position: 'absolute', top: 14, right: 14, zIndex: 5, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 18, padding: 8 }}>
+              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color="#fff" />
+            </View>
+          )}
 
           <FlatList
             data={feed}
