@@ -833,7 +833,6 @@ export default function App() {
   const activeCollectionsKeyRef = useRef(null);
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
-  const [followingList, setFollowingList] = useState([]);  // [{id, username, display_name}] gente que sigo
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
   // "Comparar en otras tiendas": lista de tiendas de la categoría (para el
   // modal de selección múltiple) + qué se terminó eligiendo, para pasarle a
@@ -1002,35 +1001,6 @@ export default function App() {
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
-
-  // Lista de gente que sigo (para la pestaña vertical de colecciones públicas en el Home).
-  // Se expone como función reutilizable para poder refrescarla al toque cuando
-  // el usuario sigue/deja de seguir a alguien desde el perfil (no solo al loguearse).
-  const refreshFollowingList = async (uid) => {
-    if (!uid) { setFollowingList([]); return; }
-    try {
-      const { data: followRows, error: followErr } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', uid);
-      if (followErr) return;
-      const ids = (followRows || []).map(r => r.following_id);
-      if (ids.length === 0) { setFollowingList([]); return; }
-      const { data: profiles, error: profErr } = await supabase
-        .from('profiles')
-        .select('id, username, display_name')
-        .in('id', ids);
-      if (profErr) return;
-      setFollowingList(profiles || []);
-    } catch (e) {}
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!userProfile?.id) { setFollowingList([]); return; }
-    (async () => { if (!cancelled) await refreshFollowingList(userProfile.id); })();
-    return () => { cancelled = true; };
-  }, [userProfile?.id]);
 
   useEffect(() => {
     if (!picksLoaded || !activeCollectionsKeyRef.current) return;
@@ -1501,6 +1471,7 @@ export default function App() {
             storesOrderSwapped={storesOrderSwapped}
             onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
             userInterests={userInterests}
+            onOpenSearch={() => setActiveTab('search')}
           />
         ) : activeTab === 'search' ? (
           <SearchView
@@ -1511,6 +1482,7 @@ export default function App() {
             onOpenUrl={openUrl}
             preset={searchPreset}
             onPresetConsumed={() => setSearchPreset(null)}
+            onBack={() => setActiveTab('home')}
           />
         ) : activeTab === 'explorar' ? (
           <ExplorarScreen
@@ -1522,33 +1494,10 @@ export default function App() {
               addPick({ title: item.title, img: item.img, link: item.url, price: item.price ? String(item.price) : '' });
             }}
           />
-        ) : activeTab === 'perfil' ? (
-          <ProfileScreen
-            userProfile={userProfile}
-            userInterests={userInterests}
-            avatarUrl={getAvatarUrl(userProfile?.id)}
-            onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
-            onFollowingChanged={() => refreshFollowingList(userProfile?.id)}
-            onOpenUrl={openUrl}
-            browserUrl={browserUrl}
-            currentBackground={appBackground}
-            onBackgroundChange={changeAppBackground}
-            onCheckOutOfStock={checkOutOfStockPicks}
-            onRemoveOutOfStock={removeOutOfStockPicks}
-            onInterestsChange={async (interests) => {
-              await supabase.auth.updateUser({ data: { interests } });
-              setUserInterests(interests);
-            }}
-            onLogout={async () => {
-              setPicksLoaded(false);
-              setPicks([]);
-              setCollections([]);
-              await supabase.auth.signOut();
-              setUserProfile(null);
-              setUserInterests([]);
-              setAvatarCacheBust('');
-            }}
+        ) : activeTab === 'auth' ? (
+          <AuthScreen
             picksCount={picks.length}
+            onClose={() => setActiveTab('picks')}
             onClearMyPicks={async () => {
               setPicks([]);
               setCollections([]);
@@ -1558,6 +1507,56 @@ export default function App() {
               } catch (e) {}
             }}
           />
+        ) : activeTab === 'editProfile' ? (
+          <EditProfileScreen
+            userProfile={userProfile}
+            avatarUrl={getAvatarUrl(userProfile?.id)}
+            onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
+            onClose={() => setActiveTab('picks')}
+          />
+        ) : activeTab === 'settings' ? (
+          <SettingsScreen
+            userProfile={userProfile}
+            userInterests={userInterests}
+            onInterestsChange={async (interests) => {
+              await supabase.auth.updateUser({ data: { interests } });
+              setUserInterests(interests);
+            }}
+            country={country}
+            onChangeCountry={changeCountry}
+            picksCount={picks.length}
+            onClearMyPicks={async () => {
+              setPicks([]);
+              setCollections([]);
+              try {
+                if (activePicksKeyRef.current) await AsyncStorage.removeItem(activePicksKeyRef.current);
+                if (activeCollectionsKeyRef.current) await AsyncStorage.removeItem(activeCollectionsKeyRef.current);
+              } catch (e) {}
+            }}
+            onCheckOutOfStock={checkOutOfStockPicks}
+            onRemoveOutOfStock={removeOutOfStockPicks}
+            currentBackground={appBackground}
+            onBackgroundChange={changeAppBackground}
+            onOpenCommunity={() => setActiveTab('community')}
+            onOpenEditProfile={() => setActiveTab('editProfile')}
+            onClose={() => setActiveTab('picks')}
+            onLogout={async () => {
+              setPicksLoaded(false);
+              setPicks([]);
+              setCollections([]);
+              await supabase.auth.signOut();
+              setUserProfile(null);
+              setUserInterests([]);
+              setAvatarCacheBust('');
+              setActiveTab('picks');
+            }}
+          />
+        ) : activeTab === 'community' ? (
+          <CommunityScreen
+            userProfile={userProfile}
+            onOpenUrl={openUrl}
+            onClose={() => setActiveTab('picks')}
+          />
         ) : (
           <PicksView
             picks={picks}
@@ -1566,6 +1565,12 @@ export default function App() {
             setPicksTab={setPicksTab}
             openCollection={openCollection}
             setOpenCollection={setOpenCollection}
+            userProfile={userProfile}
+            avatarUrl={getAvatarUrl(userProfile?.id)}
+            onOpenAuth={() => setActiveTab('auth')}
+            onOpenEditProfile={() => setActiveTab('editProfile')}
+            onOpenSettings={() => setActiveTab('settings')}
+            onOpenCommunity={() => setActiveTab('community')}
             onRemove={(id) => {
               const removed = picks.find(p => p.id === id);
               if (removed) track('pick_removed', { store: getStoreDisplayName(removed.domain), domain: removed.domain });
@@ -1591,16 +1596,6 @@ export default function App() {
           />
         )}
       </View>
-
-      {!!userProfile && (
-        <FollowingRail
-          followingList={followingList}
-          getAvatarUrl={getAvatarUrl}
-          onOpenUrl={openUrl}
-          browserUrl={browserUrl}
-          active={activeTab === 'home' && !browserUrl}
-        />
-      )}
 
       {collectionModal && (
         <CollectionModal
@@ -1774,10 +1769,14 @@ export default function App() {
       </Modal>
 
       <TabBar
-        activeTab={browserUrl ? 'home' : activeTab}
+        activeTab={
+          browserUrl ? 'home'
+          : activeTab === 'search' ? 'home'
+          : ['auth', 'editProfile', 'settings', 'community'].includes(activeTab) ? 'picks'
+          : activeTab
+        }
         setActiveTab={changeTab}
         pickCount={picks.length}
-        avatarUrl={getAvatarUrl(userProfile?.id)}
       />
  
       {ghost && (
@@ -1811,8 +1810,6 @@ export default function App() {
 }
 
 
-// ── StoreGridCard: tarjeta de tienda con logo real (grid 2 columnas) ──────────
-// ── ProfileScreen ─────────────────────────────────────────────────────────────
 function InterestTile({ cat, active, onPress, disabled }) {
   const scale = useRef(new Animated.Value(1)).current;
   const prevActive = useRef(active);
@@ -1865,236 +1862,18 @@ function personDisplayLabel(person) {
   return name || 'Usuario';
 }
 
-function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout, onAvatarChange, avatarUrl, picksCount = 0, onClearMyPicks, onFollowingChanged, onOpenUrl, browserUrl, currentBackground, onBackgroundChange, onCheckOutOfStock, onRemoveOutOfStock }) {
-  const [tab, setTab] = useState(userProfile ? 'profile' : 'login');
-  // Al cerrar sesión, ProfileScreen no se desmonta (seguimos en la pestaña
-  // Perfil), así que `tab` se quedaba pegado en 'profile' — dejando la vista
-  // de login/registro en un estado raro que exigía tocar "Ingresar" a mano.
-  useEffect(() => {
-    if (!userProfile) setTab('login');
-  }, [userProfile]);
+// ── AuthScreen ───────────────────────────────────────────────────────────────
+// Login / registro. Antes vivía adentro de la pestaña "Perfil"; ahora se llega
+// acá desde el banner de "Iniciá sesión" en Mis Picks.
+function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
+  const [tab, setTab] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [interestsExpanded, setInterestsExpanded] = useState(true);
-  const [editingName, setEditingName] = useState(false);
-  const [editNameValue, setEditNameValue] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [myProfileRow, setMyProfileRow] = useState(null);
-  const [editingUsername, setEditingUsername] = useState(false);
-  const [editUsernameValue, setEditUsernameValue] = useState('');
-  const [savingUsername, setSavingUsername] = useState(false);
-  const [usernameError, setUsernameError] = useState('');
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [savingPassword, setSavingPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [savingInterests, setSavingInterests] = useState(false);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [avatarError, setAvatarError] = useState(false);
-  const [notifEnabled, setNotifEnabled] = useState(true);
-  const [savingNotifPref, setSavingNotifPref] = useState(false);
-  const [communityExpanded, setCommunityExpanded] = useState(false);
-  const [followerCount, setFollowerCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
-  const [peopleQuery, setPeopleQuery] = useState('');
-  const [peopleResults, setPeopleResults] = useState([]);
-  const [searchingPeople, setSearchingPeople] = useState(false);
-  const [myFollowing, setMyFollowing] = useState({});
-  const [followActionLoading, setFollowActionLoading] = useState({});
-  const [peopleSearchError, setPeopleSearchError] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
-  const [viewingPerson, setViewingPerson] = useState(null);
-  const [viewingPicks, setViewingPicks] = useState([]);
-  const [loadingViewingPicks, setLoadingViewingPicks] = useState(false);
-  const [viewingPicksError, setViewingPicksError] = useState('');
-  const [checkingOutOfStock, setCheckingOutOfStock] = useState(false);
-
-  // Resetear error si cambia el URL (ej: después de subir nueva foto)
-  useEffect(() => { setAvatarError(false); }, [avatarUrl]);
-
-  // Recordar si "Mis intereses" estaba plegado o desplegado la última vez
-  useEffect(() => {
-    AsyncStorage.getItem('interests-expanded-v1')
-      .then((v) => { if (v !== null) setInterestsExpanded(v !== 'false'); })
-      .catch(() => {});
-  }, []);
-
-  // Cargar el perfil público (username) de la tabla profiles
-  useEffect(() => {
-    if (!userProfile) { setMyProfileRow(null); return; }
-    supabase.from('profiles').select('*').eq('id', userProfile.id).maybeSingle()
-      .then(({ data }) => setMyProfileRow(data || null))
-      .catch(() => setMyProfileRow(null));
-  }, [userProfile?.id]);
-
-  // Contadores propios de seguidores / siguiendo
-  useEffect(() => {
-    if (!userProfile) return;
-    (async () => {
-      try {
-        const [{ count: followers }, { count: following }] = await Promise.all([
-          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userProfile.id),
-          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', userProfile.id),
-        ]);
-        setFollowerCount(followers || 0);
-        setFollowingCount(following || 0);
-      } catch (e) {}
-    })();
-  }, [userProfile?.id]);
-
-  // Búsqueda de personas por @usuario (debounced)
-  useEffect(() => {
-    const q = peopleQuery.trim().toLowerCase().replace(/^@/, '');
-    if (q.length < 2) { setPeopleResults([]); return; }
-    setSearchingPeople(true);
-    const t = setTimeout(async () => {
-      setPeopleSearchError('');
-      try {
-        const { data, error: searchErr } = await supabase
-          .from('profiles')
-          .select('id, username, display_name')
-          .neq('id', userProfile.id)
-          .not('username', 'is', null)
-          .ilike('username', `%${q}%`)
-          .limit(15);
-        if (searchErr) {
-          setPeopleResults([]);
-          setPeopleSearchError(searchErr.message || 'No se pudo buscar. Probá de nuevo.');
-          return;
-        }
-        setPeopleResults(data || []);
-        if (data && data.length > 0) {
-          const { data: myFollows } = await supabase
-            .from('follows')
-            .select('following_id')
-            .eq('follower_id', userProfile.id)
-            .in('following_id', data.map(d => d.id));
-          const map = {};
-          (myFollows || []).forEach(f => { map[f.following_id] = true; });
-          setMyFollowing(prev => ({ ...prev, ...map }));
-        }
-      } catch (e) {
-        setPeopleResults([]);
-        setPeopleSearchError('No se pudo buscar. Probá de nuevo.');
-      } finally {
-        setSearchingPeople(false);
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [peopleQuery]);
-
-  const toggleFollow = async (targetId) => {
-    const isFollowing = !!myFollowing[targetId];
-    setFollowActionLoading(prev => ({ ...prev, [targetId]: true }));
-    try {
-      if (isFollowing) {
-        await supabase.from('follows').delete().eq('follower_id', userProfile.id).eq('following_id', targetId);
-        setMyFollowing(prev => ({ ...prev, [targetId]: false }));
-        setFollowingCount(c => Math.max(0, c - 1));
-      } else {
-        const { error: err } = await supabase.from('follows').insert({ follower_id: userProfile.id, following_id: targetId });
-        if (err) throw err;
-        setMyFollowing(prev => ({ ...prev, [targetId]: true }));
-        setFollowingCount(c => c + 1);
-      }
-      onFollowingChanged?.();
-    } catch (e) {
-      Alert.alert('Error', 'No se pudo actualizar. Probá de nuevo.');
-    } finally {
-      setFollowActionLoading(prev => ({ ...prev, [targetId]: false }));
-    }
-  };
-
-  const openPersonPicks = async (person) => {
-    setViewingPerson(person);
-    setViewingPicks([]);
-    setViewingPicksError('');
-    setLoadingViewingPicks(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/picks/public/${person.id}`);
-      const data = await res.json();
-      setViewingPicks(data.picks || []);
-    } catch (e) {
-      setViewingPicksError('No se pudieron cargar sus Picks. Probá de nuevo.');
-    } finally {
-      setLoadingViewingPicks(false);
-    }
-  };
-
-  // Cargar preferencia de notificaciones guardada localmente
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem('notifications-enabled-v1');
-        if (stored !== null) setNotifEnabled(stored !== 'false');
-      } catch (e) {}
-    })();
-  }, []);
-
-  const toggleNotifications = async (value) => {
-    setNotifEnabled(value);
-    setSavingNotifPref(true);
-    try {
-      await AsyncStorage.setItem('notifications-enabled-v1', value ? 'true' : 'false');
-      const device_id = await getOrCreateDeviceId();
-      await fetch(`${BACKEND_URL}/api/notifications/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id, enabled: value }),
-      });
-    } catch (e) {
-      // Silencioso — el toggle local ya se aplicó
-    } finally {
-      setSavingNotifPref(false);
-    }
-  };
-
-  useEffect(() => {
-    if (userProfile && tab !== 'profile') setTab('profile');
-  }, [userProfile]);
-
-  const pickAndUploadAvatar = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permiso necesario', 'Necesitamos acceso a tu galería para cambiar la foto.');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
-      });
-      if (result.canceled) return;
-
-      setUploadingAvatar(true);
-      const uri = result.assets[0].uri;
-      const fileName = `${userProfile.id}.jpg`; // siempre .jpg
-
-      const response = await fetch(uri);
-      const arrayBuffer = await response.arrayBuffer();
-
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, arrayBuffer, { upsert: true, contentType: 'image/jpeg' });
-
-      if (upErr) { Alert.alert('Error', upErr.message || 'No se pudo subir la foto.'); setUploadingAvatar(false); return; }
-
-      setAvatarError(false);
-      onAvatarChange?.();  // actualiza el URL en App (cache bust) → baja como prop
-    } catch (e) {
-      Alert.alert('Error', 'No se pudo subir la foto.');
-    } finally {
-      setUploadingAvatar(false);
-    }
-  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) { setError('Completá email y contraseña'); return; }
@@ -2135,6 +1914,403 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     setSuccess('¡Cuenta creada! Revisá tu email para confirmar.');
   };
 
+  const handleClearMyPicks = () => {
+    Alert.alert(
+      'Vaciar mis Picks',
+      `Se van a borrar los ${picksCount} Picks guardados en este dispositivo. Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Vaciar', style: 'destructive', onPress: () => { onClearMyPicks?.(); } },
+      ]
+    );
+  };
+
+  return (
+    <SafeAreaView style={profileStyles.container} edges={['top']}>
+      {!!onClose && (
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 16, paddingTop: 8 }}>
+          <TouchableOpacity onPress={onClose} style={{ padding: 6 }} hitSlop={10}>
+            <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      )}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={profileStyles.authContent} keyboardShouldPersistTaps="handled">
+          <View style={profileStyles.authHeader}>
+            <View style={profileStyles.authLogo}>
+              <Ionicons name="bookmark" size={32} color="#fff" />
+            </View>
+            <Text style={profileStyles.authTitle}>Picks</Text>
+            <Text style={profileStyles.authSub}>
+              {tab === 'login' ? 'Iniciá sesión para sincronizar tus Picks' : 'Creá tu cuenta gratuita'}
+            </Text>
+          </View>
+
+          <View style={profileStyles.tabToggle}>
+            <TouchableOpacity
+              style={[profileStyles.toggleBtn, tab === 'login' && profileStyles.toggleBtnActive]}
+              onPress={() => { setTab('login'); setError(''); setSuccess(''); }}
+            >
+              <Text style={[profileStyles.toggleText, tab === 'login' && profileStyles.toggleTextActive]}>
+                Ingresar
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[profileStyles.toggleBtn, tab === 'register' && profileStyles.toggleBtnActive]}
+              onPress={() => { setTab('register'); setError(''); setSuccess(''); }}
+            >
+              <Text style={[profileStyles.toggleText, tab === 'register' && profileStyles.toggleTextActive]}>
+                Registrarse
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={profileStyles.form}>
+            {tab === 'register' && (
+              <>
+                <Text style={profileStyles.inputLabel}>Nombre</Text>
+                <TextInput
+                  style={profileStyles.input}
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  placeholder="Tu nombre"
+                  placeholderTextColor={COLORS.textTertiary}
+                />
+              </>
+            )}
+            <Text style={profileStyles.inputLabel}>Email</Text>
+            <TextInput
+              style={profileStyles.input}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoCorrect={false}
+              placeholder="tu@email.com"
+              placeholderTextColor={COLORS.textTertiary}
+            />
+            <Text style={profileStyles.inputLabel}>Contraseña</Text>
+            <TextInput
+              style={profileStyles.input}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder={tab === 'register' ? 'Mínimo 6 caracteres' : '••••••••'}
+              placeholderTextColor={COLORS.textTertiary}
+            />
+
+            {tab === 'login' && (
+              <TouchableOpacity onPress={handleForgotPassword} disabled={forgotLoading} style={{ alignSelf: 'flex-end', marginTop: 10 }}>
+                {forgotLoading
+                  ? <ActivityIndicator size="small" color={COLORS.accent} />
+                  : <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600' }}>¿Olvidaste tu contraseña?</Text>
+                }
+              </TouchableOpacity>
+            )}
+
+            {!!error && <Text style={profileStyles.errorText}>{error}</Text>}
+            {!!success && <Text style={profileStyles.successText}>{success}</Text>}
+
+            <TouchableOpacity
+              style={[profileStyles.authBtn, loading && { opacity: 0.7 }]}
+              onPress={tab === 'login' ? handleLogin : handleRegister}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={profileStyles.authBtnText}>
+                    {tab === 'login' ? 'Ingresar' : 'Crear cuenta'}
+                  </Text>
+              }
+            </TouchableOpacity>
+
+            {picksCount > 0 && (
+              <TouchableOpacity onPress={handleClearMyPicks} style={{ marginTop: 24, alignSelf: 'center' }}>
+                <Text style={{ color: COLORS.textTertiary, fontSize: 12, textAlign: 'center' }}>
+                  Vaciar los {picksCount} Picks guardados en este dispositivo
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// ── EditProfileScreen ─────────────────────────────────────────────────────────
+function EditProfileScreen({ userProfile, avatarUrl, onAvatarChange, onClose }) {
+  const [myProfileRow, setMyProfileRow] = useState(null);
+  const [nameValue, setNameValue] = useState('');
+  const [usernameValue, setUsernameValue] = useState('');
+  const [bioValue, setBioValue] = useState('');
+  const [loadingRow, setLoadingRow] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
+  const [avatarError, setAvatarError] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  useEffect(() => { setAvatarError(false); }, [avatarUrl]);
+
+  useEffect(() => {
+    if (!userProfile) return;
+    setNameValue(userProfile.user_metadata?.name || '');
+    supabase.from('profiles').select('*').eq('id', userProfile.id).maybeSingle()
+      .then(({ data }) => {
+        setMyProfileRow(data || null);
+        setUsernameValue(data?.username || '');
+        setBioValue(data?.bio || '');
+      })
+      .catch(() => {})
+      .finally(() => setLoadingRow(false));
+  }, [userProfile?.id]);
+
+  const pickAndUploadAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso necesario', 'Necesitamos acceso a tu galería para cambiar la foto.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      if (result.canceled) return;
+
+      setUploadingAvatar(true);
+      const uri = result.assets[0].uri;
+      const fileName = `${userProfile.id}.jpg`;
+
+      const response = await fetch(uri);
+      const arrayBuffer = await response.arrayBuffer();
+
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, arrayBuffer, { upsert: true, contentType: 'image/jpeg' });
+
+      if (upErr) { Alert.alert('Error', upErr.message || 'No se pudo subir la foto.'); setUploadingAvatar(false); return; }
+
+      setAvatarError(false);
+      onAvatarChange?.();
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo subir la foto.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const saveAll = async () => {
+    const cleanUsername = usernameValue.trim().toLowerCase();
+    setUsernameError('');
+    if (cleanUsername && !/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
+      setUsernameError('3-20 caracteres: minúsculas, números y guión bajo');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (cleanUsername && cleanUsername !== myProfileRow?.username) {
+        const { data: existing, error: checkErr } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('username', cleanUsername)
+          .neq('id', userProfile.id)
+          .maybeSingle();
+        if (checkErr) { setUsernameError('No se pudo verificar disponibilidad. Probá de nuevo.'); setSaving(false); return; }
+        if (existing) { setUsernameError('Ese nombre de usuario ya está en uso'); setSaving(false); return; }
+      }
+      const cleanName = nameValue.trim() || null;
+      await supabase.auth.updateUser({ data: { name: cleanName } });
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .upsert({ id: userProfile.id, display_name: cleanName, username: cleanUsername || null, bio: bioValue.trim() || null }, { onConflict: 'id' });
+      if (profErr) {
+        // La columna "bio" puede no existir todavía en Supabase — reintentamos sin ella.
+        const { error: profErr2 } = await supabase
+          .from('profiles')
+          .upsert({ id: userProfile.id, display_name: cleanName, username: cleanUsername || null }, { onConflict: 'id' });
+        if (profErr2) { Alert.alert('Error', profErr2.message || 'No se pudo guardar el perfil.'); setSaving(false); return; }
+      }
+      onClose?.();
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo guardar el perfil.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={profileStyles.container} edges={['top']}>
+      <View style={profileStyles.viewingHeader}>
+        <TouchableOpacity onPress={onClose} style={{ padding: 6, marginRight: 4 }} hitSlop={10}>
+          <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+        <Text style={profileStyles.viewingTitle}>Editar perfil</Text>
+        <View style={{ width: 30 }} />
+      </View>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
+        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          {loadingRow ? (
+            <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+          ) : (
+            <>
+              <View style={{ alignItems: 'center', marginBottom: 28 }}>
+                <TouchableOpacity onPress={pickAndUploadAvatar} disabled={uploadingAvatar} activeOpacity={0.85}>
+                  <View style={profileStyles.avatarCircle}>
+                    {avatarUrl && !avatarError
+                      ? <Image
+                          source={{ uri: avatarUrl }}
+                          style={{ width: 72, height: 72, borderRadius: 36 }}
+                          onError={() => setAvatarError(true)}
+                        />
+                      : <Ionicons name="person" size={36} color="#fff" />
+                    }
+                    {uploadingAvatar
+                      ? <View style={profileStyles.avatarOverlay}><ActivityIndicator color="#fff" /></View>
+                      : <View style={profileStyles.avatarEditBadge}>
+                          <Ionicons name="camera" size={12} color="#fff" />
+                        </View>
+                    }
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={pickAndUploadAvatar} disabled={uploadingAvatar} style={{ marginTop: 8 }}>
+                  <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600' }}>Cambiar foto</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={profileStyles.sectionEyebrow}>NOMBRE</Text>
+              <TextInput
+                style={[profileStyles.input, { marginBottom: 16 }]}
+                value={nameValue}
+                onChangeText={setNameValue}
+                autoCapitalize="words"
+                autoCorrect={false}
+                placeholder="Tu nombre"
+                placeholderTextColor={COLORS.textTertiary}
+              />
+
+              <Text style={profileStyles.sectionEyebrow}>USUARIO</Text>
+              <View style={[profileStyles.searchInputRow, { marginBottom: 4 }]}>
+                <Text style={profileStyles.searchAtSign}>@</Text>
+                <TextInput
+                  style={profileStyles.searchInputField}
+                  value={usernameValue}
+                  onChangeText={(t) => setUsernameValue(t.replace(/^@+/, ''))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="usuario"
+                  placeholderTextColor={COLORS.textTertiary}
+                />
+              </View>
+              {!!usernameError && <Text style={profileStyles.errorText}>{usernameError}</Text>}
+
+              <Text style={[profileStyles.sectionEyebrow, { marginTop: 16 }]}>BIO</Text>
+              <TextInput
+                style={[profileStyles.input, { minHeight: 80, textAlignVertical: 'top', paddingTop: 13 }]}
+                value={bioValue}
+                onChangeText={(t) => setBioValue(t.slice(0, 140))}
+                multiline
+                placeholder="Contá algo sobre vos (opcional)"
+                placeholderTextColor={COLORS.textTertiary}
+              />
+
+              <TouchableOpacity
+                style={[profileStyles.authBtn, { marginTop: 28 }, saving && { opacity: 0.7 }]}
+                onPress={saveAll}
+                disabled={saving}
+              >
+                {saving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={profileStyles.authBtnText}>Guardar cambios</Text>
+                }
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// ── SettingsScreen ("Configuración") ─────────────────────────────────────────
+function SettingsScreen({
+  userProfile, userInterests, onInterestsChange, country, onChangeCountry,
+  picksCount = 0, onClearMyPicks, onCheckOutOfStock, onRemoveOutOfStock,
+  currentBackground, onBackgroundChange, onLogout, onOpenCommunity, onOpenEditProfile, onClose,
+}) {
+  const [myProfileRow, setMyProfileRow] = useState(null);
+  const [savingInterests, setSavingInterests] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [savingNotifPref, setSavingNotifPref] = useState(false);
+  const [explorarDefaultView, setExplorarDefaultView] = useState('reel');
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [checkingOutOfStock, setCheckingOutOfStock] = useState(false);
+
+  useEffect(() => {
+    if (!userProfile) return;
+    supabase.from('profiles').select('*').eq('id', userProfile.id).maybeSingle()
+      .then(({ data }) => setMyProfileRow(data || null))
+      .catch(() => {});
+  }, [userProfile?.id]);
+
+  useEffect(() => {
+    if (!userProfile) return;
+    (async () => {
+      try {
+        const [{ count: followers }, { count: following }] = await Promise.all([
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userProfile.id),
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', userProfile.id),
+        ]);
+        setFollowerCount(followers || 0);
+        setFollowingCount(following || 0);
+      } catch (e) {}
+    })();
+  }, [userProfile?.id]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem('notifications-enabled-v1');
+        if (stored !== null) setNotifEnabled(stored !== 'false');
+        const storedView = await AsyncStorage.getItem('explorar-default-view-v1');
+        if (storedView === 'lista' || storedView === 'reel') setExplorarDefaultView(storedView);
+      } catch (e) {}
+    })();
+  }, []);
+
+  const toggleNotifications = async (value) => {
+    setNotifEnabled(value);
+    setSavingNotifPref(true);
+    try {
+      await AsyncStorage.setItem('notifications-enabled-v1', value ? 'true' : 'false');
+      const device_id = await getOrCreateDeviceId();
+      await fetch(`${BACKEND_URL}/api/notifications/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id, enabled: value }),
+      });
+    } catch (e) {
+    } finally {
+      setSavingNotifPref(false);
+    }
+  };
+
+  const changeExplorarDefault = async (view) => {
+    setExplorarDefaultView(view);
+    try { await AsyncStorage.setItem('explorar-default-view-v1', view); } catch (e) {}
+  };
+
   const toggleInterest = async (id) => {
     const next = userInterests.includes(id)
       ? userInterests.filter(i => i !== id)
@@ -2142,77 +2318,6 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     setSavingInterests(true);
     await onInterestsChange(next);
     setSavingInterests(false);
-  };
-
-  const startEditingName = () => {
-    setEditNameValue(userProfile?.user_metadata?.name || '');
-    setEditingName(true);
-  };
-
-  const saveName = async () => {
-    setSavingName(true);
-    try {
-      const cleanName = editNameValue.trim() || null;
-      const { error: err } = await supabase.auth.updateUser({ data: { name: cleanName } });
-      if (err) { Alert.alert('Error', err.message || 'No se pudo guardar el nombre.'); return; }
-      // El auth.updateUser de arriba solo actualiza el metadata del usuario logueado;
-      // la tabla profiles (que es la que consultan otros usuarios al buscarte, seguirte,
-      // etc.) es una tabla aparte y no se actualiza sola — hay que sincronizarla acá.
-      const { error: profErr } = await supabase
-        .from('profiles')
-        .upsert({ id: userProfile.id, display_name: cleanName }, { onConflict: 'id' });
-      if (profErr) { Alert.alert('Error', 'El nombre se guardó pero no se pudo sincronizar tu perfil público.'); }
-      setMyProfileRow(prev => ({ ...(prev || {}), id: userProfile.id, display_name: cleanName }));
-      setEditingName(false);
-    } catch (e) {
-      Alert.alert('Error', 'No se pudo guardar el nombre.');
-    } finally {
-      setSavingName(false);
-    }
-  };
-
-  const startEditingUsername = () => {
-    setEditUsernameValue(myProfileRow?.username || '');
-    setUsernameError('');
-    setEditingUsername(true);
-  };
-
-  const saveUsername = async () => {
-    const clean = editUsernameValue.trim().toLowerCase();
-    setUsernameError('');
-    if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
-      setUsernameError('3-20 caracteres: minúsculas, números y guión bajo');
-      return;
-    }
-    setSavingUsername(true);
-    try {
-      const { data: existing, error: checkErr } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('username', clean)
-        .neq('id', userProfile.id)
-        .maybeSingle();
-      if (checkErr) { setUsernameError('No se pudo verificar disponibilidad. Probá de nuevo.'); return; }
-      if (existing) { setUsernameError('Ese nombre de usuario ya está en uso'); return; }
-      const { error: err } = await supabase
-        .from('profiles')
-        .upsert({ id: userProfile.id, username: clean }, { onConflict: 'id' });
-      if (err) { setUsernameError(err.message); return; }
-      setMyProfileRow(prev => ({ ...(prev || {}), id: userProfile.id, username: clean }));
-      setEditingUsername(false);
-    } catch (e) {
-      setUsernameError('No se pudo guardar. Probá de nuevo.');
-    } finally {
-      setSavingUsername(false);
-    }
-  };
-
-  const cancelPasswordChange = () => {
-    setChangingPassword(false);
-    setNewPassword('');
-    setConfirmPassword('');
-    setPasswordError('');
-    setPasswordSuccess('');
   };
 
   const savePassword = async () => {
@@ -2232,6 +2337,14 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     } finally {
       setSavingPassword(false);
     }
+  };
+
+  const cancelPasswordChange = () => {
+    setChangingPassword(false);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setPasswordSuccess('');
   };
 
   const handleClearMyPicks = () => {
@@ -2268,403 +2381,496 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
     }
   };
 
-  const toggleInterestsSection = () => {
-    if (Platform.OS === 'android') {
-      UIManager.setLayoutAnimationEnabledExperimental?.(true);
-    }
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInterestsExpanded(prev => {
-      const next = !prev;
-      AsyncStorage.setItem('interests-expanded-v1', next ? 'true' : 'false').catch(() => {});
-      return next;
-    });
-  };
-
-  // ── Vista de perfil autenticado ────────────────────────────────────────────
-  if (tab === 'profile' && userProfile) {
-    return (
-      <SafeAreaView style={[profileStyles.container, !!currentBackground && { backgroundColor: 'transparent' }]} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-          {/* Header */}
-          <View style={profileStyles.header}>
-            <TouchableOpacity onPress={pickAndUploadAvatar} disabled={uploadingAvatar} activeOpacity={0.85}>
-              <View style={profileStyles.avatarCircle}>
-                {avatarUrl && !avatarError
-                  ? <Image
-                      source={{ uri: avatarUrl }}
-                      style={{ width: 72, height: 72, borderRadius: 36 }}
-                      onError={() => setAvatarError(true)}
-                    />
-                  : <Ionicons name="person" size={36} color="#fff" />
-                }
-                {uploadingAvatar
-                  ? <View style={profileStyles.avatarOverlay}><ActivityIndicator color="#fff" /></View>
-                  : <View style={profileStyles.avatarEditBadge}>
-                      <Ionicons name="camera" size={12} color="#fff" />
-                    </View>
-                }
-              </View>
-            </TouchableOpacity>
-            {editingName ? (
-              <View style={profileStyles.nameEditRow}>
-                <TextInput
-                  style={profileStyles.nameEditInput}
-                  value={editNameValue}
-                  onChangeText={setEditNameValue}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  autoFocus
-                  placeholder="Tu nombre"
-                  placeholderTextColor={COLORS.textTertiary}
-                  onSubmitEditing={saveName}
-                  returnKeyType="done"
-                />
-                {savingName
-                  ? <ActivityIndicator size="small" color={COLORS.accent} style={{ marginLeft: 8 }} />
-                  : (
-                    <>
-                      <TouchableOpacity onPress={saveName} style={profileStyles.nameEditBtn}>
-                        <Ionicons name="checkmark" size={18} color={COLORS.accent} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setEditingName(false)} style={profileStyles.nameEditBtn}>
-                        <Ionicons name="close" size={18} color={COLORS.textSecondary} />
-                      </TouchableOpacity>
-                    </>
-                  )
-                }
-              </View>
-            ) : (
-              <TouchableOpacity style={profileStyles.nameRow} onPress={startEditingName} activeOpacity={0.7}>
-                <Text style={userProfile.user_metadata?.name ? profileStyles.nameText : profileStyles.nameTextPlaceholder}>
-                  {userProfile.user_metadata?.name || 'Agregar nombre'}
-                </Text>
-                <Ionicons name="pencil-outline" size={13} color={COLORS.textTertiary} style={{ marginLeft: 6 }} />
-              </TouchableOpacity>
-            )}
-            <Text style={profileStyles.emailText}>{userProfile.email}</Text>
-            <TouchableOpacity style={profileStyles.logoutBtn} onPress={onLogout}>
-              <Ionicons name="log-out-outline" size={18} color={COLORS.textSecondary} />
-              <Text style={profileStyles.logoutText}>Cerrar sesión</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Intereses */}
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <TouchableOpacity
-              style={profileStyles.sectionHeaderRow}
-              onPress={toggleInterestsSection}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={profileStyles.sectionEyebrow}>PERSONALIZACIÓN</Text>
-                <Text style={profileStyles.sectionTitle}>Mis intereses</Text>
-              </View>
-              <Ionicons
-                name={interestsExpanded ? 'chevron-up' : 'chevron-down'}
-                size={20}
-                color={COLORS.textSecondary}
-              />
-            </TouchableOpacity>
-            {interestsExpanded ? (
-              <Text style={profileStyles.sectionSub}>Seleccioná las categorías que te interesan para personalizar tu feed y las tiendas destacadas.</Text>
-            ) : (
-              <Text style={profileStyles.sectionSub}>
-                {userInterests.length > 0
-                  ? `${userInterests.length} seleccionada${userInterests.length === 1 ? '' : 's'}`
-                  : 'Sin categorías seleccionadas'}
-              </Text>
-            )}
-            {interestsExpanded && (
-            <View style={profileStyles.interestsGrid}>
-              {INTEREST_CATEGORIES.map(cat => {
-                const active = userInterests.includes(cat.id);
-                return (
-                  <InterestTile
-                    key={cat.id}
-                    cat={cat}
-                    active={active}
-                    disabled={savingInterests}
-                    onPress={() => toggleInterest(cat.id)}
-                  />
-                );
-              })}
+  return (
+    <SafeAreaView style={profileStyles.container} edges={['top']}>
+      <View style={profileStyles.viewingHeader}>
+        <Text style={profileStyles.viewingTitle}>Configuración</Text>
+        <TouchableOpacity onPress={onClose} style={{ padding: 6 }} hitSlop={10}>
+          <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+        </TouchableOpacity>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {/* Región */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>REGIÓN</Text>
+          <TouchableOpacity
+            style={profileStyles.notifRow}
+            activeOpacity={0.7}
+            onPress={() => {
+              Alert.alert(
+                'Seleccioná tu país',
+                '',
+                [
+                  ...Object.entries(COUNTRY_INFO).map(([code, info]) => ({
+                    text: `${info.flag}  ${info.name}`,
+                    onPress: () => onChangeCountry(code),
+                  })),
+                  { text: 'Cancelar', style: 'cancel' },
+                ]
+              );
+            }}
+          >
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={profileStyles.notifRowLabel}>País para buscar tiendas</Text>
+              <Text style={profileStyles.notifRowSub}>Usalo si viajás o querés comparar precios afuera</Text>
             </View>
-            )}
-            {interestsExpanded && savingInterests && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
-          </View>
-
-          {/* Notificaciones */}
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>PREFERENCIAS</Text>
-            <Text style={profileStyles.sectionTitle}>Notificaciones</Text>
-            <Text style={profileStyles.sectionSub}>Recibí un aviso cuando uno de tus Picks tenga un descuento o cambie de stock.</Text>
-            <View style={profileStyles.notifRow}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={profileStyles.notifRowLabel}>Avisos de rebajas y stock</Text>
-                <Text style={profileStyles.notifRowSub}>
-                  {notifEnabled ? 'Activadas' : 'Desactivadas'}
-                </Text>
-              </View>
-              {savingNotifPref
-                ? <ActivityIndicator size="small" color={COLORS.accent} />
-                : <Switch
-                    value={notifEnabled}
-                    onValueChange={toggleNotifications}
-                    trackColor={{ false: COLORS.border, true: COLORS.accent }}
-                    thumbColor="#fff"
-                  />
-              }
-            </View>
-          </View>
-
-          {/* Cuenta: usuario público + contraseña */}
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>CUENTA</Text>
-            <Text style={profileStyles.sectionTitle}>Cuenta</Text>
-
-            {editingUsername ? (
-              <View style={profileStyles.nameEditRow}>
-                <Text style={{ fontSize: 15, color: COLORS.textTertiary, fontWeight: '600' }}>@</Text>
-                <TextInput
-                  style={profileStyles.nameEditInput}
-                  value={editUsernameValue}
-                  onChangeText={setEditUsernameValue}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoFocus
-                  placeholder="usuario"
-                  placeholderTextColor={COLORS.textTertiary}
-                  onSubmitEditing={saveUsername}
-                  returnKeyType="done"
-                />
-                {savingUsername
-                  ? <ActivityIndicator size="small" color={COLORS.accent} style={{ marginLeft: 8 }} />
-                  : (
-                    <>
-                      <TouchableOpacity onPress={saveUsername} style={profileStyles.nameEditBtn}>
-                        <Ionicons name="checkmark" size={18} color={COLORS.accent} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setEditingUsername(false)} style={profileStyles.nameEditBtn}>
-                        <Ionicons name="close" size={18} color={COLORS.textSecondary} />
-                      </TouchableOpacity>
-                    </>
-                  )
-                }
-              </View>
-            ) : (
-              <TouchableOpacity style={profileStyles.notifRow} onPress={startEditingUsername} activeOpacity={0.7}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={profileStyles.notifRowLabel}>Nombre de usuario</Text>
-                  <Text style={profileStyles.notifRowSub}>
-                    {myProfileRow?.username ? `@${myProfileRow.username}` : 'Elegí uno para que otros te puedan seguir'}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-              </TouchableOpacity>
-            )}
-            {!!usernameError && <Text style={profileStyles.errorText}>{usernameError}</Text>}
-
-            <View style={{ height: 10 }} />
-
-            {!changingPassword ? (
-              <TouchableOpacity style={profileStyles.notifRow} onPress={() => setChangingPassword(true)} activeOpacity={0.7}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={profileStyles.notifRowLabel}>Cambiar contraseña</Text>
-                  <Text style={profileStyles.notifRowSub}>Actualizá la contraseña de tu cuenta</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-              </TouchableOpacity>
-            ) : (
-              <View>
-                <Text style={profileStyles.inputLabel}>Nueva contraseña</Text>
-                <TextInput
-                  style={profileStyles.input}
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  placeholder="Mínimo 6 caracteres"
-                  placeholderTextColor={COLORS.textTertiary}
-                />
-                <Text style={profileStyles.inputLabel}>Confirmar contraseña</Text>
-                <TextInput
-                  style={profileStyles.input}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  placeholder="Repetí la contraseña"
-                  placeholderTextColor={COLORS.textTertiary}
-                />
-                {!!passwordError && <Text style={profileStyles.errorText}>{passwordError}</Text>}
-                {!!passwordSuccess && <Text style={profileStyles.successText}>{passwordSuccess}</Text>}
-                <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                  <TouchableOpacity
-                    style={[profileStyles.authBtn, { flex: 1, marginTop: 0 }, savingPassword && { opacity: 0.7 }]}
-                    onPress={savePassword}
-                    disabled={savingPassword}
-                  >
-                    {savingPassword
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <Text style={profileStyles.authBtnText}>Guardar</Text>
-                    }
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[profileStyles.authBtn, { flex: 1, marginTop: 0, backgroundColor: COLORS.card }]}
-                    onPress={cancelPasswordChange}
-                    disabled={savingPassword}
-                  >
-                    <Text style={[profileStyles.authBtnText, { color: COLORS.textSecondary }]}>Cancelar</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <View style={{ height: 10 }} />
-
-            <TouchableOpacity style={profileStyles.notifRow} onPress={handleCleanOutOfStock} activeOpacity={0.7} disabled={checkingOutOfStock}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={profileStyles.notifRowLabel}>Limpiar Picks agotados</Text>
-                <Text style={profileStyles.notifRowSub}>Borra los Picks que ya no tienen stock</Text>
-              </View>
-              {checkingOutOfStock
-                ? <ActivityIndicator size="small" color={COLORS.accent} />
-                : <Ionicons name="sparkles-outline" size={18} color={COLORS.textTertiary} />
-              }
-            </TouchableOpacity>
-
-            <View style={{ height: 10 }} />
-
-            <TouchableOpacity style={profileStyles.notifRow} onPress={handleClearMyPicks} activeOpacity={0.7}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={[profileStyles.notifRowLabel, { color: COLORS.danger || '#e0524a' }]}>Vaciar mis Picks</Text>
-                <Text style={profileStyles.notifRowSub}>Borra los {picksCount} Picks guardados en este dispositivo para esta cuenta</Text>
-              </View>
-              <Ionicons name="trash-outline" size={18} color={COLORS.danger || '#e0524a'} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Comunidad */}
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>COMUNIDAD</Text>
-            <Text style={profileStyles.sectionTitle}>Comunidad</Text>
-            <Text style={profileStyles.sectionSub}>
-              <Text style={{ fontWeight: '700', color: COLORS.textPrimary }}>{followerCount}</Text> seguidores · <Text style={{ fontWeight: '700', color: COLORS.textPrimary }}>{followingCount}</Text> siguiendo
+            <Text style={{ fontSize: 14, color: COLORS.textSecondary, fontWeight: '600' }}>
+              {COUNTRY_INFO[country]?.name || country} <Ionicons name="chevron-down" size={12} />
             </Text>
+          </TouchableOpacity>
+        </View>
 
-            {!communityExpanded ? (
-              <TouchableOpacity style={profileStyles.notifRow} onPress={() => setCommunityExpanded(true)} activeOpacity={0.7}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={profileStyles.notifRowLabel}>Buscar personas</Text>
-                  <Text style={profileStyles.notifRowSub}>Encontrá gente por su @usuario para seguir</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+        {/* Mis intereses */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>MIS INTERESES</Text>
+          <Text style={profileStyles.sectionSub}>Para personalizar tu feed y las tiendas destacadas.</Text>
+          <View style={profileStyles.interestsGrid}>
+            {INTEREST_CATEGORIES.map(cat => {
+              const active = userInterests.includes(cat.id);
+              return (
+                <InterestTile
+                  key={cat.id}
+                  cat={cat}
+                  active={active}
+                  disabled={savingInterests}
+                  onPress={() => toggleInterest(cat.id)}
+                />
+              );
+            })}
+          </View>
+          {savingInterests && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
+        </View>
+
+        {/* Notificaciones */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>NOTIFICACIONES</Text>
+          <View style={profileStyles.notifRow}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={profileStyles.notifRowLabel}>Avisos de rebajas y stock</Text>
+              <Text style={profileStyles.notifRowSub}>Precios, stock y actividad de tu comunidad</Text>
+            </View>
+            {savingNotifPref
+              ? <ActivityIndicator size="small" color={COLORS.accent} />
+              : <Switch
+                  value={notifEnabled}
+                  onValueChange={toggleNotifications}
+                  trackColor={{ false: COLORS.border, true: COLORS.accent }}
+                  thumbColor="#fff"
+                />
+            }
+          </View>
+        </View>
+
+        {/* Explorar */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>EXPLORAR</Text>
+          <View style={profileStyles.notifRow}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={profileStyles.notifRowLabel}>Vista por defecto</Text>
+              <Text style={profileStyles.notifRowSub}>Cómo abrir Explorar la próxima vez</Text>
+            </View>
+            <View style={profileStyles.segmentedRow}>
+              <TouchableOpacity
+                style={[profileStyles.segmentedBtn, explorarDefaultView === 'lista' && profileStyles.segmentedBtnActive]}
+                onPress={() => changeExplorarDefault('lista')}
+              >
+                <Text style={[profileStyles.segmentedText, explorarDefaultView === 'lista' && profileStyles.segmentedTextActive]}>Lista</Text>
               </TouchableOpacity>
-            ) : (
-              <View>
-                <View style={profileStyles.searchInputRow}>
-                  <Text style={profileStyles.searchAtSign}>@</Text>
-                  <TextInput
-                    style={profileStyles.searchInputField}
-                    value={peopleQuery}
-                    onChangeText={(t) => setPeopleQuery(t.replace(/^@+/, ''))}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    placeholder="usuario"
-                    placeholderTextColor={COLORS.textTertiary}
-                    returnKeyType="search"
-                  />
-                </View>
-                {searchingPeople && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
-                {peopleResults.map(person => {
-                  const following = !!myFollowing[person.id];
-                  const busy = !!followActionLoading[person.id];
-                  return (
-                    <View key={person.id} style={profileStyles.personRow}>
-                      <TouchableOpacity style={{ flex: 1 }} onPress={() => openPersonPicks(person)} activeOpacity={0.7}>
-                        <Text style={profileStyles.personName}>{personDisplayLabel(person)}</Text>
-                        <Text style={profileStyles.personUsername}>@{person.username}</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[profileStyles.followBtn, following && profileStyles.followBtnActive]}
-                        onPress={() => toggleFollow(person.id)}
-                        disabled={busy}
-                      >
-                        {busy
-                          ? <ActivityIndicator size="small" color={following ? COLORS.textSecondary : '#fff'} />
-                          : <Text style={[profileStyles.followBtnText, following && profileStyles.followBtnTextActive]}>
-                              {following ? 'Siguiendo' : 'Seguir'}
-                            </Text>
-                        }
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-                {!!peopleSearchError && <Text style={profileStyles.errorText}>{peopleSearchError}</Text>}
-                {!searchingPeople && !peopleSearchError && peopleQuery.trim().length >= 2 && peopleResults.length === 0 && (
-                  <Text style={[profileStyles.sectionSub, { marginTop: 10 }]}>No encontramos usuarios con ese nombre.</Text>
-                )}
+              <TouchableOpacity
+                style={[profileStyles.segmentedBtn, explorarDefaultView === 'reel' && profileStyles.segmentedBtnActive]}
+                onPress={() => changeExplorarDefault('reel')}
+              >
+                <Text style={[profileStyles.segmentedText, explorarDefaultView === 'reel' && profileStyles.segmentedTextActive]}>Reel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Comunidad */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>COMUNIDAD</Text>
+          <TouchableOpacity style={profileStyles.notifRow} onPress={onOpenCommunity} activeOpacity={0.7}>
+            <Text style={profileStyles.notifRowLabel}>
+              <Text style={{ fontWeight: '700', color: COLORS.textPrimary }}>{followerCount}</Text> seguidor{followerCount === 1 ? '' : 'es'} · <Text style={{ fontWeight: '700', color: COLORS.textPrimary }}>{followingCount}</Text> siguiendo
+            </Text>
+            <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '700' }}>Ver</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Cuenta */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>CUENTA</Text>
+
+          <TouchableOpacity style={profileStyles.notifRow} onPress={onOpenEditProfile} activeOpacity={0.7}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={profileStyles.notifRowLabel}>Nombre de usuario</Text>
+              <Text style={profileStyles.notifRowSub}>
+                {myProfileRow?.username ? `@${myProfileRow.username}` : 'Elegí uno para que otros te puedan seguir'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+          </TouchableOpacity>
+
+          <View style={{ height: 10 }} />
+
+          {!changingPassword ? (
+            <TouchableOpacity style={profileStyles.notifRow} onPress={() => setChangingPassword(true)} activeOpacity={0.7}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={profileStyles.notifRowLabel}>Cambiar contraseña</Text>
+                <Text style={profileStyles.notifRowSub}>Actualizá la contraseña de tu cuenta</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+          ) : (
+            <View>
+              <Text style={profileStyles.inputLabel}>Nueva contraseña</Text>
+              <TextInput
+                style={profileStyles.input}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                placeholder="Mínimo 6 caracteres"
+                placeholderTextColor={COLORS.textTertiary}
+              />
+              <Text style={profileStyles.inputLabel}>Confirmar contraseña</Text>
+              <TextInput
+                style={profileStyles.input}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                placeholder="Repetí la contraseña"
+                placeholderTextColor={COLORS.textTertiary}
+              />
+              {!!passwordError && <Text style={profileStyles.errorText}>{passwordError}</Text>}
+              {!!passwordSuccess && <Text style={profileStyles.successText}>{passwordSuccess}</Text>}
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
                 <TouchableOpacity
-                  onPress={() => { setCommunityExpanded(false); setPeopleQuery(''); setPeopleResults([]); }}
-                  style={{ marginTop: 12 }}
+                  style={[profileStyles.authBtn, { flex: 1, marginTop: 0 }, savingPassword && { opacity: 0.7 }]}
+                  onPress={savePassword}
+                  disabled={savingPassword}
                 >
-                  <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600', textAlign: 'center' }}>Cerrar búsqueda</Text>
+                  {savingPassword
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={profileStyles.authBtnText}>Guardar</Text>
+                  }
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[profileStyles.authBtn, { flex: 1, marginTop: 0, backgroundColor: COLORS.card }]}
+                  onPress={cancelPasswordChange}
+                  disabled={savingPassword}
+                >
+                  <Text style={[profileStyles.authBtnText, { color: COLORS.textSecondary }]}>Cancelar</Text>
                 </TouchableOpacity>
               </View>
-            )}
-          </View>
+            </View>
+          )}
 
-          {/* Fondo personalizado */}
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>PERSONALIZAR</Text>
-            <Text style={profileStyles.sectionTitle}>Fondo</Text>
-            <Text style={profileStyles.sectionSub}>
-              Un toque de color suave y translúcido detrás de la app. Es opcional.
-            </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
+          <View style={{ height: 10 }} />
+
+          <TouchableOpacity style={profileStyles.notifRow} onPress={handleCleanOutOfStock} activeOpacity={0.7} disabled={checkingOutOfStock}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={profileStyles.notifRowLabel}>Limpiar Picks agotados</Text>
+              <Text style={profileStyles.notifRowSub}>Borra los Picks que ya no tienen stock</Text>
+            </View>
+            {checkingOutOfStock
+              ? <ActivityIndicator size="small" color={COLORS.accent} />
+              : <Ionicons name="sparkles-outline" size={18} color={COLORS.textTertiary} />
+            }
+          </TouchableOpacity>
+
+          <View style={{ height: 10 }} />
+
+          <TouchableOpacity style={profileStyles.notifRow} onPress={handleClearMyPicks} activeOpacity={0.7}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={[profileStyles.notifRowLabel, { color: COLORS.danger || '#e0524a' }]}>Vaciar mis Picks</Text>
+              <Text style={profileStyles.notifRowSub}>Borra los {picksCount} Picks guardados en este dispositivo para esta cuenta</Text>
+            </View>
+            <Ionicons name="trash-outline" size={18} color={COLORS.danger || '#e0524a'} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Fondo */}
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>PERSONALIZAR</Text>
+          <Text style={profileStyles.sectionTitle}>Fondo</Text>
+          <Text style={profileStyles.sectionSub}>
+            Un toque de color suave y translúcido detrás de la app. Es opcional.
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
+            <TouchableOpacity
+              style={profileStyles.bgSwatchWrap}
+              onPress={() => onBackgroundChange?.(null)}
+              activeOpacity={0.8}
+            >
+              <View style={[
+                profileStyles.bgSwatchNone,
+                !currentBackground && profileStyles.bgSwatchSelected,
+              ]}>
+                <Ionicons name="close" size={18} color={COLORS.textTertiary} />
+              </View>
+              <Text style={profileStyles.bgSwatchLabel}>Ninguno</Text>
+            </TouchableOpacity>
+            {BACKGROUNDS.map(bg => (
               <TouchableOpacity
+                key={bg.id}
                 style={profileStyles.bgSwatchWrap}
-                onPress={() => onBackgroundChange?.(null)}
+                onPress={() => onBackgroundChange?.(bg.id)}
                 activeOpacity={0.8}
               >
-                <View style={[
-                  profileStyles.bgSwatchNone,
-                  !currentBackground && profileStyles.bgSwatchSelected,
-                ]}>
-                  <Ionicons name="close" size={18} color={COLORS.textTertiary} />
-                </View>
-                <Text style={profileStyles.bgSwatchLabel}>Ninguno</Text>
+                <Image
+                  source={bg.source}
+                  style={[
+                    profileStyles.bgSwatch,
+                    currentBackground === bg.id && profileStyles.bgSwatchSelected,
+                  ]}
+                />
+                <Text style={profileStyles.bgSwatchLabel}>{bg.label}</Text>
               </TouchableOpacity>
-              {BACKGROUNDS.map(bg => (
-                <TouchableOpacity
-                  key={bg.id}
-                  style={profileStyles.bgSwatchWrap}
-                  onPress={() => onBackgroundChange?.(bg.id)}
-                  activeOpacity={0.8}
-                >
-                  <Image
-                    source={bg.source}
-                    style={[
-                      profileStyles.bgSwatch,
-                      currentBackground === bg.id && profileStyles.bgSwatchSelected,
-                    ]}
-                  />
-                  <Text style={profileStyles.bgSwatchLabel}>{bg.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={[profileStyles.section, { marginTop: 8, alignItems: 'center' }]}>
+          <TouchableOpacity style={profileStyles.logoutBtn} onPress={onLogout}>
+            <Ionicons name="log-out-outline" size={18} color={COLORS.textSecondary} />
+            <Text style={profileStyles.logoutText}>Cerrar sesión</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// ── CommunityScreen ("Comunidad": seguidores / siguiendo) ────────────────────
+function CommunityScreen({ userProfile, onOpenUrl, onClose }) {
+  const [subTab, setSubTab] = useState('seguidores'); // 'seguidores' | 'siguiendo'
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [peopleQuery, setPeopleQuery] = useState('');
+  const [peopleResults, setPeopleResults] = useState([]);
+  const [searchingPeople, setSearchingPeople] = useState(false);
+  const [peopleSearchError, setPeopleSearchError] = useState('');
+  const [myFollowing, setMyFollowing] = useState({});
+  const [followActionLoading, setFollowActionLoading] = useState({});
+  const [viewingPerson, setViewingPerson] = useState(null);
+  const [viewingPicks, setViewingPicks] = useState([]);
+  const [loadingViewingPicks, setLoadingViewingPicks] = useState(false);
+  const [viewingPicksError, setViewingPicksError] = useState('');
+
+  const loadLists = async () => {
+    if (!userProfile) return;
+    setLoading(true);
+    try {
+      const [{ data: followerRows }, { data: followingRows }] = await Promise.all([
+        supabase.from('follows').select('follower_id').eq('following_id', userProfile.id),
+        supabase.from('follows').select('following_id').eq('follower_id', userProfile.id),
+      ]);
+      const followerIds = (followerRows || []).map(r => r.follower_id);
+      const followingIds = (followingRows || []).map(r => r.following_id);
+      const allIds = [...new Set([...followerIds, ...followingIds])];
+      let profilesById = {};
+      if (allIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('id, username, display_name').in('id', allIds);
+        (profiles || []).forEach(p => { profilesById[p.id] = p; });
+      }
+      setFollowers(followerIds.map(id => profilesById[id]).filter(Boolean));
+      setFollowing(followingIds.map(id => profilesById[id]).filter(Boolean));
+      const map = {};
+      followingIds.forEach(id => { map[id] = true; });
+      setMyFollowing(map);
+    } catch (e) {
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadLists(); }, [userProfile?.id]);
+
+  useEffect(() => {
+    const q = peopleQuery.trim().toLowerCase().replace(/^@/, '');
+    if (q.length < 2) { setPeopleResults([]); return; }
+    setSearchingPeople(true);
+    const t = setTimeout(async () => {
+      setPeopleSearchError('');
+      try {
+        const { data, error: searchErr } = await supabase
+          .from('profiles')
+          .select('id, username, display_name')
+          .neq('id', userProfile.id)
+          .not('username', 'is', null)
+          .ilike('username', `%${q}%`)
+          .limit(15);
+        if (searchErr) {
+          setPeopleResults([]);
+          setPeopleSearchError(searchErr.message || 'No se pudo buscar. Probá de nuevo.');
+          return;
+        }
+        setPeopleResults(data || []);
+      } catch (e) {
+        setPeopleResults([]);
+        setPeopleSearchError('No se pudo buscar. Probá de nuevo.');
+      } finally {
+        setSearchingPeople(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [peopleQuery]);
+
+  const toggleFollow = async (targetId) => {
+    const isFollowing = !!myFollowing[targetId];
+    setFollowActionLoading(prev => ({ ...prev, [targetId]: true }));
+    try {
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', userProfile.id).eq('following_id', targetId);
+        setMyFollowing(prev => ({ ...prev, [targetId]: false }));
+      } else {
+        const { error: err } = await supabase.from('follows').insert({ follower_id: userProfile.id, following_id: targetId });
+        if (err) throw err;
+        setMyFollowing(prev => ({ ...prev, [targetId]: true }));
+      }
+      loadLists();
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo actualizar. Probá de nuevo.');
+    } finally {
+      setFollowActionLoading(prev => ({ ...prev, [targetId]: false }));
+    }
+  };
+
+  const openPersonPicks = async (person) => {
+    setViewingPerson(person);
+    setViewingPicks([]);
+    setViewingPicksError('');
+    setLoadingViewingPicks(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/picks/public/${person.id}`);
+      const data = await res.json();
+      setViewingPicks(data.picks || []);
+    } catch (e) {
+      setViewingPicksError('No se pudieron cargar sus Picks. Probá de nuevo.');
+    } finally {
+      setLoadingViewingPicks(false);
+    }
+  };
+
+  const list = subTab === 'seguidores' ? followers : following;
+
+  return (
+    <SafeAreaView style={profileStyles.container} edges={['top']}>
+      <View style={profileStyles.viewingHeader}>
+        <TouchableOpacity onPress={onClose} style={{ padding: 6, marginRight: 4 }} hitSlop={10}>
+          <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+        <Text style={[profileStyles.viewingTitle, { flex: 1 }]}>Comunidad</Text>
+        <TouchableOpacity onPress={() => setSearchOpen(v => !v)} style={{ padding: 6 }} hitSlop={10}>
+          <Ionicons name={searchOpen ? 'close' : 'search-outline'} size={20} color={COLORS.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      {searchOpen && (
+        <View style={{ paddingHorizontal: 20, paddingTop: 14 }}>
+          <View style={profileStyles.searchInputRow}>
+            <Text style={profileStyles.searchAtSign}>@</Text>
+            <TextInput
+              style={profileStyles.searchInputField}
+              value={peopleQuery}
+              onChangeText={(t) => setPeopleQuery(t.replace(/^@+/, ''))}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Buscar usuario para seguir"
+              placeholderTextColor={COLORS.textTertiary}
+              returnKeyType="search"
+              autoFocus
+            />
           </View>
+          {searchingPeople && <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 12 }} />}
+          {peopleResults.map(person => {
+            const isFollowing = !!myFollowing[person.id];
+            const busy = !!followActionLoading[person.id];
+            return (
+              <View key={person.id} style={profileStyles.personRow}>
+                <TouchableOpacity style={{ flex: 1 }} onPress={() => openPersonPicks(person)} activeOpacity={0.7}>
+                  <Text style={profileStyles.personName}>{personDisplayLabel(person)}</Text>
+                  <Text style={profileStyles.personUsername}>@{person.username}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[profileStyles.followBtn, isFollowing && profileStyles.followBtnActive]}
+                  onPress={() => toggleFollow(person.id)}
+                  disabled={busy}
+                >
+                  {busy
+                    ? <ActivityIndicator size="small" color={isFollowing ? COLORS.textSecondary : '#fff'} />
+                    : <Text style={[profileStyles.followBtnText, isFollowing && profileStyles.followBtnTextActive]}>
+                        {isFollowing ? 'Siguiendo' : 'Seguir'}
+                      </Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+          {!!peopleSearchError && <Text style={profileStyles.errorText}>{peopleSearchError}</Text>}
+          {!searchingPeople && !peopleSearchError && peopleQuery.trim().length >= 2 && peopleResults.length === 0 && (
+            <Text style={[profileStyles.sectionSub, { marginTop: 10 }]}>No encontramos usuarios con ese nombre.</Text>
+          )}
+        </View>
+      )}
+
+      <View style={profileStyles.segmentedRow2}>
+        <TouchableOpacity
+          style={[profileStyles.segmentedBtn2, subTab === 'seguidores' && profileStyles.segmentedBtn2Active]}
+          onPress={() => setSubTab('seguidores')}
+        >
+          <Text style={[profileStyles.segmentedText2, subTab === 'seguidores' && profileStyles.segmentedText2Active]}>
+            Seguidores ({followers.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[profileStyles.segmentedBtn2, subTab === 'siguiendo' && profileStyles.segmentedBtn2Active]}
+          onPress={() => setSubTab('siguiendo')}
+        >
+          <Text style={[profileStyles.segmentedText2, subTab === 'siguiendo' && profileStyles.segmentedText2Active]}>
+            Siguiendo ({following.length})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+      ) : list.length === 0 ? (
+        <Text style={[profileStyles.sectionSub, { textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }]}>
+          {subTab === 'seguidores' ? 'Todavía no tenés seguidores.' : 'Todavía no seguís a nadie. Tocá la lupa de arriba para buscar gente.'}
+        </Text>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12 }}>
+          {list.map(person => (
+            <TouchableOpacity key={person.id} style={profileStyles.personRow} onPress={() => openPersonPicks(person)} activeOpacity={0.75}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <View style={profileStyles.personAvatarCircle}>
+                  <Text style={profileStyles.personAvatarInitial}>{(personDisplayLabel(person) || '?')[0].toUpperCase()}</Text>
+                </View>
+                <View style={{ marginLeft: 10 }}>
+                  <Text style={profileStyles.personName}>{personDisplayLabel(person)}</Text>
+                  <Text style={profileStyles.personUsername}>@{person.username}</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+          ))}
         </ScrollView>
-      </KeyboardAvoidingView>
+      )}
 
       <Modal
-        visible={!!viewingPerson && !browserUrl}
+        visible={!!viewingPerson}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setViewingPerson(null)}
@@ -2672,9 +2878,7 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
         <SafeAreaView style={profileStyles.container} edges={['top']}>
           <View style={profileStyles.viewingHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={profileStyles.viewingTitle}>
-                {personDisplayLabel(viewingPerson)}
-              </Text>
+              <Text style={profileStyles.viewingTitle}>{personDisplayLabel(viewingPerson)}</Text>
               <Text style={profileStyles.viewingSub}>@{viewingPerson?.username}</Text>
             </View>
             <TouchableOpacity onPress={() => setViewingPerson(null)} style={{ padding: 6 }}>
@@ -2716,118 +2920,6 @@ function ProfileScreen({ userProfile, userInterests, onInterestsChange, onLogout
           )}
         </SafeAreaView>
       </Modal>
-      </SafeAreaView>
-    );
-  }
-
-  // ── Vista login / registro ─────────────────────────────────────────────────
-  return (
-    <SafeAreaView style={[profileStyles.container, !!currentBackground && { backgroundColor: 'transparent' }]} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={profileStyles.authContent} keyboardShouldPersistTaps="handled">
-        {/* Logo / título */}
-        <View style={profileStyles.authHeader}>
-          <View style={profileStyles.authLogo}>
-            <Ionicons name="bookmark" size={32} color="#fff" />
-          </View>
-          <Text style={profileStyles.authTitle}>Picks</Text>
-          <Text style={profileStyles.authSub}>
-            {tab === 'login' ? 'Iniciá sesión para sincronizar tus Picks' : 'Creá tu cuenta gratuita'}
-          </Text>
-        </View>
-
-        {/* Tab toggle */}
-        <View style={profileStyles.tabToggle}>
-          <TouchableOpacity
-            style={[profileStyles.toggleBtn, tab === 'login' && profileStyles.toggleBtnActive]}
-            onPress={() => { setTab('login'); setError(''); setSuccess(''); }}
-          >
-            <Text style={[profileStyles.toggleText, tab === 'login' && profileStyles.toggleTextActive]}>
-              Ingresar
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[profileStyles.toggleBtn, tab === 'register' && profileStyles.toggleBtnActive]}
-            onPress={() => { setTab('register'); setError(''); setSuccess(''); }}
-          >
-            <Text style={[profileStyles.toggleText, tab === 'register' && profileStyles.toggleTextActive]}>
-              Registrarse
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Formulario */}
-        <View style={profileStyles.form}>
-          {tab === 'register' && (
-            <>
-              <Text style={profileStyles.inputLabel}>Nombre</Text>
-              <TextInput
-                style={profileStyles.input}
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-                autoCorrect={false}
-                placeholder="Tu nombre"
-                placeholderTextColor={COLORS.textTertiary}
-              />
-            </>
-          )}
-          <Text style={profileStyles.inputLabel}>Email</Text>
-          <TextInput
-            style={profileStyles.input}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoCorrect={false}
-            placeholder="tu@email.com"
-            placeholderTextColor={COLORS.textTertiary}
-          />
-          <Text style={profileStyles.inputLabel}>Contraseña</Text>
-          <TextInput
-            style={profileStyles.input}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholder={tab === 'register' ? 'Mínimo 6 caracteres' : '••••••••'}
-            placeholderTextColor={COLORS.textTertiary}
-          />
-
-          {tab === 'login' && (
-            <TouchableOpacity onPress={handleForgotPassword} disabled={forgotLoading} style={{ alignSelf: 'flex-end', marginTop: 10 }}>
-              {forgotLoading
-                ? <ActivityIndicator size="small" color={COLORS.accent} />
-                : <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600' }}>¿Olvidaste tu contraseña?</Text>
-              }
-            </TouchableOpacity>
-          )}
-
-          {!!error && <Text style={profileStyles.errorText}>{error}</Text>}
-          {!!success && <Text style={profileStyles.successText}>{success}</Text>}
-
-          <TouchableOpacity
-            style={[profileStyles.authBtn, loading && { opacity: 0.7 }]}
-            onPress={tab === 'login' ? handleLogin : handleRegister}
-            disabled={loading}
-          >
-            {loading
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={profileStyles.authBtnText}>
-                  {tab === 'login' ? 'Ingresar' : 'Crear cuenta'}
-                </Text>
-            }
-          </TouchableOpacity>
-
-          {picksCount > 0 && (
-            <TouchableOpacity onPress={handleClearMyPicks} style={{ marginTop: 24, alignSelf: 'center' }}>
-              <Text style={{ color: COLORS.textTertiary, fontSize: 12, textAlign: 'center' }}>
-                Vaciar los {picksCount} Picks guardados en este dispositivo
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -2932,6 +3024,20 @@ const profileStyles = StyleSheet.create({
   },
   bgSwatchSelected: { borderColor: COLORS.accent, borderWidth: 3 },
   bgSwatchLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 6, textAlign: 'center' },
+  // Segmentado chico (ej. "Lista"/"Reel" en Configuración)
+  segmentedRow: { flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: 10, padding: 3 },
+  segmentedBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
+  segmentedBtnActive: { backgroundColor: COLORS.textPrimary },
+  segmentedText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
+  segmentedTextActive: { color: '#fff' },
+  // Segmentado ancho (tabs Seguidores/Siguiendo en Comunidad)
+  segmentedRow2: { flexDirection: 'row', marginHorizontal: 20, marginTop: 16, backgroundColor: COLORS.card, borderRadius: 12, padding: 4 },
+  segmentedBtn2: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 9 },
+  segmentedBtn2Active: { backgroundColor: COLORS.textPrimary },
+  segmentedText2: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+  segmentedText2Active: { color: '#fff' },
+  personAvatarCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center' },
+  personAvatarInitial: { color: '#fff', fontSize: 15, fontWeight: '700' },
   // Auth styles
   authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
   authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
@@ -3089,248 +3195,6 @@ function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
   );
 }
 
-// ── FollowingRail ──────────────────────────────────────────────────────────
-// Pestaña vertical sobre el borde derecho del Home: aparece al tocarla y se
-// esconde sola al segundo de inactividad. Muestra los avatares de la gente
-// que seguís; tocar uno abre sus colecciones públicas. Es un acceso secundario
-// a propósito — el foco de la app sigue siendo el wishlist universal.
-function FollowingAvatarImg({ uri }) {
-  const [failed, setFailed] = useState(false);
-  if (!uri || failed) {
-    return (
-      <View style={[railStyles.avatarImg, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Ionicons name="person" size={26} color="#fff" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={railStyles.avatarImg} onError={() => setFailed(true)} />;
-}
-
-function FollowingRail({ followingList, getAvatarUrl, onOpenUrl, browserUrl, active = true }) {
-  const [expanded, setExpanded] = useState(false);
-  const [viewingUser, setViewingUser] = useState(null);
-  const [viewingCollections, setViewingCollections] = useState([]);
-  const [loadingCollections, setLoadingCollections] = useState(false);
-  const [viewingError, setViewingError] = useState('');
-  const [openedCollection, setOpenedCollection] = useState(null);
-  const hideTimer = useRef(null);
-
-  useEffect(() => {
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
-  }, []);
-
-  const scheduleHide = () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setExpanded(false), 10000);
-  };
-
-  const handleToggle = () => {
-    setExpanded(prev => {
-      const next = !prev;
-      if (next) scheduleHide();
-      else if (hideTimer.current) clearTimeout(hideTimer.current);
-      return next;
-    });
-  };
-
-  const openUserCollections = async (person) => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    setExpanded(false);
-    setViewingUser(person);
-    setViewingCollections([]);
-    setViewingError('');
-    setOpenedCollection(null);
-    setLoadingCollections(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/collections/public/${person.id}`);
-      const data = await res.json();
-      setViewingCollections(data.collections || []);
-    } catch (e) {
-      setViewingError('No se pudieron cargar sus colecciones. Probá de nuevo.');
-    } finally {
-      setLoadingCollections(false);
-    }
-  };
-
-  const showRail = active && !!followingList && followingList.length > 0;
-
-  return (
-    <>
-      {showRail && (
-      <View style={railStyles.container} pointerEvents="box-none">
-        <TouchableOpacity style={railStyles.handle} onPress={handleToggle} activeOpacity={0.8}>
-          <Ionicons name={expanded ? 'chevron-forward' : 'people'} size={20} color="#fff" />
-        </TouchableOpacity>
-        {expanded && (
-          <View style={railStyles.avatarPanel} onTouchStart={scheduleHide}>
-            <ScrollView contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={false}>
-              {followingList.map(person => (
-                <TouchableOpacity
-                  key={person.id}
-                  style={railStyles.avatarBtn}
-                  onPress={() => openUserCollections(person)}
-                  activeOpacity={0.8}
-                >
-                  <FollowingAvatarImg uri={getAvatarUrl(person.id)} />
-                  <Text style={railStyles.avatarLabel} numberOfLines={1}>
-                    {personDisplayLabel(person)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-      </View>
-      )}
-
-      <Modal
-        visible={!!viewingUser && !browserUrl}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setViewingUser(null)}
-      >
-        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
-          <View style={railStyles.modalHeader}>
-            {!!openedCollection && (
-              <TouchableOpacity onPress={() => setOpenedCollection(null)} style={{ padding: 6, marginRight: 4 }}>
-                <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={railStyles.modalTitle} numberOfLines={1}>
-                {openedCollection ? openedCollection.name : personDisplayLabel(viewingUser)}
-              </Text>
-              {!openedCollection && <Text style={railStyles.modalSub}>@{viewingUser?.username}</Text>}
-            </View>
-            <TouchableOpacity onPress={() => setViewingUser(null)} style={{ padding: 6 }}>
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {loadingCollections ? (
-            <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
-          ) : !!viewingError ? (
-            <Text style={railStyles.emptyText}>{viewingError}</Text>
-          ) : openedCollection ? (
-            <ScrollView contentContainerStyle={{ padding: 16 }}>
-              {openedCollection.picks.length === 0 ? (
-                <Text style={railStyles.emptyText}>Esta colección no tiene Picks públicos.</Text>
-              ) : openedCollection.picks.map(p => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={railStyles.pickRow}
-                  onPress={() => onOpenUrl ? onOpenUrl(p.url, openedCollection?.name || 'Colección') : Linking.openURL(p.url).catch(() => {})}
-                  activeOpacity={0.75}
-                >
-                  {p.img
-                    ? <Image source={{ uri: p.img }} style={railStyles.pickImg} />
-                    : <View style={[railStyles.pickImg, { justifyContent: 'center', alignItems: 'center' }]}>
-                        <Ionicons name="image-outline" size={20} color={COLORS.textTertiary} />
-                      </View>
-                  }
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={railStyles.pickName} numberOfLines={2}>{p.name}</Text>
-                    {!!(p.price_current || p.price_saved) && (
-                      <Text style={railStyles.pickPrice}>${p.price_current || p.price_saved}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : viewingCollections.length === 0 ? (
-            <Text style={railStyles.emptyText}>Todavía no tiene colecciones públicas.</Text>
-          ) : (
-            <ScrollView contentContainerStyle={{ padding: 16 }}>
-              {viewingCollections.map(col => (
-                <TouchableOpacity
-                  key={col.id}
-                  style={railStyles.collectionCard}
-                  onPress={() => setOpenedCollection(col)}
-                  activeOpacity={0.75}
-                >
-                  <View style={railStyles.collectionThumbRow}>
-                    {col.picks.length === 0
-                      ? <View style={[railStyles.collectionThumb, { justifyContent: 'center', alignItems: 'center' }]}>
-                          <Ionicons name="albums-outline" size={16} color={COLORS.textTertiary} />
-                        </View>
-                      : col.picks.slice(0, 3).map((p, i) => (
-                          p.img
-                            ? <Image key={p.id} source={{ uri: p.img }} style={[railStyles.collectionThumb, i > 0 && { marginLeft: -14 }]} />
-                            : <View key={p.id || i} style={[railStyles.collectionThumb, i > 0 && { marginLeft: -14 }, { justifyContent: 'center', alignItems: 'center' }]}>
-                                <Ionicons name="image-outline" size={14} color={COLORS.textTertiary} />
-                              </View>
-                        ))
-                    }
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={railStyles.collectionName}>{col.name}</Text>
-                    <Text style={railStyles.collectionCount}>{col.picks.length} Pick{col.picks.length !== 1 ? 's' : ''}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-        </SafeAreaView>
-      </Modal>
-    </>
-  );
-}
-
-const railStyles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    right: 0,
-    top: '38%',
-    alignItems: 'flex-end',
-    zIndex: 20,
-  },
-  handle: {
-    width: 40,
-    height: 60,
-    backgroundColor: 'rgba(20,20,20,0.6)',
-    borderTopLeftRadius: 18,
-    borderBottomLeftRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarPanel: {
-    backgroundColor: 'rgba(20,20,20,0.68)',
-    borderRadius: 24,
-    paddingHorizontal: 10,
-    marginTop: 8,
-    maxHeight: 360,
-    width: 92,
-  },
-  avatarBtn: { paddingVertical: 10, alignItems: 'center' },
-  avatarImg: { width: 68, height: 68, borderRadius: 34, borderWidth: 2, borderColor: '#fff', backgroundColor: '#666' },
-  avatarLabel: { fontSize: 11, fontWeight: '600', color: '#fff', marginTop: 4, maxWidth: 76, textAlign: 'center' },
-  modalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
-    borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
-  },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
-  modalSub:   { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
-  emptyText:  { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 30, paddingHorizontal: 24 },
-  pickRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
-    padding: 10, marginBottom: 10,
-  },
-  pickImg: { width: 56, height: 56, borderRadius: 10, backgroundColor: COLORS.card },
-  pickName: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
-  pickPrice: { fontSize: 13, fontWeight: '700', color: COLORS.accent, marginTop: 4 },
-  collectionCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
-    padding: 12, marginBottom: 10,
-  },
-  collectionThumbRow: { flexDirection: 'row' },
-  collectionThumb: { width: 40, height: 40, borderRadius: 8, backgroundColor: COLORS.card, borderWidth: 2, borderColor: COLORS.surface },
-  collectionName: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
-  collectionCount: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-});
 
 // Muestra las categorías de interés del usuario como chips (misma apariencia
 // que "Mis intereses" en Perfil). Al tocar una, las tiendas destacadas de esa
@@ -3367,7 +3231,7 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [] }) {
+function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearch }) {
   const [input, setInput] = useState('');
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeSection, setStoreSection] = useState('destacadas'); // 'destacadas' | 'mis'
@@ -3515,27 +3379,38 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, country = 'UY', cou
             </Animated.Text>
             <Text style={styles.brandTagline}>Tu wishlist universal</Text>
           </View>
-          <TouchableOpacity
-            style={styles.countryChip}
-            activeOpacity={0.7}
-            onPress={() => {
-              Alert.alert(
-                'Seleccioná tu país',
-                '',
-                [
-                  ...Object.entries(COUNTRY_INFO).map(([code, info]) => ({
-                    text: `${info.flag}  ${info.name}`,
-                    onPress: () => onChangeCountry(code),
-                  })),
-                  { text: 'Cancelar', style: 'cancel' },
-                ]
-              );
-            }}
-          >
-            <Text style={{ fontSize: 16 }}>{COUNTRY_INFO[country].flag}</Text>
-            <Text style={styles.countryChipText}>{COUNTRY_INFO[country].name}</Text>
-            <Ionicons name="chevron-down" size={11} color={COLORS.textSecondary} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {!!onOpenSearch && (
+              <TouchableOpacity
+                style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.surface, borderWidth: 0.5, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center' }}
+                activeOpacity={0.7}
+                onPress={onOpenSearch}
+              >
+                <Ionicons name="search-outline" size={17} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.countryChip}
+              activeOpacity={0.7}
+              onPress={() => {
+                Alert.alert(
+                  'Seleccioná tu país',
+                  '',
+                  [
+                    ...Object.entries(COUNTRY_INFO).map(([code, info]) => ({
+                      text: `${info.flag}  ${info.name}`,
+                      onPress: () => onChangeCountry(code),
+                    })),
+                    { text: 'Cancelar', style: 'cancel' },
+                  ]
+                );
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>{COUNTRY_INFO[country].flag}</Text>
+              <Text style={styles.countryChipText}>{COUNTRY_INFO[country].name}</Text>
+              <Ionicons name="chevron-down" size={11} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -3908,6 +3783,31 @@ const colStyles = StyleSheet.create({
   colListCount: { fontSize: 12, color: '#8A8580', marginTop: 1 },
 });
 
+// Header de perfil fusionado en la pestaña "Mis Picks" (antes vivía en "Perfil").
+const picksHeaderStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+    padding: 12, marginTop: 14, marginBottom: 16,
+  },
+  avatarCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center' },
+  name: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
+  username: { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
+  counts: { fontSize: 12, color: COLORS.textSecondary, marginTop: 4 },
+  editBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: COLORS.card, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  editBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.textPrimary },
+  authBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.accentLight || COLORS.card, borderRadius: 16,
+    padding: 14, marginTop: 14, marginBottom: 16,
+  },
+  authBannerTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  authBannerSub: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+});
+
 
 function ShareCardContent({ pick, onImageReady }) {
   const store = getStoreDisplayName(pick.domain);
@@ -3939,7 +3839,35 @@ function ShareCardContent({ pick, onImageReady }) {
   );
 }
 
-function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection, onToggleCollectionPublic }) {
+function PicksView({
+  picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection, onToggleCollectionPublic,
+  userProfile, avatarUrl, onOpenAuth, onOpenEditProfile, onOpenSettings, onOpenCommunity,
+}) {
+  const [myProfileRow, setMyProfileRow] = useState(null);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [avatarError, setAvatarError] = useState(false);
+
+  useEffect(() => { setAvatarError(false); }, [avatarUrl]);
+
+  // Datos livianos del header de perfil — se recargan cada vez que se vuelve
+  // a esta pestaña logueado (ej. después de editar el perfil).
+  useEffect(() => {
+    if (!userProfile) { setMyProfileRow(null); return; }
+    supabase.from('profiles').select('*').eq('id', userProfile.id).maybeSingle()
+      .then(({ data }) => setMyProfileRow(data || null))
+      .catch(() => {});
+    (async () => {
+      try {
+        const [{ count: followers }, { count: following }] = await Promise.all([
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userProfile.id),
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', userProfile.id),
+        ]);
+        setFollowerCount(followers || 0);
+        setFollowingCount(following || 0);
+      } catch (e) {}
+    })();
+  }, [userProfile?.id]);
   const [query, setQuery] = useState('');
   const [activeStore, setActiveStore] = useState(null);
   const [activeCountry, setActiveCountry] = useState(null);
@@ -4213,12 +4141,56 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
         }]}>
           Mis Picks
         </Animated.Text>
-        {picks.length > 0 && (
-          <TouchableOpacity onPress={() => shareCollection()} style={styles.shareCollectionBtn} hitSlop={10} activeOpacity={0.7}>
-            <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
-          </TouchableOpacity>
-        )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          {picks.length > 0 && (
+            <TouchableOpacity onPress={() => shareCollection()} style={styles.shareCollectionBtn} hitSlop={10} activeOpacity={0.7}>
+              <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          )}
+          {!!userProfile && (
+            <TouchableOpacity onPress={onOpenSettings} hitSlop={10} activeOpacity={0.7}>
+              <Ionicons name="settings-outline" size={20} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
+
+      {userProfile ? (
+        <View style={picksHeaderStyles.row}>
+          <View style={picksHeaderStyles.avatarCircle}>
+            {avatarUrl && !avatarError
+              ? <Image source={{ uri: avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22 }} onError={() => setAvatarError(true)} />
+              : <Ionicons name="person" size={20} color="#fff" />
+            }
+          </View>
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={picksHeaderStyles.name} numberOfLines={1}>
+              {userProfile.user_metadata?.name || myProfileRow?.username || 'Fede'}
+            </Text>
+            {!!myProfileRow?.username && (
+              <Text style={picksHeaderStyles.username}>@{myProfileRow.username}</Text>
+            )}
+            <TouchableOpacity onPress={onOpenCommunity} activeOpacity={0.7}>
+              <Text style={picksHeaderStyles.counts}>
+                {followerCount} seguidor{followerCount === 1 ? '' : 'es'} · {followingCount} siguiendo
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={picksHeaderStyles.editBtn} onPress={onOpenEditProfile} activeOpacity={0.7}>
+            <Ionicons name="pencil-outline" size={12} color={COLORS.textPrimary} />
+            <Text style={picksHeaderStyles.editBtnText}>Editar perfil</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={picksHeaderStyles.authBanner} onPress={onOpenAuth} activeOpacity={0.8}>
+          <View style={{ flex: 1 }}>
+            <Text style={picksHeaderStyles.authBannerTitle}>Iniciá sesión</Text>
+            <Text style={picksHeaderStyles.authBannerSub}>Sincronizá tus Picks y seguí a otros usuarios</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.accent} />
+        </TouchableOpacity>
+      )}
+
       <View style={styles.storeSectionTabs}>
         <TouchableOpacity
           style={[styles.storeSectionTab, picksTab === 'todos' && styles.storeSectionTabActive]}
@@ -4421,7 +4393,7 @@ function PicksView({ picks, collections = [], onRemove, onOpen, picksTab, setPic
   );
 }
 
-function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed }) {
+function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState(0);
@@ -4723,6 +4695,14 @@ true;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      {!!onBack && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 10 }}>
+          <TouchableOpacity onPress={onBack} style={{ padding: 6, marginLeft: -6 }} hitSlop={10}>
+            <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, marginLeft: 2 }}>Buscar</Text>
+        </View>
+      )}
       {/* Barra de búsqueda */}
       <View style={styles.searchBarWrap}>
         <View style={styles.searchBarInner}>
@@ -4965,6 +4945,13 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   const [viewMode, setViewMode] = useState('reel'); // 'lista' | 'reel'
   const [reelHeight, setReelHeight] = useState(SCREEN.height - 160);
 
+  // Vista con la que abrir Explorar la próxima vez (configurable en Configuración).
+  useEffect(() => {
+    AsyncStorage.getItem('explorar-default-view-v1')
+      .then((v) => { if (v === 'lista' || v === 'reel') setViewMode(v); })
+      .catch(() => {});
+  }, []);
+
   async function loadFeed(isRefresh = false) {
     if (!isRefresh) setLoading(true);
     try {
@@ -5199,24 +5186,13 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   );
 }
 
-function TabBar({ activeTab, setActiveTab, pickCount, avatarUrl }) {
+// Menú inferior: 3 pestañas flotantes estilo Instagram. "Mis tiendas" y
+// "Buscar"/"Perfil" (login, editar perfil, configuración, comunidad) siguen
+// existiendo como pantallas — se llega a ellas desde adentro de estas 3.
+function TabBar({ activeTab, setActiveTab, pickCount }) {
   return (
     <SafeAreaView edges={['bottom']} style={styles.tabBarWrap}>
       <View style={styles.tabBar}>
-        <Tab
-          label="Navegar"
-          iconName="home-outline"
-          iconActive="home"
-          isActive={activeTab === 'home'}
-          onPress={() => setActiveTab('home')}
-        />
-        <Tab
-          label="Buscar"
-          iconName="search-outline"
-          iconActive="search"
-          isActive={activeTab === 'search'}
-          onPress={() => setActiveTab('search')}
-        />
         <Tab
           label="Explorar"
           iconName="compass-outline"
@@ -5225,49 +5201,38 @@ function TabBar({ activeTab, setActiveTab, pickCount, avatarUrl }) {
           onPress={() => setActiveTab('explorar')}
         />
         <Tab
+          label="Mis tiendas"
+          iconName="bag-outline"
+          iconActive="bag"
+          isActive={activeTab === 'home'}
+          onPress={() => setActiveTab('home')}
+        />
+        <Tab
           label="Mis Picks"
-          iconName="heart-outline"
-          iconActive="heart"
+          iconName="bookmark-outline"
+          iconActive="bookmark"
           isActive={activeTab === 'picks'}
           onPress={() => setActiveTab('picks')}
           badge={pickCount}
-        />
-        <Tab
-          label="Perfil"
-          iconName="person-circle-outline"
-          iconActive="person-circle"
-          isActive={activeTab === 'perfil'}
-          onPress={() => setActiveTab('perfil')}
-          avatarUrl={avatarUrl}
         />
       </View>
     </SafeAreaView>
   );
 }
- 
-function Tab({ label, iconName, iconActive, isActive, onPress, badge, avatarUrl }) {
-  const color = isActive ? COLORS.textPrimary : COLORS.textSecondary;
-  const [imgError, setImgError] = useState(false);
-  // Resetear error si el URL cambia (nueva foto subida)
-  useEffect(() => { setImgError(false); }, [avatarUrl]);
+
+function Tab({ label, iconName, iconActive, isActive, onPress, badge }) {
+  const color = isActive ? COLORS.accent : COLORS.textSecondary;
   return (
     <TouchableOpacity style={styles.tab} onPress={onPress} activeOpacity={0.6}>
       <View style={styles.tabIconWrap}>
-        {avatarUrl && !imgError
-          ? <Image
-              source={{ uri: avatarUrl }}
-              style={{ width: 26, height: 26, borderRadius: 13, borderWidth: isActive ? 2 : 1, borderColor: isActive ? COLORS.accent : COLORS.border }}
-              onError={() => setImgError(true)}
-            />
-          : <Ionicons name={isActive ? iconActive : iconName} size={24} color={color} />
-        }
+        <Ionicons name={isActive ? iconActive : iconName} size={24} color={color} />
         {badge > 0 && (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{badge}</Text>
           </View>
         )}
       </View>
-      <Text style={[styles.tabLabel, { color, fontWeight: isActive ? '500' : '400' }]}>
+      <Text style={[styles.tabLabel, { color, fontWeight: isActive ? '600' : '400' }]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -5484,11 +5449,17 @@ const styles = StyleSheet.create({
   chipCount: { fontSize: 11, color: COLORS.textTertiary, fontWeight: '400' },
   chipCountActive: { color: COLORS.background, opacity: 0.7 },
   chipClear: { borderColor: COLORS.accentLight, backgroundColor: 'transparent' },
-  tabBarWrap: { backgroundColor: COLORS.background, borderTopWidth: 0.5, borderTopColor: COLORS.border },
-  tabBar: { flexDirection: 'row', paddingTop: 8, paddingHorizontal: 12, paddingBottom: 4 },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 6 },
+  tabBarWrap: { backgroundColor: 'transparent' },
+  tabBar: {
+    flexDirection: 'row', marginHorizontal: 16, marginBottom: 6,
+    paddingTop: 10, paddingBottom: 10, paddingHorizontal: 8,
+    backgroundColor: COLORS.surface, borderRadius: 28,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12,
+    elevation: 8,
+  },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 2 },
   tabIconWrap: { position: 'relative' },
-  tabLabel: { fontSize: 11, marginTop: 2 },
+  tabLabel: { fontSize: 11, marginTop: 3 },
   badge: {
     position: 'absolute', top: -4, right: -10, backgroundColor: COLORS.accent,
     borderRadius: 9, minWidth: 18, height: 18, paddingHorizontal: 5,
