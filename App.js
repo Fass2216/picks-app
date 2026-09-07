@@ -1536,6 +1536,7 @@ export default function App() {
             onToggleFavorite={toggleCurrentFavorite}
             onUrlChange={setCurrentBrowserUrl}
             onCompare={compareInOtherStores}
+            onBlockedRedirect={() => showToast('Bloqueamos un redireccionamiento a Facebook')}
           />
         ) : activeTab === 'home' ? (
           <HomeView
@@ -3920,7 +3921,20 @@ const homeExtraStyles = StyleSheet.create({
   },
 });
 
-function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare }) {
+// Dominios de Facebook/Meta a los que algunas tiendas redirigen por error
+// (pixels de tracking, widgets de chat superpuestos, etc.) al tocar un
+// producto — se bloquea la navegación y la persona se queda en la página.
+const BLOCKED_REDIRECT_HOSTS = /(^|\.)(facebook\.com|fb\.com|fb\.watch|messenger\.com|m\.me)$/i;
+function isBlockedRedirectUrl(targetUrl) {
+  try {
+    const host = new URL(targetUrl).hostname.replace(/^www\./, '');
+    return BLOCKED_REDIRECT_HOSTS.test(host);
+  } catch (e) {
+    return false;
+  }
+}
+
+function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare, onBlockedRedirect }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
   const webRef = useRef(null);
@@ -4036,6 +4050,12 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
         originWhitelist={['http://*', 'https://*']}
         userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         onShouldStartLoadWithRequest={(req) => {
+          // Bloquea redirecciones no pedidas a Facebook/Meta (pixels, widgets
+          // de chat superpuestos, etc. en algunas tiendas).
+          if (isBlockedRedirectUrl(req.url)) {
+            onBlockedRedirect?.();
+            return false;
+          }
           // Solo permitir http/https - bloquea esquemas custom como meli://, mercadolibre://, etc.
           if (req.url.startsWith('http://') || req.url.startsWith('https://') || req.url === 'about:blank') {
             return true;
