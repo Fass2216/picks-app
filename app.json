@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.fass216.picksapp",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -58,7 +58,9 @@
         {
           "microphonePermission": "Picks necesita acceso al micrófono para buscar por voz.",
           "speechRecognitionPermission": "Picks necesita reconocimiento de voz para buscar por voz.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
         }
       ]
     ]

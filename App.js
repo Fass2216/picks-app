@@ -1047,8 +1047,31 @@ export default function App() {
           AsyncStorage.getItem(cKey),
         ]);
         if (cancelled) return;
-        const loadedPicks = sp ? JSON.parse(sp) : [];
-        const loadedCollections = scol ? JSON.parse(scol) : [];
+        let loadedPicks = sp ? JSON.parse(sp) : [];
+        let loadedCollections = scol ? JSON.parse(scol) : [];
+
+        // Si no hay nada guardado localmente pero hay sesión activa, puede ser
+        // un dispositivo nuevo (reinstalación, celular nuevo): intentar
+        // restaurar los Picks/Colecciones ya sincronizados en el backend antes
+        // de resignarse a que la cuenta "no tiene nada".
+        if (loadedPicks.length === 0 && loadedCollections.length === 0 && uid) {
+          try {
+            const res = await fetch(`${BACKEND_URL}/api/account/restore?user_id=${uid}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.picks?.length || data.collections?.length) {
+                loadedPicks = data.picks || [];
+                loadedCollections = data.collections || [];
+                await AsyncStorage.setItem(pKey, JSON.stringify(loadedPicks));
+                await AsyncStorage.setItem(cKey, JSON.stringify(loadedCollections));
+              }
+            }
+          } catch (e) {
+            // Sin conexión o backend caído — seguimos con lo local (vacío)
+          }
+          if (cancelled) return;
+        }
+
         setPicks(loadedPicks);
         setCollections(loadedCollections);
         activePicksKeyRef.current = pKey;
@@ -2098,6 +2121,7 @@ function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
     const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
     if (err) setError(err.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos' : err.message);
+    else onClose?.();
   };
 
   const handleForgotPassword = async () => {
