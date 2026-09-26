@@ -813,6 +813,92 @@ const INJECTED_JS = `
 true;
 `;
  
+// Orden real de los 3 tabs principales (igual que en la tab bar) — se usa
+// para saber a cuál ir cuando se hace swipe horizontal.
+const MAIN_TAB_ORDER = ['explorar', 'home', 'picks'];
+
+// Pager deslizable: mantiene los 3 tabs principales montados uno al lado del
+// otro (como un carrusel horizontal) y anima el desplazamiento siguiendo el
+// dedo, en vez de cambiar de pantalla de golpe. Si `activeTab` cambia desde
+// afuera (ej. tocando la tab bar), también anima el slide hasta ahí.
+function MainTabsPager({ activeTab, onChangeTab, screens }) {
+  const idx = Math.max(0, MAIN_TAB_ORDER.indexOf(activeTab));
+  const translateX = useRef(new Animated.Value(-idx * SCREEN.width)).current;
+  const idxRef = useRef(idx);
+  const dragStartXRef = useRef(-idx * SCREEN.width);
+  const onChangeTabRef = useRef(onChangeTab);
+  onChangeTabRef.current = onChangeTab;
+
+  useEffect(() => {
+    idxRef.current = idx;
+    Animated.spring(translateX, {
+      toValue: -idx * SCREEN.width,
+      friction: 10,
+      tension: 70,
+      useNativeDriver: true,
+    }).start();
+  }, [idx]);
+
+  const responder = useRef(
+    PanResponder.create({
+      // No la reclamamos al toque inicial ni en fase de "captura": así, si el
+      // gesto arranca sobre un ScrollView horizontal propio de la pantalla
+      // (ej. los chips de categorías en Mis tiendas), ese componente la
+      // reclama primero y el swipe de tabs no lo interrumpe.
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > 24 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+      onPanResponderGrant: () => {
+        translateX.stopAnimation((value) => { dragStartXRef.current = value; });
+      },
+      onPanResponderMove: (_, g) => {
+        const min = -(MAIN_TAB_ORDER.length - 1) * SCREEN.width;
+        let next = dragStartXRef.current + g.dx;
+        if (next > 0) next = 0;
+        if (next < min) next = min;
+        translateX.setValue(next);
+      },
+      onPanResponderRelease: (_, g) => {
+        let newIdx = idxRef.current;
+        if (Math.abs(g.dx) > 60 && Math.abs(g.dx) > Math.abs(g.dy)) {
+          if (g.dx < 0 && idxRef.current < MAIN_TAB_ORDER.length - 1) newIdx += 1; // izquierda → siguiente
+          else if (g.dx > 0 && idxRef.current > 0) newIdx -= 1; // derecha → anterior
+        }
+        idxRef.current = newIdx;
+        Animated.spring(translateX, {
+          toValue: -newIdx * SCREEN.width,
+          friction: 10,
+          tension: 70,
+          useNativeDriver: true,
+        }).start();
+        if (MAIN_TAB_ORDER[newIdx] !== activeTab) onChangeTabRef.current(MAIN_TAB_ORDER[newIdx]);
+      },
+    })
+  ).current;
+
+  return (
+    <View style={{ flex: 1, overflow: 'hidden' }}>
+      <Animated.View
+        {...responder.panHandlers}
+        style={{
+          flex: 1,
+          flexDirection: 'row',
+          width: SCREEN.width * MAIN_TAB_ORDER.length,
+          transform: [{ translateX }],
+        }}
+      >
+        {MAIN_TAB_ORDER.map((tab) => (
+          <View key={tab} style={{ width: SCREEN.width, flex: 1 }}>
+            {screens[tab]}
+          </View>
+        ))}
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [browserUrl, setBrowserUrl] = useState(null);
@@ -1066,6 +1152,16 @@ export default function App() {
   }, [userProfile?.id]);
 
   useEffect(() => { refreshUnreadCount(); }, [refreshUnreadCount]);
+
+  // "Despertar" el backend apenas se abre la app: Render (plan free) duerme
+  // el servidor a los 15 minutos sin pedidos, y tarda hasta ~1 minuto en
+  // volver a arrancar. Si esperamos a que la persona toque "Explorar" para
+  // recién ahí pedir el feed, se come ese minuto entero ahí — mandando este
+  // ping apenas arranca la app, el servidor ya está despierto (o despertando)
+  // para cuando de verdad se necesita el feed.
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/health`).catch(() => {});
+  }, []);
 
   // ── Tutorial de onboarding (globitos) ───────────────────────────────────────
   const [tourActive, setTourActive] = useState(false);
@@ -1538,24 +1634,86 @@ export default function App() {
             onCompare={compareInOtherStores}
             onBlockedRedirect={() => showToast('Bloqueamos un redireccionamiento a Facebook')}
           />
-        ) : activeTab === 'home' ? (
-          <HomeView
-            onOpenUrl={openUrl}
-            customStores={customStores}
-            onRemoveCustom={removeCustomStore}
-            country={country}
-            countryStores={STORES_BY_COUNTRY[country] || STORES}
-            onChangeCountry={changeCountry}
-            storesOrderSwapped={storesOrderSwapped}
-            onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
-            userInterests={userInterests}
-            onOpenSearchWithQuery={(text) => {
-              setSearchInitialQuery({ query: text, nonce: Date.now() });
-              setActiveTab('search');
+        ) : MAIN_TAB_ORDER.includes(activeTab) ? (
+          <MainTabsPager
+            activeTab={activeTab}
+            onChangeTab={changeTab}
+            screens={{
+              explorar: (
+                <ExplorarScreen
+                  picks={picks}
+                  customStores={customStores}
+                  userInterests={userInterests}
+                  onOpenUrl={openUrl}
+                  onAddPick={(item) => {
+                    addPick({ title: item.title, img: item.img, link: item.url, price: item.price ? String(item.price) : '' });
+                  }}
+                  unreadNotifCount={unreadNotifCount}
+                  onOpenNotifications={() => setActiveTab('notifications')}
+                  userProfile={userProfile}
+                />
+              ),
+              home: (
+                <HomeView
+                  onOpenUrl={openUrl}
+                  customStores={customStores}
+                  onRemoveCustom={removeCustomStore}
+                  country={country}
+                  countryStores={STORES_BY_COUNTRY[country] || STORES}
+                  onChangeCountry={changeCountry}
+                  storesOrderSwapped={storesOrderSwapped}
+                  onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
+                  userInterests={userInterests}
+                  onOpenSearchWithQuery={(text) => {
+                    setSearchInitialQuery({ query: text, nonce: Date.now() });
+                    setActiveTab('search');
+                  }}
+                  onAddCustomStoreByDomain={onAddCustomStoreByDomain}
+                  unreadNotifCount={unreadNotifCount}
+                  onOpenNotifications={() => setActiveTab('notifications')}
+                />
+              ),
+              picks: (
+                <PicksView
+                  picks={picks}
+                  collections={collections}
+                  picksTab={picksTab}
+                  setPicksTab={setPicksTab}
+                  openCollection={openCollection}
+                  setOpenCollection={setOpenCollection}
+                  userProfile={userProfile}
+                  avatarUrl={getAvatarUrl(userProfile?.id)}
+                  onOpenAuth={() => setActiveTab('auth')}
+                  onOpenEditProfile={() => setActiveTab('editProfile')}
+                  onOpenSettings={() => setActiveTab('settings')}
+                  onOpenCommunity={() => setActiveTab('community')}
+                  unreadNotifCount={unreadNotifCount}
+                  onOpenNotifications={() => setActiveTab('notifications')}
+                  onRemove={(id) => {
+                    const removed = picks.find(p => p.id === id);
+                    if (removed) track('pick_removed', { store: getStoreDisplayName(removed.domain), domain: removed.domain });
+                    setPicks(prev => prev.filter(p => p.id !== id));
+                    setCollections(prev => prev.map(c => ({ ...c, pickIds: c.pickIds.filter(pid => pid !== id) })));
+                    removePickFromBackend(id);
+                  }}
+                  onOpen={(url) => {
+                    const opened = picks.find(p => p.url === url);
+                    if (opened) track('pick_opened', { store: getStoreDisplayName(opened.domain), domain: opened.domain });
+                    openUrl(url);
+                  }}
+                  onToggleCollectionPublic={(colId, isPublic) => {
+                    const col = collections.find(c => c.id === colId);
+                    setCollections(prev => prev.map(c => c.id === colId ? { ...c, isPublic } : c));
+                    (col?.pickIds || []).forEach(pid => {
+                      const pk = picks.find(p => p.id === pid);
+                      if (pk) syncPickVisibility(pk, isPublic);
+                    });
+                    if (col) syncCollectionToBackend({ ...col, isPublic });
+                    track('collection_visibility_changed', { isPublic });
+                  }}
+                />
+              ),
             }}
-            onAddCustomStoreByDomain={onAddCustomStoreByDomain}
-            unreadNotifCount={unreadNotifCount}
-            onOpenNotifications={() => setActiveTab('notifications')}
           />
         ) : activeTab === 'search' ? (
           <SearchView
@@ -1569,19 +1727,6 @@ export default function App() {
             onBack={() => setActiveTab('home')}
             initialQuery={searchInitialQuery}
             onInitialQueryConsumed={() => setSearchInitialQuery(null)}
-          />
-        ) : activeTab === 'explorar' ? (
-          <ExplorarScreen
-            picks={picks}
-            customStores={customStores}
-            userInterests={userInterests}
-            onOpenUrl={openUrl}
-            onAddPick={(item) => {
-              addPick({ title: item.title, img: item.img, link: item.url, price: item.price ? String(item.price) : '' });
-            }}
-            unreadNotifCount={unreadNotifCount}
-            onOpenNotifications={() => setActiveTab('notifications')}
-            userProfile={userProfile}
           />
         ) : activeTab === 'auth' ? (
           <AuthScreen
@@ -1655,46 +1800,7 @@ export default function App() {
             onClose={() => setActiveTab('picks')}
             onRead={() => setUnreadNotifCount(0)}
           />
-        ) : (
-          <PicksView
-            picks={picks}
-            collections={collections}
-            picksTab={picksTab}
-            setPicksTab={setPicksTab}
-            openCollection={openCollection}
-            setOpenCollection={setOpenCollection}
-            userProfile={userProfile}
-            avatarUrl={getAvatarUrl(userProfile?.id)}
-            onOpenAuth={() => setActiveTab('auth')}
-            onOpenEditProfile={() => setActiveTab('editProfile')}
-            onOpenSettings={() => setActiveTab('settings')}
-            onOpenCommunity={() => setActiveTab('community')}
-            unreadNotifCount={unreadNotifCount}
-            onOpenNotifications={() => setActiveTab('notifications')}
-            onRemove={(id) => {
-              const removed = picks.find(p => p.id === id);
-              if (removed) track('pick_removed', { store: getStoreDisplayName(removed.domain), domain: removed.domain });
-              setPicks(prev => prev.filter(p => p.id !== id));
-              setCollections(prev => prev.map(c => ({ ...c, pickIds: c.pickIds.filter(pid => pid !== id) })));
-              removePickFromBackend(id);
-            }}
-            onOpen={(url) => {
-              const opened = picks.find(p => p.url === url);
-              if (opened) track('pick_opened', { store: getStoreDisplayName(opened.domain), domain: opened.domain });
-              openUrl(url);
-            }}
-            onToggleCollectionPublic={(colId, isPublic) => {
-              const col = collections.find(c => c.id === colId);
-              setCollections(prev => prev.map(c => c.id === colId ? { ...c, isPublic } : c));
-              (col?.pickIds || []).forEach(pid => {
-                const pk = picks.find(p => p.id === pid);
-                if (pk) syncPickVisibility(pk, isPublic);
-              });
-              if (col) syncCollectionToBackend({ ...col, isPublic });
-              track('collection_visibility_changed', { isPublic });
-            }}
-          />
-        )}
+        ) : null}
       </View>
 
       {collectionModal && (
@@ -3793,8 +3899,6 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
         </TouchableOpacity>
       )}
 
-      <TrendsSection onOpenUrl={onOpenUrl} />
-
       <Text style={homeExtraStyles.sectionHeading}>
         Mis tiendas{customStores && customStores.length > 0 ? ` (${customStores.length})` : ''}
       </Text>
@@ -5327,83 +5431,6 @@ true;
   );
 }
 
-function TrendsSection({ onOpenUrl }) {
-  const [topStores, setTopStores] = useState([]);
-  const [topProducts, setTopProducts] = useState([]);
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    AsyncStorage.getItem('trendsCollapsed-v1').then(v => { if (v === 'true') setCollapsed(true); }).catch(() => {});
-    (async () => {
-      try {
-        const res = await Promise.race([
-          fetch(`${BACKEND_URL}/api/trends`),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
-        ]);
-        const data = await res.json();
-        setTopStores(data.stores || []);
-        setTopProducts(data.products || []);
-      } catch (e) {}
-    })();
-  }, []);
-
-  function toggleCollapsed() {
-    const next = !collapsed;
-    setCollapsed(next);
-    AsyncStorage.setItem('trendsCollapsed-v1', String(next)).catch(() => {});
-  }
-
-  if (topStores.length === 0 && topProducts.length === 0) return null;
-
-  return (
-    <View style={{ marginBottom: 8 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: collapsed ? 0 : undefined }}>
-        <Text style={[styles.sectionTitle, { marginBottom: 0, marginTop: 0 }]}>Esta semana en Picks</Text>
-        <TouchableOpacity onPress={toggleCollapsed} hitSlop={10}>
-          <Ionicons name={collapsed ? 'chevron-down-outline' : 'chevron-up-outline'} size={18} color={COLORS.textSecondary} />
-        </TouchableOpacity>
-      </View>
-
-      {!collapsed && topStores.length > 0 && (
-        <View style={{ marginBottom: 14 }}>
-          <Text style={styles.trendsSubtitle}>Tiendas más guardadas</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-            {topStores.map((s, i) => (
-              <View key={i} style={styles.trendStoreChip}>
-                <Text style={{ fontSize: 14 }}>{i === 0 ? '🔥' : i === 1 ? '⭐' : '✨'}</Text>
-                <Text style={styles.trendStoreName}>{s.store}</Text>
-                <Text style={styles.trendStoreCount}>{s.count} Picks</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {!collapsed && topProducts.length > 0 && (
-        <View>
-          <Text style={styles.trendsSubtitle}>Productos más guardados</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 10 }}>
-            {topProducts.map((p, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.trendProductCard}
-                onPress={() => p.url && onOpenUrl(p.url)}
-                activeOpacity={0.85}
-              >
-                <Image source={{ uri: p.img }} style={styles.trendProductImg} resizeMode="cover" />
-                <View style={styles.trendProductInfo}>
-                  <Text style={styles.trendProductName} numberOfLines={2}>{p.title}</Text>
-                  <Text style={styles.trendProductStore} numberOfLines={1}>{p.store}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
-  );
-}
-
 // ─── Explorar ─────────────────────────────────────────────────────────────────
 function getStoreBgColor(storeName) {
   const allStores = [...STORES, ...STORES_AR, ...STORES_CL, ...STORES_PY];
@@ -5414,6 +5441,7 @@ function getStoreBgColor(storeName) {
 function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('reel'); // 'lista' | 'reel'
   const [reelHeight, setReelHeight] = useState(SCREEN.height - 160);
@@ -5482,6 +5510,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
   async function loadFeed(isRefresh = false) {
     if (!isRefresh) setLoading(true);
+    setLoadError(false);
     try {
       // Dominios de picks del usuario (para priorizar esas tiendas)
       const pickDomains = [...new Set(picks.map(p => p.domain).filter(Boolean))];
@@ -5496,14 +5525,19 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       const allTitles = [...pickTitles, ...interestKws];
       if (allTitles.length) params.set('titles', allTitles.join('|'));
       const query = params.toString() ? `?${params.toString()}` : '';
+      // 45s en vez de 15s: el backend (Render, plan free) se "duerme" sin
+      // tráfico y puede tardar cerca de un minuto en despertar — con 15s
+      // cortábamos el pedido a mitad de camino y mostrábamos "no hay
+      // novedades" cuando en realidad el feed nunca llegó a pedirse bien.
       const res = await Promise.race([
         fetch(`${BACKEND_URL}/api/explorar${query}`),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 45000)),
       ]);
       const data = await res.json();
       setFeed(data.feed || []);
     } catch (e) {
       console.log('[explorar] Error:', e.message);
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -5662,6 +5696,8 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   const emptyMessage =
     chip === 'amigos'
       ? (friendsLoading ? 'Cargando...' : !userProfile ? 'Iniciá sesión y seguí gente para ver esto.' : 'Nadie que seguís guardó Picks públicos todavía.')
+      : loadError
+      ? 'No pudimos cargar las novedades. Revisá tu conexión e intentá de nuevo.'
       : exploreQuery.trim()
       ? 'No encontramos nada con esa búsqueda.'
       : 'No hay novedades por acá todavía.';
@@ -6340,22 +6376,6 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center',
   },
-  trendsSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  trendStoreChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: COLORS.surface, borderWidth: 0.5, borderColor: COLORS.border,
-    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7,
-  },
-  trendStoreName: { fontSize: 13, fontWeight: '500', color: COLORS.textPrimary },
-  trendStoreCount: { fontSize: 11, color: COLORS.textTertiary },
-  trendProductCard: {
-    width: 130, backgroundColor: COLORS.surface,
-    borderWidth: 0.5, borderColor: COLORS.border, borderRadius: 12, overflow: 'hidden',
-  },
-  trendProductImg: { width: 130, height: 130 },
-  trendProductInfo: { padding: 8 },
-  trendProductName: { fontSize: 12, fontWeight: '500', color: COLORS.textPrimary, lineHeight: 16 },
-  trendProductStore: { fontSize: 11, color: COLORS.textTertiary, marginTop: 2 },
   countryChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: COLORS.borderSoft, borderRadius: 20,
