@@ -478,70 +478,24 @@ const INJECTED_JS = `
     return (w > 60 && h > 60);
   }
  
-  // Evita confundir la foto/nombre del PRODUCTO con la del vendedor/autor del
-  // aviso (avatar, "publicado por", etc.) - comun en clasificados (autos,
-  // inmuebles) donde el nombre del vendedor esta muy cerca visualmente.
-  function isUserOrAvatarContext(el) {
-    var p = el, depth = 0;
-    while (p && depth < 5) {
-      var cls = (p.className && typeof p.className === 'string') ? p.className : '';
-      var id = p.id || '';
-      var probe = cls + ' ' + id;
-      if (/avatar|seller|vendedor|autor|author|reviewer|agent-card|user-image|listing-user|card-user|__user\b|-user__/i.test(probe)) return true;
-      p = p.parentElement;
-      depth++;
-    }
-    return false;
-  }
- 
-  // Cuenta cuantos avisos/productos DISTINTOS hay linkeados dentro de root
-  // (ignorando links al vendedor). Un carrusel de fotos de UN solo producto
-  // puede tener muchas imagenes (incluso duplicadas por el modo loop) sin
-  // que eso sea un problema; lo que hay que evitar es escaparse a un
-  // contenedor que junta VARIOS productos distintos (grilla de resultados).
-  function distinctProductLinksIn(root) {
-    if (!root || !root.querySelectorAll) return 0;
-    var as = root.querySelectorAll('a[href]');
-    var seen = {};
-    var count = 0;
-    for (var i = 0; i < as.length; i++) {
-      if (isUserOrAvatarContext(as[i])) continue;
-      var h = (as[i].getAttribute('href') || '').split('#')[0].split('?')[0];
-      if (h && !seen[h]) { seen[h] = true; count++; if (count > 1) return count; }
-    }
-    return count;
-  }
-
-  function findBestImageIn(root) {
-    if (!root || !root.querySelectorAll) return null;
-    // Si adentro de root hay mas de UN aviso distinto linkeado, ya nos
-    // salimos del "cartel" de un solo producto (grilla de resultados,
-    // seccion de destacados, etc). Mejor no adivinar y devolver null antes
-    // que agarrar la foto de OTRO producto.
-    if (distinctProductLinksIn(root) > 1) return null;
-    var imgs = root.querySelectorAll('img');
-    for (var i = 0; i < imgs.length; i++) {
-      if (isValidImage(imgs[i]) && !isUserOrAvatarContext(imgs[i])) return imgs[i];
-    }
-    return null;
-  }
- 
   function getImageElement(target) {
     if (!target) return null;
-    if (target.tagName === 'IMG' && isValidImage(target) && !isUserOrAvatarContext(target)) return target;
+    if (target.tagName === 'IMG' && isValidImage(target)) return target;
  
     // Buscar dentro del target (si se toco un wrapper)
     if (target.querySelector) {
-      var inner = findBestImageIn(target);
-      if (inner) return inner;
+      var inner = target.querySelector('img');
+      if (inner && isValidImage(inner)) return inner;
     }
  
     // Caminar hacia arriba buscando imagenes
     var p = target;
     var depth = 0;
     while (p && p !== document.body && depth < 6) {
-      var found = findBestImageIn(p);
-      if (found) return found;
+      if (p.querySelector) {
+        var found = p.querySelector('img');
+        if (found && isValidImage(found)) return found;
+      }
       p = p.parentElement;
       depth++;
     }
@@ -645,7 +599,7 @@ const INJECTED_JS = `
     var parent = img.parentElement;
     var depth = 0;
     while (parent && parent !== document.body && depth < 25) {
-      if (parent.tagName === 'A' && parent.href && !isUserOrAvatarContext(parent)) {
+      if (parent.tagName === 'A' && parent.href) {
         try {
           var aUrl = new URL(parent.href, window.location.href);
           if (isSameSite(aUrl.hostname, currentHost)) {
@@ -655,7 +609,7 @@ const INJECTED_JS = `
           }
         } catch (e) {}
       }
-      var dh = parent.getAttribute && !isUserOrAvatarContext(parent) && (parent.getAttribute('data-href') || parent.getAttribute('data-link') || parent.getAttribute('data-product-url'));
+      var dh = parent.getAttribute && (parent.getAttribute('data-href') || parent.getAttribute('data-link') || parent.getAttribute('data-product-url'));
       if (dh) {
         try {
           var u2 = new URL(dh, window.location.href);
@@ -670,7 +624,6 @@ const INJECTED_JS = `
         var nearby = parent.querySelectorAll('a[href]');
         for (var k = 0; k < nearby.length; k++) {
           try {
-            if (isUserOrAvatarContext(nearby[k])) continue;
             var nu = new URL(nearby[k].href, window.location.href);
             if (isSameSite(nu.hostname, currentHost)) {
               candidates.push({ url: nu, depth: depth + 2, parent: nearby[k], score: scoreLink(nu, depth + 2) });
@@ -699,7 +652,7 @@ const INJECTED_JS = `
         var nameSelectors = ['h1','h2','h3','[class*="__name"]','[class*="-name"]','[class*="title"]','[itemprop="name"]'];
         for (var ns = 0; ns < nameSelectors.length; ns++) {
           var nameEl = bestParent.querySelector(nameSelectors[ns]);
-          if (nameEl && !isUserOrAvatarContext(nameEl)) {
+          if (nameEl) {
             var nt = (nameEl.textContent || '').trim();
             if (nt && nt.length > 2 && nt.length < 150) { title = nt; break; }
           }
