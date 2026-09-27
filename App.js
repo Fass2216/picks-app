@@ -398,7 +398,7 @@ const INJECTED_JS = `
         // primera URL del srcset como fallback.
         if (!real && realSrcset) {
           var firstEntry = realSrcset.split(',')[0];
-          var firstUrl = firstEntry ? firstEntry.trim().split(/\s+/)[0] : '';
+          var firstUrl = firstEntry ? firstEntry.trim().split(/\\s+/)[0] : '';
           if (firstUrl) real = firstUrl;
         }
         if (real && (!img.src || img.src.indexOf('data:') === 0)) {
