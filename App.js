@@ -478,10 +478,24 @@ const INJECTED_JS = `
     return (w > 60 && h > 60);
   }
  
+  // Chequeo minimo y acotado: si el toque cayo justo sobre un avatar (foto
+  // de perfil de vendedor/usuario), no darlo por bueno de una — dejar que
+  // siga el flujo normal (buscar adentro / subir) que ya sabemos que anda.
+  function isAvatarImg(img) {
+    var p = img, depth = 0;
+    while (p && depth < 3) {
+      var cls = (p.className && typeof p.className === 'string') ? p.className : '';
+      if (/avatar/i.test(cls)) return true;
+      p = p.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
   function getImageElement(target) {
     if (!target) return null;
-    if (target.tagName === 'IMG' && isValidImage(target)) return target;
- 
+    if (target.tagName === 'IMG' && isValidImage(target) && !isAvatarImg(target)) return target;
+
     // Buscar dentro del target (si se toco un wrapper)
     if (target.querySelector) {
       var inner = target.querySelector('img');
