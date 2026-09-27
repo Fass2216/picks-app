@@ -492,7 +492,29 @@ const INJECTED_JS = `
     }
   }
  
+  // En sitios con lazy-load, el <img> puede seguir mostrando el mismo
+  // placeholder generico (una URL real, no data:, compartida por TODAS las
+  // fotos de la pagina) hasta que forceEagerImages() alcance a reemplazarlo.
+  // Si el usuario toca antes de que eso pase, terminamos leyendo el mismo
+  // placeholder para autos distintos -> el chequeo de "ya estaba en tus
+  // Picks" (que compara por img) bloquea todo despues del primero. Por eso
+  // acá leemos el atributo "real" (data-srcset/data-src/etc.) SIEMPRE que
+  // exista, sin depender de que ya se haya copiado a .src.
+  function getLazyRealSrc(img) {
+    var real = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || img.getAttribute('data-image');
+    if (real) return real;
+    var srcset = img.getAttribute('data-srcset');
+    if (srcset) {
+      var firstEntry = srcset.split(',')[0];
+      var firstUrl = firstEntry ? firstEntry.trim().split(/\\s+/)[0] : '';
+      if (firstUrl) return firstUrl;
+    }
+    return '';
+  }
+
   function getImageSrc(img) {
+    var lazyReal = getLazyRealSrc(img);
+    if (lazyReal) return lazyReal;
     return img.src || img.currentSrc || img.dataset.src || img.dataset.lazySrc || img.getAttribute('data-original') || img.getAttribute('data-image') || '';
   }
  
@@ -506,13 +528,34 @@ const INJECTED_JS = `
     if (!src || src.indexOf('data:') === 0) return false;
     var w = img.naturalWidth || img.width || img.clientWidth || 0;
     var h = img.naturalHeight || img.height || img.clientHeight || 0;
-    return (w > 60 && h > 60);
+    if (w > 60 && h > 60) return true;
+    // Carruseles tipo Swiper (clasiautos.uy y otros) mantienen las fotos de
+    // los slides que no estan activos con ancho/alto en 0 hasta que el
+    // usuario los desliza — aunque la URL de la foto real ya este cargada
+    // en el <img>. Si no podemos medirla (0x0) pero la URL no pinta de ser
+    // un icono/logo chiquito, la aceptamos igual: es mejor arriesgarse a
+    // aceptar una imagen decorativa rara que terminar agarrando SIEMPRE la
+    // foto de perfil del vendedor (que si esta cargada porque es chica).
+    if (w === 0 && h === 0) {
+      if (/(icon|logo|sprite|favicon|avatar|spinner|loader|placeholder)/i.test(src)) return false;
+      if (/-(1\\d|2\\d|3[0-2])x(1\\d|2\\d|3[0-2])\\./i.test(src)) return false; // ej. "-16x16.png"
+      return true;
+    }
+    return false;
   }
  
   // Chequeo minimo y acotado: si el toque cayo justo sobre un avatar (foto
   // de perfil de vendedor/usuario), no darlo por bueno de una — dejar que
   // siga el flujo normal (buscar adentro / subir) que ya sabemos que anda.
   function isAvatarImg(img) {
+    // Muchos sitios de clasificados (ej. clasiautos.uy) muestran la foto de
+    // perfil de Google del vendedor junto al aviso, con una clase generica
+    // (sin la palabra "avatar") que el chequeo de abajo no detecta. Esas
+    // fotos SIEMPRE vienen de este dominio, con un sufijo de tamaño chico
+    // tipo "=s96-c" (foto de perfil cuadrada) — nunca es la foto real de
+    // un producto, asi que las descartamos por el dominio directamente.
+    var src = getImageSrc(img);
+    if (/googleusercontent\\.com/i.test(src)) return true;
     var p = img, depth = 0;
     while (p && depth < 3) {
       var cls = (p.className && typeof p.className === 'string') ? p.className : '';
@@ -577,10 +620,16 @@ const INJECTED_JS = `
     }
 
     // Caminar hacia arriba buscando imagenes — no se conforma con un avatar
-    // "de paso", sigue subiendo por si hay algo mejor mas arriba.
+    // "de paso", sigue subiendo por si hay algo mejor mas arriba. El limite
+    // de profundidad estaba en 6, pero en sitios reales (ej. clasiautos.uy)
+    // el avatar del vendedor puede estar anidado 6 niveles por DEBAJO del
+    // <a> que envuelve todo el aviso (con las fotos reales), asi que un
+    // limite de 6 corta la busqueda justo antes de llegar ahi. Subimos el
+    // limite; distinctLinksIn ya se encarga de frenar si nos pasamos a un
+    // contenedor que junta VARIOS avisos (grilla de resultados).
     var p = target;
     var depth = 0;
-    while (p && p !== document.body && depth < 6) {
+    while (p && p !== document.body && depth < 12) {
       var found = consider(p);
       if (found) return found;
       p = p.parentElement;
@@ -662,7 +711,7 @@ const INJECTED_JS = `
     var src = getImageSrc(img);
     // Filtrar alt texts que parecen nombres de archivo (IMG_2047207, DSC_001, etc.)
     var rawAlt = (img.alt || '').trim();
-    var isFilenameAlt = /^[\w-]+_\d+$/i.test(rawAlt) || /^\d+$/.test(rawAlt) || /^(img|dsc|photo|pic|foto)\d*/i.test(rawAlt);
+    var isFilenameAlt = /^[\\w-]+_\\d+$/i.test(rawAlt) || /^\\d+$/.test(rawAlt) || /^(img|dsc|photo|pic|foto)\\d*/i.test(rawAlt);
     var title = isFilenameAlt ? '' : rawAlt;
     var price = '';
 
@@ -751,7 +800,7 @@ const INJECTED_JS = `
  
     // Si no se encontró precio en los links, buscar en elementos de precio
     if (!price) {
-      var storeHost = window.location.hostname.replace(/^www\./, '');
+      var storeHost = window.location.hostname.replace(/^www\\./, '');
       // Selectores específicos por tienda buscados a nivel documento
       var storeSelMap = {
         'zara.com':          ['[data-qa-label="price"]','.price__amount','.money-amount__main','[class*="price__amount"]','.price-current__amount'],
@@ -817,7 +866,7 @@ const INJECTED_JS = `
           for (var ei = 0; ei < allEls.length; ei++) {
             var el = allEls[ei];
             var t = (el.textContent || '').trim();
-            if (t && /\d/.test(t) && el.offsetParent !== null) {
+            if (t && /\\d/.test(t) && el.offsetParent !== null) {
               maybePrice(t);
               if (price) break;
             }
