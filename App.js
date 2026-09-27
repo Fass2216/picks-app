@@ -382,8 +382,39 @@ const INJECTED_JS = `
     var banners = document.querySelectorAll('[class*="smartbanner"], [class*="smart-banner"], [class*="app-banner"], [id*="smartbanner"]');
     for (var j = 0; j < banners.length; j++) banners[j].style.display = 'none';
   }
+  // Muchos sitios (clasificados, marketplaces) usan lazy-load y solo cargan
+  // la foto real cuando el usuario SCROLLEA hasta ahi. Si mantenemos
+  // presionado antes de eso, la app no encuentra la imagen real todavia.
+  // Forzamos a que carguen de una, apenas aparecen en el DOM.
+  function forceEagerImages() {
+    try {
+      var els = document.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-srcset], img[loading="lazy"]');
+      for (var i = 0; i < els.length; i++) {
+        var img = els[i];
+        var real = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original');
+        var realSrcset = img.getAttribute('data-srcset');
+        // Algunos sitios (ej. galerias con varios tamaños) solo traen la foto
+        // real en data-srcset, no en data-src. Si no hay data-src, sacar la
+        // primera URL del srcset como fallback.
+        if (!real && realSrcset) {
+          var firstEntry = realSrcset.split(',')[0];
+          var firstUrl = firstEntry ? firstEntry.trim().split(/\s+/)[0] : '';
+          if (firstUrl) real = firstUrl;
+        }
+        if (real && (!img.src || img.src.indexOf('data:') === 0)) {
+          img.src = real;
+        }
+        if (realSrcset && img.getAttribute('srcset') !== realSrcset) {
+          img.setAttribute('srcset', realSrcset);
+        }
+        if (img.loading === 'lazy') img.loading = 'eager';
+      }
+    } catch (e) {}
+  }
+
   removeAppMeta();
   fixTargets();
+  forceEagerImages();
 
   // Usar MutationObserver en vez de setInterval — solo corre cuando el DOM cambia
   try {
@@ -392,7 +423,7 @@ const INJECTED_JS = `
       for (var i = 0; i < mutations.length; i++) {
         if (mutations[i].addedNodes.length > 0) { hasNew = true; break; }
       }
-      if (hasNew) { removeAppMeta(); fixTargets(); }
+      if (hasNew) { removeAppMeta(); fixTargets(); forceEagerImages(); }
     });
     domObserver.observe(document.documentElement, { childList: true, subtree: true });
   } catch(e) {}
@@ -508,44 +539,57 @@ const INJECTED_JS = `
     return count;
   }
 
-  // Busca la MEJOR imagen valida dentro de root: prefiere una que no sea
-  // avatar, pero si no encuentra ninguna asi, devuelve la de avatar antes
-  // que nada (nunca devolver null solo por ser avatar — eso fue lo que
-  // rompio el guardado la vez pasada).
+  // Busca dentro de root: devuelve { best, fallback } por separado. "best"
+  // es una imagen valida que NO es avatar (candidato solido). "fallback" es
+  // un avatar valido que encontro por el camino (ultimo recurso). Separarlos
+  // permite que quien llama siga subiendo si solo encontro un avatar, en vez
+  // de conformarse — eso fue lo que hacia que trajera la foto del vendedor
+  // aunque la del auto estuviera disponible mas arriba en el arbol.
   function pickImgFrom(root) {
-    if (!root || !root.querySelectorAll) return null;
-    if (distinctLinksIn(root) > 1) return null;
+    if (!root || !root.querySelectorAll) return { best: null, fallback: null };
+    if (distinctLinksIn(root) > 1) return { best: null, fallback: null };
     var imgs = root.querySelectorAll('img');
     var fallback = null;
     for (var i = 0; i < imgs.length; i++) {
       if (!isValidImage(imgs[i])) continue;
       if (isAvatarImg(imgs[i])) { if (!fallback) fallback = imgs[i]; continue; }
-      return imgs[i];
+      return { best: imgs[i], fallback: fallback };
     }
-    return fallback;
+    return { best: null, fallback: fallback };
   }
 
   function getImageElement(target) {
     if (!target) return null;
     if (target.tagName === 'IMG' && isValidImage(target) && !isAvatarImg(target)) return target;
 
+    var bestFallback = null;
+    function consider(root) {
+      var r = pickImgFrom(root);
+      if (r.best) return r.best;
+      if (r.fallback && !bestFallback) bestFallback = r.fallback;
+      return null;
+    }
+
     // Buscar dentro del target (si se toco un wrapper)
     if (target.querySelector) {
-      var inner = pickImgFrom(target);
+      var inner = consider(target);
       if (inner) return inner;
     }
- 
-    // Caminar hacia arriba buscando imagenes
+
+    // Caminar hacia arriba buscando imagenes — no se conforma con un avatar
+    // "de paso", sigue subiendo por si hay algo mejor mas arriba.
     var p = target;
     var depth = 0;
     while (p && p !== document.body && depth < 6) {
-      var found = pickImgFrom(p);
+      var found = consider(p);
       if (found) return found;
       p = p.parentElement;
       depth++;
     }
- 
-    return null;
+
+    // Si nunca encontramos nada mejor, usar el avatar que habiamos guardado
+    // como ultimo recurso (mejor eso que no guardar nada).
+    return bestFallback;
   }
  
   function scoreLink(u, depth) {
