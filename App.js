@@ -468,7 +468,11 @@ const INJECTED_JS = `
   function isValidImage(img) {
     if (!img) return false;
     var src = getImageSrc(img);
-    if (!src || src.startsWith('data:image/svg')) return false;
+    // Los placeholders de lazy-load (base64 de 1x1, gifs transparentes, etc.)
+    // suelen quedar estirados por CSS al tamaño final de la foto real, asi
+    // que clientWidth/height los "valida" por error. Un data: URI casi nunca
+    // es la foto real de un producto — descartarlos de entrada.
+    if (!src || src.indexOf('data:') === 0) return false;
     var w = img.naturalWidth || img.width || img.clientWidth || 0;
     var h = img.naturalHeight || img.height || img.clientHeight || 0;
     return (w > 60 && h > 60);
@@ -493,6 +497,12 @@ const INJECTED_JS = `
   function findBestImageIn(root) {
     if (!root || !root.querySelectorAll) return null;
     var imgs = root.querySelectorAll('img');
+    // Si hay demasiadas imagenes es que ya nos salimos del "cartel" de UN
+    // producto y estamos en un contenedor compartido (grilla de resultados,
+    // logo del header, etc). Mejor no adivinar y devolver null (el usuario
+    // puede reintentar cuando la foto ya haya cargado) antes que agarrar la
+    // foto de OTRO producto o del sitio.
+    if (imgs.length > 8) return null;
     for (var i = 0; i < imgs.length; i++) {
       if (isValidImage(imgs[i]) && !isUserOrAvatarContext(imgs[i])) return imgs[i];
     }
