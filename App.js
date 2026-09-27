@@ -581,7 +581,7 @@ const INJECTED_JS = `
     var candidates = [];
  
     function maybePrice(text) {
-      var pm = (text || '').match(/(\\\$U?\\s*[\\d.,]+|UYU\\s*[\\d.,]+|US\\\$\\s*[\\d.,]+|USD\\s*[\\d.,]+|R\\\$\\s*[\\d.,]+)/i);
+      var pm = (text || '').match(/(U\\\$S\\s*[\\d.,]+|\\\$U?\\s*[\\d.,]+|UYU\\s*[\\d.,]+|US\\\$\\s*[\\d.,]+|USD\\s*[\\d.,]+|R\\\$\\s*[\\d.,]+)/i);
       if (pm && !price) price = pm[0].trim();
     }
  
