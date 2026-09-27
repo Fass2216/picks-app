@@ -2659,6 +2659,10 @@ function SettingsScreen({
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [checkingOutOfStock, setCheckingOutOfStock] = useState(false);
   const [interestsExpanded, setInterestsExpanded] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -2748,6 +2752,28 @@ function SettingsScreen({
     setConfirmPassword('');
     setPasswordError('');
     setPasswordSuccess('');
+  };
+
+  const sendFeedback = async () => {
+    const trimmed = feedbackText.trim();
+    if (!trimmed) return;
+    setSendingFeedback(true);
+    try {
+      const device_id = await getOrCreateDeviceId();
+      await fetch(`${BACKEND_URL}/api/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id, user_id: userProfile?.id || null, message: trimmed }),
+      });
+      track('feedback_sent', { length: trimmed.length });
+      setFeedbackSent(true);
+      setFeedbackText('');
+      setTimeout(() => { setFeedbackVisible(false); setFeedbackSent(false); }, 1200);
+    } catch (e) {
+      Alert.alert('No se pudo enviar', 'Probá de nuevo en un momento.');
+    } finally {
+      setSendingFeedback(false);
+    }
   };
 
   const handleClearMyPicks = () => {
@@ -3019,10 +3045,10 @@ function SettingsScreen({
         </View>
 
         {/* Ayuda */}
-        {!!onReplayTour && (
-          <View style={profileStyles.section}>
-            <View style={profileStyles.sectionDivider} />
-            <Text style={profileStyles.sectionEyebrow}>AYUDA</Text>
+        <View style={profileStyles.section}>
+          <View style={profileStyles.sectionDivider} />
+          <Text style={profileStyles.sectionEyebrow}>AYUDA</Text>
+          {!!onReplayTour && (
             <TouchableOpacity style={profileStyles.notifRow} onPress={() => { onClose?.(); onReplayTour(); }} activeOpacity={0.7}>
               <View style={{ flex: 1, marginRight: 12 }}>
                 <Text style={profileStyles.notifRowLabel}>Ver tutorial de nuevo</Text>
@@ -3030,8 +3056,94 @@ function SettingsScreen({
               </View>
               <Ionicons name="school-outline" size={18} color={COLORS.textTertiary} />
             </TouchableOpacity>
-          </View>
-        )}
+          )}
+          <View style={{ height: 10 }} />
+          <TouchableOpacity style={profileStyles.notifRow} onPress={() => setFeedbackVisible(true)} activeOpacity={0.7}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={profileStyles.notifRowLabel}>Enviar feedback</Text>
+              <Text style={profileStyles.notifRowSub}>Contanos qué cambiarías o si encontraste algún problema</Text>
+            </View>
+            <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.textTertiary} />
+          </TouchableOpacity>
+        </View>
+
+        <Modal
+          visible={feedbackVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setFeedbackVisible(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top']}>
+            <KeyboardAvoidingView
+              style={{ flex: 1 }}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                paddingHorizontal: 20, paddingTop: 12, paddingBottom: 14,
+                borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+              }}>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.textPrimary }}>
+                  Enviar feedback
+                </Text>
+                <TouchableOpacity onPress={() => setFeedbackVisible(false)} style={{ padding: 6 }}>
+                  <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
+                <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 12 }}>
+                  Contanos qué te pareció, qué cambiarías o si encontraste algún problema. Nos llega directo a nosotros.
+                </Text>
+                {feedbackSent ? (
+                  <View style={{ alignItems: 'center', paddingTop: 40 }}>
+                    <Ionicons name="checkmark-circle" size={40} color={COLORS.accent} />
+                    <Text style={{ marginTop: 10, fontSize: 15, color: COLORS.textPrimary, fontWeight: '600' }}>
+                      ¡Gracias por tu feedback!
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <TextInput
+                      value={feedbackText}
+                      onChangeText={setFeedbackText}
+                      placeholder="Escribí acá tu comentario..."
+                      placeholderTextColor={COLORS.textTertiary}
+                      multiline
+                      style={{
+                        minHeight: 140,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        borderRadius: 12,
+                        padding: 14,
+                        fontSize: 15,
+                        color: COLORS.textPrimary,
+                        backgroundColor: COLORS.surface,
+                        textAlignVertical: 'top',
+                      }}
+                    />
+                    <TouchableOpacity
+                      onPress={sendFeedback}
+                      disabled={!feedbackText.trim() || sendingFeedback}
+                      style={{
+                        marginTop: 16,
+                        backgroundColor: COLORS.accent,
+                        borderRadius: 12,
+                        paddingVertical: 14,
+                        alignItems: 'center',
+                        opacity: (!feedbackText.trim() || sendingFeedback) ? 0.5 : 1,
+                      }}
+                    >
+                      {sendingFeedback
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Enviar</Text>
+                      }
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </KeyboardAvoidingView>
+          </SafeAreaView>
+        </Modal>
 
         {/* Fondo */}
         <View style={profileStyles.section}>
