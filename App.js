@@ -492,24 +492,55 @@ const INJECTED_JS = `
     return false;
   }
 
+  // Cuenta cuantos avisos DISTINTOS hay linkeados dentro de root. Un solo
+  // aviso puede tener muchas fotos en su carrusel sin problema; lo que hay
+  // que evitar es escaparse a un contenedor que junta VARIOS avisos (grilla
+  // de resultados) — ahi ya no tiene sentido "adivinar" una imagen.
+  function distinctLinksIn(root) {
+    if (!root || !root.querySelectorAll) return 0;
+    var as = root.querySelectorAll('a[href]');
+    var seen = {};
+    var count = 0;
+    for (var i = 0; i < as.length; i++) {
+      var h = (as[i].getAttribute('href') || '').split('#')[0].split('?')[0];
+      if (h && !seen[h]) { seen[h] = true; count++; if (count > 1) return count; }
+    }
+    return count;
+  }
+
+  // Busca la MEJOR imagen valida dentro de root: prefiere una que no sea
+  // avatar, pero si no encuentra ninguna asi, devuelve la de avatar antes
+  // que nada (nunca devolver null solo por ser avatar — eso fue lo que
+  // rompio el guardado la vez pasada).
+  function pickImgFrom(root) {
+    if (!root || !root.querySelectorAll) return null;
+    if (distinctLinksIn(root) > 1) return null;
+    var imgs = root.querySelectorAll('img');
+    var fallback = null;
+    for (var i = 0; i < imgs.length; i++) {
+      if (!isValidImage(imgs[i])) continue;
+      if (isAvatarImg(imgs[i])) { if (!fallback) fallback = imgs[i]; continue; }
+      return imgs[i];
+    }
+    return fallback;
+  }
+
   function getImageElement(target) {
     if (!target) return null;
     if (target.tagName === 'IMG' && isValidImage(target) && !isAvatarImg(target)) return target;
 
     // Buscar dentro del target (si se toco un wrapper)
     if (target.querySelector) {
-      var inner = target.querySelector('img');
-      if (inner && isValidImage(inner)) return inner;
+      var inner = pickImgFrom(target);
+      if (inner) return inner;
     }
  
     // Caminar hacia arriba buscando imagenes
     var p = target;
     var depth = 0;
     while (p && p !== document.body && depth < 6) {
-      if (p.querySelector) {
-        var found = p.querySelector('img');
-        if (found && isValidImage(found)) return found;
-      }
+      var found = pickImgFrom(p);
+      if (found) return found;
       p = p.parentElement;
       depth++;
     }
