@@ -2175,8 +2175,12 @@ function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
           </TouchableOpacity>
         </View>
       )}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={profileStyles.authContent} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}>
+        <ScrollView
+          contentContainerStyle={profileStyles.authContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={profileStyles.authHeader}>
             <View style={profileStyles.authLogo}>
               <Ionicons name="bookmark" size={32} color="#fff" />
@@ -3502,7 +3506,7 @@ const profileStyles = StyleSheet.create({
   personAvatarCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center' },
   personAvatarInitial: { color: '#fff', fontSize: 15, fontWeight: '700' },
   // Auth styles
-  authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40, justifyContent: 'center' },
+  authContent:   { flexGrow: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40, justifyContent: 'flex-start' },
   authHeader:    { alignItems: 'center', marginBottom: 32, marginTop: 16 },
   authLogo:      { width: 68, height: 68, borderRadius: 20, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
   authTitle:     { fontSize: 26, fontWeight: '800', color: COLORS.textPrimary, marginBottom: 6 },
