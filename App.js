@@ -494,15 +494,32 @@ const INJECTED_JS = `
     return false;
   }
  
+  // Cuenta cuantos avisos/productos DISTINTOS hay linkeados dentro de root
+  // (ignorando links al vendedor). Un carrusel de fotos de UN solo producto
+  // puede tener muchas imagenes (incluso duplicadas por el modo loop) sin
+  // que eso sea un problema; lo que hay que evitar es escaparse a un
+  // contenedor que junta VARIOS productos distintos (grilla de resultados).
+  function distinctProductLinksIn(root) {
+    if (!root || !root.querySelectorAll) return 0;
+    var as = root.querySelectorAll('a[href]');
+    var seen = {};
+    var count = 0;
+    for (var i = 0; i < as.length; i++) {
+      if (isUserOrAvatarContext(as[i])) continue;
+      var h = (as[i].getAttribute('href') || '').split('#')[0].split('?')[0];
+      if (h && !seen[h]) { seen[h] = true; count++; if (count > 1) return count; }
+    }
+    return count;
+  }
+
   function findBestImageIn(root) {
     if (!root || !root.querySelectorAll) return null;
+    // Si adentro de root hay mas de UN aviso distinto linkeado, ya nos
+    // salimos del "cartel" de un solo producto (grilla de resultados,
+    // seccion de destacados, etc). Mejor no adivinar y devolver null antes
+    // que agarrar la foto de OTRO producto.
+    if (distinctProductLinksIn(root) > 1) return null;
     var imgs = root.querySelectorAll('img');
-    // Si hay demasiadas imagenes es que ya nos salimos del "cartel" de UN
-    // producto y estamos en un contenedor compartido (grilla de resultados,
-    // logo del header, etc). Mejor no adivinar y devolver null (el usuario
-    // puede reintentar cuando la foto ya haya cargado) antes que agarrar la
-    // foto de OTRO producto o del sitio.
-    if (imgs.length > 8) return null;
     for (var i = 0; i < imgs.length; i++) {
       if (isValidImage(imgs[i]) && !isUserOrAvatarContext(imgs[i])) return imgs[i];
     }
