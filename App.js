@@ -991,6 +991,11 @@ function MainTabsPager({ activeTab, onChangeTab, screens }) {
   const dragStartXRef = useRef(-idx * SCREEN.width);
   const onChangeTabRef = useRef(onChangeTab);
   onChangeTabRef.current = onChangeTab;
+  // El PanResponder se crea una sola vez: si leyera `activeTab` directo vería
+  // siempre el valor del primer render y, al volver por swipe a esa pestaña,
+  // no avisaría el cambio (la tab bar quedaba marcando la anterior).
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     idxRef.current = idx;
@@ -1036,7 +1041,7 @@ function MainTabsPager({ activeTab, onChangeTab, screens }) {
           tension: 70,
           useNativeDriver: true,
         }).start();
-        if (MAIN_TAB_ORDER[newIdx] !== activeTab) onChangeTabRef.current(MAIN_TAB_ORDER[newIdx]);
+        if (MAIN_TAB_ORDER[newIdx] !== activeTabRef.current) onChangeTabRef.current(MAIN_TAB_ORDER[newIdx]);
       },
     })
   ).current;
