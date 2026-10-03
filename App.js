@@ -4109,9 +4109,10 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
     !input.trim() || s.name.toLowerCase().includes(input.trim().toLowerCase())
   );
 
+  // Al cambiar entre Mis tiendas / Toda la web se mantiene lo escrito, para
+  // poder repetir la misma búsqueda en el otro modo sin volver a tipearla.
   function switchSearchMode(mode) {
     setSearchMode(mode);
-    setInput('');
   }
 
   // Abre una tienda por URL; si todavía no está en Mis tiendas, pregunta si
