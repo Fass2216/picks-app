@@ -1004,6 +1004,26 @@ const MAIN_TAB_ORDER = ['explorar', 'home', 'picks'];
 // otro (como un carrusel horizontal) y anima el desplazamiento siguiendo el
 // dedo, en vez de cambiar de pantalla de golpe. Si `activeTab` cambia desde
 // afuera (ej. tocando la tab bar), también anima el slide hasta ahí.
+// Mientras el dedo está sobre una fila horizontal propia de una pantalla
+// (chips de categorías, filtros de Mis Picks), el pager no debe robarse el
+// gesto: si el swipe es rápido, el sistema de responders se lo daba al pager
+// y en vez de deslizar los chips se cambiaba de página.
+const pagerSwipeLock = { current: false };
+
+function PagerSafeScrollView(props) {
+  const unlock = () => { pagerSwipeLock.current = false; };
+  return (
+    <ScrollView
+      {...props}
+      horizontal
+      onTouchStart={(e) => { pagerSwipeLock.current = true; props.onTouchStart?.(e); }}
+      onTouchEnd={(e) => { unlock(); props.onTouchEnd?.(e); }}
+      onTouchCancel={(e) => { unlock(); props.onTouchCancel?.(e); }}
+      onScrollEndDrag={(e) => { unlock(); props.onScrollEndDrag?.(e); }}
+    />
+  );
+}
+
 function MainTabsPager({ activeTab, onChangeTab, screens }) {
   const idx = Math.max(0, MAIN_TAB_ORDER.indexOf(activeTab));
   const translateX = useRef(new Animated.Value(-idx * SCREEN.width)).current;
@@ -1037,7 +1057,7 @@ function MainTabsPager({ activeTab, onChangeTab, screens }) {
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 24 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+        !pagerSwipeLock.current && Math.abs(g.dx) > 24 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
       onPanResponderGrant: () => {
         translateX.stopAnimation((value) => { dragStartXRef.current = value; });
       },
@@ -3969,8 +3989,7 @@ function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
 function InterestCategoryChips({ categories, selected, onSelect }) {
   if (!categories || categories.length === 0) return null;
   return (
-    <ScrollView
-      horizontal
+    <PagerSafeScrollView
       showsHorizontalScrollIndicator={false}
       style={styles.interestStoresSection}
       contentContainerStyle={{ paddingRight: 8 }}
@@ -3994,7 +4013,7 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </PagerSafeScrollView>
   );
 }
 
@@ -5265,8 +5284,7 @@ function PicksView({
  
           {countries.length > 1 && (
             <View style={[styles.chipsContainer, { marginBottom: 8 }]}>
-              <ScrollView
-                horizontal
+              <PagerSafeScrollView
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipsRow}
               >
@@ -5285,14 +5303,13 @@ function PicksView({
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </PagerSafeScrollView>
             </View>
           )}
 
           {stores.length > 1 && (
             <View style={styles.chipsContainer}>
-              <ScrollView
-                horizontal
+              <PagerSafeScrollView
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipsRow}
               >
@@ -5324,7 +5341,7 @@ function PicksView({
                     <Text style={[styles.chipText, { color: COLORS.accent, marginLeft: 3 }]}>Limpiar</Text>
                   </TouchableOpacity>
                 )}
-              </ScrollView>
+              </PagerSafeScrollView>
             </View>
           )}
  
