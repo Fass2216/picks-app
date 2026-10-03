@@ -291,6 +291,13 @@ function getRegisteredDomain(domain) {
   return parts.slice(-2).join('.');
 }
 
+// fetch con límite de tiempo: si no responde en `ms`, se aborta y tira error.
+function fetchWithTimeout(url, ms, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 // El título de una pestaña del navegador suele venir como "Producto - Tienda"
 // o "Producto | Tienda" — para usarlo como búsqueda en OTRAS tiendas hay que
 // sacarle el nombre de la tienda de origen, si no la búsqueda nunca matchea.
@@ -3968,6 +3975,7 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
 
 function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
+  const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
@@ -4081,42 +4089,117 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
     setInput('');
   }
 
+  // Abre una tienda por URL; si todavía no está en Mis tiendas, pregunta si
+  // la querés agregar antes. `productQuery` agrega la opción de buscarlo como
+  // producto (para cuando la tienda la adivinamos a partir de un nombre).
+  function openStoreUrl(url, productQuery = null) {
+    let domain = '';
+    try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
+    const reg = getRegisteredDomain(domain);
+    const known = countryStores.some(s => s.domain === reg) || (customStores || []).some(s => s.domain === reg);
+    if (known || !reg || reg === 'web') {
+      onOpenUrl(url);
+      return;
+    }
+    const buttons = [
+      { text: 'Solo abrir', onPress: () => onOpenUrl(url) },
+      {
+        text: 'Agregar y abrir',
+        onPress: () => { onAddCustomStoreByDomain?.(reg, url); onOpenUrl(url); },
+      },
+    ];
+    if (productQuery) {
+      buttons.push({ text: `Buscar "${productQuery}" como producto`, onPress: () => onOpenSearchWithQuery?.(productQuery) });
+    }
+    buttons.push({ text: 'Cancelar', style: 'cancel' });
+    Alert.alert(
+      productQuery ? `¿Buscabas la tienda ${reg}?` : '¿Agregar esta tienda?',
+      `${reg} todavía no está en Mis tiendas.`,
+      buttons
+    );
+  }
+
+  // Busca una tienda por su nombre ("lemon", "tienda inglesa") en Mis
+  // tiendas, las predefinidas del país y la base compartida del backend.
+  // Matchea contra el nombre o contra la primera parte del dominio.
+  async function findStoreByName(raw) {
+    const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+    const q = norm(raw);
+    if (!q) return null;
+    const matches = (s) => norm(s.name) === q || norm((s.domain || '').split('.')[0]) === q;
+    const local = (customStores || []).find(matches) || countryStores.find(matches);
+    if (local) return local;
+    try {
+      const res = await fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 4000);
+      const list = await res.json();
+      return (Array.isArray(list) ? list : []).find(matches) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Si el nombre no está en ninguna base, prueba dominios típicos del país
+  // (lemon → lemon.com.uy, lemon.uy, lemon.com) y devuelve el primero que
+  // responde. Cualquier respuesta HTTP sirve: lo que importa es que exista.
+  async function guessStoreDomain(raw) {
+    const slug = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9-]/g, '');
+    if (!slug || slug.length < 3) return null;
+    // Palabras de producto conocidas ("zapatillas", "celular") no se tratan
+    // como nombre de tienda aunque exista un sitio con ese dominio.
+    const isProductWord = Object.values(INTEREST_KEYWORDS).some(kws => kws.includes(slug));
+    if (isProductWord) return null;
+    const cc = (country || 'UY').toLowerCase();
+    const candidates = [`${slug}.com.${cc}`, `${slug}.${cc}`, `${slug}.com`];
+    for (const d of candidates) {
+      try {
+        await fetchWithTimeout(`https://${d}`, 3500, { method: 'HEAD' });
+        return d;
+      } catch (e) {}
+    }
+    return null;
+  }
+
   // Modo "Toda la web": si es una URL/dominio, abre directo (y si esa tienda
   // todavía no está en Mis tiendas, pregunta si la querés agregar antes).
+  // Si es el nombre de una tienda, la busca y ofrece abrirla/agregarla.
   // Si es una frase/producto, manda a la pantalla de Buscar (con IA/mic).
-  function submitWebSearch() {
+  async function submitWebSearch() {
     const raw = input.trim();
     if (!raw) return;
     Keyboard.dismiss();
     const isDirectUrl = /^https?:\/\//.test(raw);
     const isDomain = !isDirectUrl && /\.[a-z]{2,}/i.test(raw) && !raw.includes(' ');
     if (isDirectUrl || isDomain) {
-      const url = isDirectUrl ? raw : 'https://' + raw;
-      let domain = '';
-      try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
-      const reg = getRegisteredDomain(domain);
-      const known = countryStores.some(s => s.domain === reg) || (customStores || []).some(s => s.domain === reg);
       track('search_url_entered', { type: isDirectUrl ? 'direct_url' : 'domain' });
-      if (!known && reg && reg !== 'web') {
-        Alert.alert(
-          '¿Agregar esta tienda?',
-          `${reg} todavía no está en Mis tiendas.`,
-          [
-            { text: 'Solo abrir', onPress: () => onOpenUrl(url) },
-            {
-              text: 'Agregar y abrir',
-              onPress: () => { onAddCustomStoreByDomain?.(reg, url); onOpenUrl(url); },
-            },
-            { text: 'Cancelar', style: 'cancel' },
-          ]
-        );
-      } else {
-        onOpenUrl(url);
-      }
-    } else {
-      track('search_performed', { query: raw.toLowerCase(), query_length: raw.length });
-      onOpenSearchWithQuery?.(raw);
+      openStoreUrl(isDirectUrl ? raw : 'https://' + raw);
+      return;
     }
+
+    // Nombres de tienda: como mucho 3 palabras (una frase larga es un producto)
+    if (raw.split(/\s+/).length <= 3) {
+      setLookingUpStore(true);
+      try {
+        const found = await findStoreByName(raw);
+        if (found) {
+          track('search_store_name', { query: raw.toLowerCase(), domain: found.domain, source: 'db' });
+          openStoreUrl(found.url || `https://${found.domain}`, raw);
+          return;
+        }
+        if (!raw.includes(' ')) {
+          const guessed = await guessStoreDomain(raw);
+          if (guessed) {
+            track('search_store_name', { query: raw.toLowerCase(), domain: guessed, source: 'guess' });
+            openStoreUrl(`https://${guessed}`, raw);
+            return;
+          }
+        }
+      } finally {
+        setLookingUpStore(false);
+      }
+    }
+
+    track('search_performed', { query: raw.toLowerCase(), query_length: raw.length });
+    onOpenSearchWithQuery?.(raw);
   }
 
   function submitSearch() {
@@ -4186,12 +4269,12 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
 
       {searchMode === 'web' && (
         <TouchableOpacity
-          style={[homeExtraStyles.webSearchBtn, !input.trim() && { opacity: 0.5 }]}
+          style={[homeExtraStyles.webSearchBtn, (!input.trim() || lookingUpStore) && { opacity: 0.5 }]}
           onPress={submitWebSearch}
-          disabled={!input.trim()}
+          disabled={!input.trim() || lookingUpStore}
           activeOpacity={0.8}
         >
-          <Text style={homeExtraStyles.webSearchBtnText}>Buscar en la web</Text>
+          <Text style={homeExtraStyles.webSearchBtnText}>{lookingUpStore ? 'Buscando...' : 'Buscar en la web'}</Text>
         </TouchableOpacity>
       )}
 
