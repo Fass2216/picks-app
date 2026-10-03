@@ -101,6 +101,26 @@ const INTEREST_KEYWORDS = {
   bebes:        ['bebe','nino','nena','infantil','juguete','cochecito','mamadera','panal'],
 };
 
+// Marcas de autos: si alguien busca "peugeot" o "toyota hilux" quiere ver
+// primero las automotoras. Va aparte de INTEREST_KEYWORDS porque esa lista
+// también se usa para categorizar tiendas por substring ("kia" en "kiabi").
+const CAR_BRANDS = ['peugeot','chevrolet','toyota','volkswagen','vw','ford','fiat','renault','nissan','hyundai','kia','honda','suzuki','citroen','bmw','audi','mercedes','jeep','chery','byd','mitsubishi','mazda','subaru','geely','jac','great wall','haval','dongfeng','baic','ram','dodge','volvo','mini','seat','skoda','lifan','changan','foton','jetour','omoda','leapmotor'];
+
+// Adivina la categoría de una búsqueda corta sin IA, comparando palabra por
+// palabra (prefijo, para que "vestidos" matchee "vestido"). Devuelve el id de
+// categoría o null si no se reconoce.
+function detectSearchCategory(text) {
+  const norm = (text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const words = norm.split(/[^a-z0-9]+/).filter(Boolean);
+  if (!words.length) return null;
+  const hasPhrase = (kw) => kw.includes(' ') ? norm.includes(kw) : words.some(w => w === kw || (kw.length >= 4 && w.startsWith(kw)));
+  // El tipo de producto manda sobre la marca: "remera chevrolet" es ropa.
+  for (const catId of Object.keys(INTEREST_KEYWORDS)) {
+    if (INTEREST_KEYWORDS[catId].some(hasPhrase)) return catId;
+  }
+  if (CAR_BRANDS.some(hasPhrase)) return 'vehiculos';
+  return null;
+}
 
 // ID de dispositivo persistente (se guarda en AsyncStorage la primera vez)
 let DEVICE_ID = null; // caché en memoria para track()
@@ -1855,8 +1875,8 @@ export default function App() {
                   storesOrderSwapped={storesOrderSwapped}
                   onToggleStoresOrder={() => setStoresOrderSwapped(v => !v)}
                   userInterests={userInterests}
-                  onOpenSearchWithQuery={(text) => {
-                    setSearchInitialQuery({ query: text, nonce: Date.now() });
+                  onOpenSearchWithQuery={(text, scope) => {
+                    setSearchInitialQuery({ query: text, scope: scope || 'all', nonce: Date.now() });
                     setActiveTab('search');
                   }}
                   onAddCustomStoreByDomain={onAddCustomStoreByDomain}
@@ -4207,9 +4227,23 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
     onOpenSearchWithQuery?.(raw);
   }
 
+  // Modo "Mis tiendas": mientras escribís filtra la grilla por nombre, y al
+  // tocar Buscar busca ese producto solo dentro de tus tiendas.
+  function submitMyStoresSearch() {
+    const raw = input.trim();
+    if (!raw) return;
+    Keyboard.dismiss();
+    if (!(customStores || []).length) {
+      Alert.alert('Todavía no tenés tiendas', 'Agregá tiendas a "Mis tiendas" tocando la estrella en su web, o buscá en toda la web.');
+      return;
+    }
+    track('search_performed', { query: raw.toLowerCase(), query_length: raw.length, scope: 'mis' });
+    onOpenSearchWithQuery?.(raw, 'mis');
+  }
+
   function submitSearch() {
     if (searchMode === 'web') submitWebSearch();
-    // en modo 'mis' el input ya filtra en vivo — Enter no hace nada más
+    else submitMyStoresSearch();
   }
 
   return (
@@ -4280,6 +4314,15 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
           activeOpacity={0.8}
         >
           <Text style={homeExtraStyles.webSearchBtnText}>{lookingUpStore ? 'Buscando...' : 'Buscar en la web'}</Text>
+        </TouchableOpacity>
+      )}
+      {searchMode === 'mis' && !!input.trim() && (
+        <TouchableOpacity
+          style={homeExtraStyles.webSearchBtn}
+          onPress={submitMyStoresSearch}
+          activeOpacity={0.8}
+        >
+          <Text style={homeExtraStyles.webSearchBtnText}>Buscar en mis tiendas</Text>
         </TouchableOpacity>
       )}
 
@@ -5415,6 +5458,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       setInputText(refined);
       searchInjected.current = false;
       setQuery(refined);
+      setAiCategory(data.category || null);
       setSelectedStore(0);
       track('conversational_search', { category: data.category || '', query: refined });
       if (data.category) {
@@ -5534,11 +5578,32 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
   useEffect(() => {
     if (initialQuery && initialQuery.nonce !== lastInitialQueryNonce.current) {
       lastInitialQueryNonce.current = initialQuery.nonce;
+      setScope(initialQuery.scope === 'mis' ? 'mis' : 'all');
       setInputText(initialQuery.query || '');
       doSearch(initialQuery.query || '');
       if (onInitialQueryConsumed) onInitialQueryConsumed();
     }
   }, [initialQuery]);
+
+  // 'mis' = buscar solo en Mis tiendas (desde el buscador en modo Mis tiendas);
+  // 'all' = todas las tiendas conocidas, de todas las categorías.
+  const [scope, setScope] = useState('all');
+  // Base compartida de tiendas del país (todas las categorías): así una
+  // búsqueda como "peugeot" también llega a las automotoras, no solo a las
+  // tiendas de ropa predefinidas.
+  const [dbStores, setDbStores] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`)
+      .then((r) => r.json())
+      .then((list) => { if (!cancelled) setDbStores(Array.isArray(list) ? list : []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [country]);
+  // Categoría de la búsqueda: la que devolvió la IA (frases largas) o, si no,
+  // la que se adivina por palabras clave. Sus tiendas van primero.
+  const [aiCategory, setAiCategory] = useState(null);
+  const searchCategory = aiCategory || detectSearchCategory(query);
 
   const knownDomains = new Set([
     ...predefinedSearchable.map(s => s.domain),
@@ -5548,13 +5613,27 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     .filter(s => !knownDomains.has(s.domain))
     .map(s => ({ ...s, isCustom: true }));
 
+  function dedupeByDomain(list) {
+    const seen = new Set();
+    return list.filter(s => s && s.domain && !seen.has(s.domain) && seen.add(s.domain));
+  }
+
+  const dbSearchable = dbStores
+    .filter(s => s.domain && (s.url || s.domain))
+    .map(s => ({ ...s, url: s.url || `https://${s.domain}`, bg: s.bg || '#2C2C2C', fg: s.fg || '#FFFFFF', isCustom: true }));
+  const categoryFirst = searchCategory ? dbSearchable.filter(s => s.category === searchCategory) : [];
+
   const searchableStores = compareMode
     ? dedupedExtra
-    : [
-        ...dedupedExtra,
-        ...predefinedSearchable,
-        ...customSearchable,
-      ];
+    : scope === 'mis' && customSearchable.length > 0
+      ? customSearchable
+      : dedupeByDomain([
+          ...dedupedExtra,
+          ...categoryFirst,
+          ...customSearchable,
+          ...predefinedSearchable,
+          ...dbSearchable,
+        ]);
 
   // Resetear inyección cuando cambia tienda o búsqueda
   useEffect(() => {
@@ -5567,6 +5646,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     Keyboard.dismiss();
     setSuggestedStores([]);
     setCompareMode(false);
+    setAiCategory(null);
     // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
     // se interpretan con IA antes de buscar; términos cortos van directo.
     const wordCount = q.split(/\s+/).length;
@@ -5750,6 +5830,17 @@ true;
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+            </View>
+          )}
+          {scope === 'mis' && !compareMode && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
+              <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Buscando solo en Mis tiendas</Text>
+              <TouchableOpacity
+                onPress={() => { setScope('all'); setSelectedStore(0); searchInjected.current = false; }}
+                hitSlop={8}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.accent }}>Buscar en todas</Text>
+              </TouchableOpacity>
             </View>
           )}
           {/* Selector de tienda */}
