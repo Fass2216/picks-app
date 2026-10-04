@@ -4223,8 +4223,8 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
   }
 
   // Si el nombre no está en ninguna base, prueba dominios típicos del país
-  // (lemon → lemon.com.uy, lemon.uy, lemon.com) y devuelve el primero que
-  // responde. Cualquier respuesta HTTP sirve: lo que importa es que exista.
+  // (lemon → lemon.com.uy, lemon.uy, lemon.com) y devuelve la URL del primero
+  // que responde. Cualquier respuesta HTTP sirve: lo que importa es que exista.
   async function guessStoreDomain(raw) {
     const slug = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9-]/g, '');
     if (!slug || slug.length < 3) return null;
@@ -4235,9 +4235,13 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
     const cc = (country || 'UY').toLowerCase();
     const candidates = [`${slug}.com.${cc}`, `${slug}.${cc}`, `${slug}.com`];
     for (const d of candidates) {
+      // Con y sin "www.": algunas tiendas tienen el certificado solo para una
+      // de las dos (adidas.com.uy falla, www.adidas.com.uy anda) y sin probar
+      // ambas se terminaba eligiendo otro sitio (adidas.com).
       try {
-        await fetchWithTimeout(`https://${d}`, 3500, { method: 'HEAD' });
-        return d;
+        return await Promise.any([`https://${d}`, `https://www.${d}`].map(u =>
+          fetchWithTimeout(u, 3500, { method: 'HEAD' }).then(() => u)
+        ));
       } catch (e) {}
     }
     return null;
@@ -4273,7 +4277,7 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
           const guessed = await guessStoreDomain(raw);
           if (guessed) {
             track('search_store_name', { query: raw.toLowerCase(), domain: guessed, source: 'guess' });
-            openStoreUrl(`https://${guessed}`, raw);
+            openStoreUrl(guessed, raw);
             return;
           }
         }
