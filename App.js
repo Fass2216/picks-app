@@ -4544,10 +4544,26 @@ function isBlockedRedirectUrl(targetUrl) {
   }
 }
 
+// Errores de carga que pueden deberse a la variante con/sin "www." del sitio:
+// certificado inválido o conexión segura fallida (iOS -1200 a -1206), no
+// encuentra el sitio (-1003) o no puede conectar (-1004); en Android, fallo
+// de SSL (-11) o de búsqueda del sitio (-2).
+const WWW_RETRY_ERROR_CODES = [-1200, -1201, -1202, -1203, -1204, -1205, -1206, -1003, -1004, -11, -2];
+function toggleWww(u) {
+  try {
+    const parsed = new URL(u);
+    parsed.hostname = parsed.hostname.startsWith('www.') ? parsed.hostname.slice(4) : 'www.' + parsed.hostname;
+    return parsed.toString();
+  } catch (e) {
+    return null;
+  }
+}
+
 function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare, onBlockedRedirect }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
   const [forceReloadUrl, setForceReloadUrl] = useState(null);
+  const wwwRetriedRef = useRef(new Set());
   const webRef = useRef(null);
   const canGoBackRef = useRef(false);
   const lastSafeUrlRef = useRef(url);
@@ -4666,6 +4682,19 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
           setCanGoBack(state.canGoBack);
           canGoBackRef.current = state.canGoBack;
           if (onUrlChange) onUrlChange(state.url);
+        }}
+        onError={(e) => {
+          // Algunas tiendas tienen el certificado solo para "www." (ej.
+          // adidas.com.uy falla, www.adidas.com.uy anda) o al revés: si la
+          // página falla por certificado o porque no encuentra el sitio, se
+          // reintenta una vez agregando o sacando el "www.".
+          const { code, url: failedUrl } = e.nativeEvent || {};
+          const retryable = WWW_RETRY_ERROR_CODES.includes(code);
+          const alt = retryable ? toggleWww(failedUrl || forceReloadUrl || url) : null;
+          if (alt && !wwwRetriedRef.current.has(alt)) {
+            wwwRetriedRef.current.add(alt);
+            setForceReloadUrl(alt);
+          }
         }}
         startInLoadingState={true}
         renderLoading={() => (
