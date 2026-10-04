@@ -1947,6 +1947,10 @@ export default function App() {
                     setSearchInitialQuery({ query: text, scope: scope || 'all', nonce: Date.now() });
                     setActiveTab('search');
                   }}
+                  onOpenSearchWithAction={(action) => {
+                    setSearchInitialQuery({ action, scope: 'all', nonce: Date.now() });
+                    setActiveTab('search');
+                  }}
                   onAddCustomStoreByDomain={onAddCustomStoreByDomain}
                   unreadNotifCount={unreadNotifCount}
                   onOpenNotifications={() => setActiveTab('notifications')}
@@ -4052,7 +4056,7 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
+function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
@@ -4334,7 +4338,7 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
           <Ionicons name="search-outline" size={17} color={COLORS.textSecondary} />
           <TextInput
             style={homeExtraStyles.searchInputField}
-            placeholder={searchMode === 'mis' ? 'Buscar en tus tiendas...' : 'Buscar en la web...'}
+            placeholder="Buscar…"
             placeholderTextColor={COLORS.textTertiary}
             value={input}
             onChangeText={setInput}
@@ -4343,10 +4347,21 @@ function HomeView({ onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByD
             autoCapitalize="none"
             autoCorrect={false}
           />
-          {input.length > 0 && (
+          {input.length > 0 ? (
             <TouchableOpacity onPress={() => setInput('')} hitSlop={10}>
               <Ionicons name="close-circle" size={16} color={COLORS.textTertiary} />
             </TouchableOpacity>
+          ) : !!onOpenSearchWithAction && (
+            // Con el campo vacío: atajos a buscar por foto o por voz, sin tener
+            // que escribir algo antes para llegar a la pantalla de Buscar.
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <TouchableOpacity onPress={() => onOpenSearchWithAction('camera')} hitSlop={8} accessibilityLabel="Buscar con una foto">
+                <Ionicons name="camera-outline" size={19} color={COLORS.accent} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onOpenSearchWithAction('mic')} hitSlop={8} accessibilityLabel="Buscar por voz">
+                <Ionicons name="mic-outline" size={19} color={COLORS.accent} />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
         <TourTarget id="search-mode-chip">
@@ -5655,9 +5670,12 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
     if (initialQuery && initialQuery.nonce !== lastInitialQueryNonce.current) {
       lastInitialQueryNonce.current = initialQuery.nonce;
       setScope(initialQuery.scope === 'mis' ? 'mis' : 'all');
+      if (onInitialQueryConsumed) onInitialQueryConsumed();
+      // Atajos de cámara/micrófono del buscador de Mis tiendas
+      if (initialQuery.action === 'camera') { handleImageSearchPress(); return; }
+      if (initialQuery.action === 'mic') { handleMicPress(); return; }
       setInputText(initialQuery.query || '');
       doSearch(initialQuery.query || '');
-      if (onInitialQueryConsumed) onInitialQueryConsumed();
     }
   }, [initialQuery]);
 
