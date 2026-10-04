@@ -5452,6 +5452,28 @@ function PicksView({
   );
 }
 
+// Idioma para el reconocimiento de voz. El de Apple solo acepta variantes que
+// tenga exactamente (es-ES, es-MX, es-US, es-CL…, no "es-UY"): con un idioma
+// que no tiene, falla al instante sin dejar hablar. Se elige la variante de
+// español más cercana entre las que tiene el teléfono, y se recuerda.
+const SPEECH_LOCALE_PREFERENCE = ['es-UY', 'es-AR', 'es-419', 'es-CL', 'es-MX', 'es-US', 'es-CO', 'es-ES'];
+let cachedSpeechLocale = null;
+async function pickSpeechLocale() {
+  if (cachedSpeechLocale) return cachedSpeechLocale;
+  try {
+    const { locales = [] } = await ExpoSpeechRecognitionModule.getSupportedLocales({});
+    const norm = locales.map(l => String(l).replace('_', '-'));
+    const found = SPEECH_LOCALE_PREFERENCE.find(l => norm.includes(l))
+      || norm.find(l => l.toLowerCase().startsWith('es'));
+    if (found) {
+      // devolver el identificador tal como lo tiene el teléfono
+      cachedSpeechLocale = locales[norm.indexOf(found)];
+      return cachedSpeechLocale;
+    }
+  } catch (e) { /* sin lista: probar con español de España */ }
+  return 'es-ES';
+}
+
 // Foto de un resultado de búsqueda: si falla la descarga (red lenta, la CDN de
 // la tienda corta), reintenta una vez; si vuelve a fallar muestra un ícono en
 // vez de dejar el recuadro vacío.
@@ -5504,8 +5526,12 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
   });
   useSpeechRecognitionEvent('error', (event) => {
     setIsListening(false);
-    if (event.error !== 'no-speech' && event.error !== 'aborted') {
-      Alert.alert('No pudimos escucharte', 'Probá de nuevo o escribí tu búsqueda.');
+    if (event.error === 'no-speech' || event.error === 'aborted') return;
+    track('voice_search_error', { error: event.error || '', message: (event.message || '').slice(0, 200) });
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      Alert.alert('Permiso necesario', 'Activá el micrófono y el reconocimiento de voz para Picks en Ajustes del iPhone.');
+    } else {
+      Alert.alert('No pudimos escucharte', `Probá de nuevo o escribí tu búsqueda. (${event.error || 'error'})`);
     }
   });
 
@@ -5522,8 +5548,9 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
       }
       finalTranscriptRef.current = '';
       setInputText('');
-      ExpoSpeechRecognitionModule.start({ lang: 'es-UY', interimResults: true });
-      track('voice_search_started', {});
+      const lang = await pickSpeechLocale();
+      ExpoSpeechRecognitionModule.start({ lang, interimResults: true });
+      track('voice_search_started', { lang });
     } catch (e) {
       Alert.alert('No pudimos activar el micrófono', 'Probá escribiendo tu búsqueda.');
     }
