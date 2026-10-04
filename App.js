@@ -311,6 +311,81 @@ function getRegisteredDomain(domain) {
   return parts.slice(-2).join('.');
 }
 
+// Categorías vecinas: una búsqueda por foto de unas championes también tiene
+// sentido en tiendas de deportes, y una remera en tiendas de calzado/deporte.
+const RELATED_CATEGORIES = {
+  calzado:      ['deportes', 'indumentaria'],
+  indumentaria: ['calzado', 'deportes'],
+  deportes:     ['calzado', 'indumentaria'],
+  vehiculos:    ['repuestos'],
+  repuestos:    ['vehiculos', 'herramientas'],
+  herramientas: ['hogar', 'repuestos'],
+  hogar:        ['herramientas'],
+  tecnologia:   ['gaming'],
+  gaming:       ['tecnologia'],
+  bebes:        ['indumentaria'],
+  skincare:     ['salud'],
+  salud:        ['skincare'],
+};
+
+// URL para buscar `q` en una tienda: la propia de la tienda (por país), la
+// conocida por dominio, o su home (y ahí se inyecta la búsqueda por JS).
+function storeSearchUrl(store, q) {
+  if (!store || !q) return null;
+  if (store.searchUrl) return store.searchUrl(q);
+  const fn = STORE_SEARCH_URL[store.domain];
+  if (fn) return fn(q);
+  return store.url || null;
+}
+function storeNeedsInjectedSearch(store) {
+  return !!store && !store.searchUrl && !STORE_SEARCH_URL[store.domain];
+}
+
+// Frases con las que las tiendas avisan que una búsqueda no encontró nada
+// (sin tildes y en minúsculas, igual que el texto con el que se comparan).
+const NO_RESULTS_PHRASES = [
+  'no se encontraron', 'no se encontro ningun', 'no se ha encontrado', 'no se han encontrado',
+  'no se han recuperado', 'no encontramos', 'no hemos encontrado', 'no hay resultados',
+  'no hay productos', 'sin resultados', 'ningun resultado', 'ningun producto',
+  'no obtuvimos resultados', 'no produjo resultados', 'no arrojo resultados',
+  'no coincide con ningun', 'no hay coincidencias',
+  'no results', 'no products found', 'nothing found', 'no matches found',
+];
+// "0 resultados" solo como número suelto: "60 resultados" o "10 results" también
+// contienen el texto "0 resultados" y no significan que esté vacío.
+const ZERO_RESULTS_RE = '(^|[^0-9.,])0 (resultados|results|productos encontrados|articulos encontrados)';
+
+// Script que, unos segundos después de cargar (las tiendas SPA renderizan
+// tarde), revisa si la página dice que no hubo resultados y lo avisa a la app.
+const DETECT_NO_RESULTS_JS = `
+(function() {
+  if (window.__picksNoResultsCheck) return;
+  window.__picksNoResultsCheck = true;
+  var phrases = ${JSON.stringify(NO_RESULTS_PHRASES)};
+  var tries = 0, emptyStreak = 0;
+  function check() {
+    tries++;
+    var t = ((document.body && document.body.innerText) || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    var empty = new RegExp(${JSON.stringify(ZERO_RESULTS_RE)}).test(t);
+    for (var i = 0; !empty && i < phrases.length; i++) {
+      if (t.indexOf(phrases[i]) !== -1) empty = true;
+    }
+    // Dos revisiones seguidas: algunas tiendas muestran "0 resultados" por un
+    // instante mientras cargan, antes de poner la cantidad real.
+    emptyStreak = empty ? emptyStreak + 1 : 0;
+    if (emptyStreak >= 2) {
+      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'searchNoResults', href: location.href }));
+      return;
+    }
+    if (tries < 5) setTimeout(check, 2000);
+    else window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'searchChecked', href: location.href }));
+  }
+  setTimeout(check, 2500);
+})();
+true;
+`;
+
 // fetch con límite de tiempo: si no responde en `ms`, se aborta y tira error.
 function fetchWithTimeout(url, ms, options = {}) {
   const controller = new AbortController();
@@ -5402,10 +5477,117 @@ function PicksView({
   );
 }
 
+// Script que busca el input de búsqueda en la página y hace submit.
+// Reintenta hasta 6 veces con delay para SPAs que renderizan el DOM después del load.
+function buildStoreSearchScript(q) {
+  return `
+(function trySearch(attempt) {
+var q = ${JSON.stringify(q)};
+var selectors = [
+  'input[type="search"]',
+  'input[name="q"]',
+  'input[name="s"]',
+  'input[name="search"]',
+  'input[name="busqueda"]',
+  'input[name="buscar"]',
+  'input[name="query"]',
+  'input[id*="search"]',
+  'input[id*="busca"]',
+  'input[class*="search"]',
+  'input[class*="busca"]',
+  'input[placeholder*="busca"]',
+  'input[placeholder*="search"]',
+  'input[placeholder*="Busca"]',
+  'input[placeholder*="Search"]',
+];
+var input = null;
+for (var i = 0; i < selectors.length; i++) {
+  var el = document.querySelector(selectors[i]);
+  if (el) { input = el; break; }
+}
+if (!input) {
+  // SPA todavía renderizando — reintentar con backoff
+  if (attempt < 6) setTimeout(function() { trySearch(attempt + 1); }, 600);
+  return;
+}
+input.focus();
+var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+nativeInputValueSetter.call(input, q);
+input.dispatchEvent(new Event('input', { bubbles: true }));
+input.dispatchEvent(new Event('change', { bubbles: true }));
+var form = input.closest('form');
+if (form) {
+  form.submit();
+} else {
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+}
+})(0);
+true;
+  `;
+}
+
+// Revisa en segundo plano, de a una tienda por vez y en un WebView invisible,
+// si la búsqueda trae resultados. Así las tiendas que responden "no se
+// encontraron productos" se ocultan antes de que la persona llegue a ellas.
+const PROBE_TIMEOUT_MS = 12000;
+function SearchProber({ store, query, onResult }) {
+  const webRef = useRef(null);
+  const injectedSearch = useRef(false);
+  const done = useRef(false);
+  const url = storeSearchUrl(store, query);
+
+  useEffect(() => {
+    injectedSearch.current = false;
+    done.current = false;
+    // Si en un rato no avisó que está vacía, se da por buena (con resultados
+    // o sin forma de saberlo) — mejor mostrar de más que esconder de más.
+    const t = setTimeout(() => finish(false), PROBE_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [store?.domain, query]);
+
+  function finish(empty) {
+    if (done.current) return;
+    done.current = true;
+    onResult(store.domain, empty);
+  }
+
+  if (!url) return null;
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: -SCREEN.width * 3, top: 0, width: SCREEN.width, height: 700, opacity: 0 }}>
+      <WebView
+        key={`${store.domain}|${query}`}
+        ref={webRef}
+        source={{ uri: url }}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        originWhitelist={['http://*', 'https://*']}
+        userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        onShouldStartLoadWithRequest={(req) => req.url.startsWith('http://') || req.url.startsWith('https://') || req.url === 'about:blank'}
+        onLoadEnd={() => {
+          if (storeNeedsInjectedSearch(store) && !injectedSearch.current) {
+            injectedSearch.current = true;
+            webRef.current?.injectJavaScript(buildStoreSearchScript(query));
+          }
+          webRef.current?.injectJavaScript(DETECT_NO_RESULTS_JS);
+        }}
+        onMessage={(e) => {
+          let msg = null;
+          try { msg = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
+          if (msg?.type === 'searchNoResults') finish(true);
+          else if (msg?.type === 'searchChecked' && !storeNeedsInjectedSearch(store)) finish(false);
+        }}
+        onError={() => finish(false)}
+      />
+    </View>
+  );
+}
+
 function SearchView({ onMessage, customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
-  const [selectedStore, setSelectedStore] = useState(0);
+  const [selectedStore, setSelectedStore] = useState(null); // dominio de la tienda elegida (null = la primera)
   const [pickingImage, setPickingImage] = useState(false);
   const [nlLoading, setNlLoading] = useState(false);
   const [suggestedStores, setSuggestedStores] = useState([]);
@@ -5477,7 +5659,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       searchInjected.current = false;
       setQuery(refined);
       setAiCategory(data.category || null);
-      setSelectedStore(0);
+      setSelectedStore(null);
       track('conversational_search', { category: data.category || '', query: refined });
       if (data.category) {
         fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${data.category}&limit=6`)
@@ -5489,7 +5671,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       // Si falla la interpretación, degradamos a buscar el texto tal cual.
       searchInjected.current = false;
       setQuery(text);
-      setSelectedStore(0);
+      setSelectedStore(null);
     } finally {
       setNlLoading(false);
     }
@@ -5511,9 +5693,13 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       setInputText(data.query);
       searchInjected.current = false;
       setQuery(data.query);
-      setSelectedStore(0);
+      setAiCategory(data.category || null);
+      // Con foto sabemos qué producto es: buscar solo en las tiendas de su
+      // categoría (y vecinas), no en decoración o tecnología por unas championes.
+      setCategoryOnly(!!data.category);
+      setSelectedStore(null);
       setCompareMode(false);
-      track('image_search', { query: data.query });
+      track('image_search', { query: data.query, category: data.category || '' });
     } catch (e) {
       Alert.alert('No pudimos reconocer la imagen', 'Probá con otra foto o buscá escribiendo el producto.');
     } finally {
@@ -5583,7 +5769,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
       setInputText(preset.query || '');
       setQuery(preset.query || '');
       setSuggestedStores([]);
-      setSelectedStore(0);
+      setSelectedStore(null);
       searchInjected.current = false;
       if (onPresetConsumed) onPresetConsumed();
     }
@@ -5641,7 +5827,22 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     .map(s => ({ ...s, url: s.url || `https://${s.domain}`, bg: s.bg || '#2C2C2C', fg: s.fg || '#FFFFFF', isCustom: true }));
   const categoryFirst = searchCategory ? dbSearchable.filter(s => s.category === searchCategory) : [];
 
-  const searchableStores = compareMode
+  // Búsqueda por foto: solo tiendas de la categoría del producto y de las
+  // vecinas. Las tiendas sin categoría conocida (ej. una propia que no está en
+  // la base) se mantienen al final — si no tienen el producto, el revisor de
+  // "sin resultados" las termina ocultando.
+  const [categoryOnly, setCategoryOnly] = useState(false);
+  const domainCategory = {};
+  dbStores.forEach(s => { if (s.domain) domainCategory[s.domain] = s.category; });
+  const allowedCats = searchCategory ? [searchCategory, ...(RELATED_CATEGORIES[searchCategory] || [])] : [];
+  const byCategoryRank = (s) => {
+    const cat = s.category || domainCategory[s.domain];
+    if (!cat) return allowedCats.length; // sin categoría: al final
+    const i = allowedCats.indexOf(cat);
+    return i === -1 ? -1 : i;
+  };
+
+  let searchableStores = compareMode
     ? dedupedExtra
     : scope === 'mis' && customSearchable.length > 0
       ? customSearchable
@@ -5652,11 +5853,39 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
           ...predefinedSearchable,
           ...dbSearchable,
         ]);
+  if (categoryOnly && !compareMode && allowedCats.length) {
+    const filtered = searchableStores
+      .map((s, i) => ({ s, i, rank: byCategoryRank(s) }))
+      .filter(x => x.rank !== -1)
+      .sort((a, b) => a.rank - b.rank || a.i - b.i)
+      .map(x => x.s);
+    if (filtered.length) searchableStores = filtered;
+  }
+
+  // Tiendas que respondieron "no se encontraron resultados" para esta
+  // búsqueda (las detecta el revisor en segundo plano o la vista actual).
+  const [emptyDomains, setEmptyDomains] = useState({});
+  const [probedDomains, setProbedDomains] = useState({});
+  useEffect(() => { setEmptyDomains({}); setProbedDomains({}); }, [query, scope, categoryOnly]);
+  const visibleStores = searchableStores.filter(s => !emptyDomains[s.domain]);
+  const hiddenCount = searchableStores.length - visibleStores.length;
+  const currentStore = visibleStores.find(s => s.domain === selectedStore) || visibleStores[0] || null;
+
+  // El revisor va probando las primeras tiendas de la lista (no todas, para
+  // no gastar datos), de a una, salteando la que ya se está mirando.
+  const PROBE_LIMIT = 12;
+  const probeStore = query && !nlLoading
+    ? searchableStores.slice(0, PROBE_LIMIT).find(s => !probedDomains[s.domain] && s.domain !== currentStore?.domain)
+    : null;
+  function handleProbeResult(domain, empty) {
+    setProbedDomains(prev => ({ ...prev, [domain]: true }));
+    if (empty) setEmptyDomains(prev => ({ ...prev, [domain]: true }));
+  }
 
   // Resetear inyección cuando cambia tienda o búsqueda
   useEffect(() => {
     searchInjected.current = false;
-  }, [selectedStore, query]);
+  }, [currentStore?.domain, query]);
 
   function doSearch(overrideText) {
     const q = (overrideText !== undefined ? overrideText : inputText).trim();
@@ -5665,6 +5894,7 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     setSuggestedStores([]);
     setCompareMode(false);
     setAiCategory(null);
+    setCategoryOnly(false);
     // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
     // se interpretan con IA antes de buscar; términos cortos van directo.
     const wordCount = q.split(/\s+/).length;
@@ -5674,83 +5904,35 @@ function SearchView({ onMessage, customStores = [], countryStores = STORES, coun
     }
     searchInjected.current = false;
     setQuery(q);
-    setSelectedStore(0);
-  }
-
-  // Script que busca el input de búsqueda en la página y hace submit.
-  // Reintenta hasta 6 veces con delay para SPAs que renderizan el DOM después del load.
-  function buildSearchScript(q) {
-    return `
-(function trySearch(attempt) {
-  var q = ${JSON.stringify(q)};
-  var selectors = [
-    'input[type="search"]',
-    'input[name="q"]',
-    'input[name="s"]',
-    'input[name="search"]',
-    'input[name="busqueda"]',
-    'input[name="buscar"]',
-    'input[name="query"]',
-    'input[id*="search"]',
-    'input[id*="busca"]',
-    'input[class*="search"]',
-    'input[class*="busca"]',
-    'input[placeholder*="busca"]',
-    'input[placeholder*="search"]',
-    'input[placeholder*="Busca"]',
-    'input[placeholder*="Search"]',
-  ];
-  var input = null;
-  for (var i = 0; i < selectors.length; i++) {
-    var el = document.querySelector(selectors[i]);
-    if (el) { input = el; break; }
-  }
-  if (!input) {
-    // SPA todavía renderizando — reintentar con backoff
-    if (attempt < 6) setTimeout(function() { trySearch(attempt + 1); }, 600);
-    return;
-  }
-  input.focus();
-  var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  nativeInputValueSetter.call(input, q);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-  var form = input.closest('form');
-  if (form) {
-    form.submit();
-  } else {
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
-  }
-})(0);
-true;
-    `;
+    setSelectedStore(null);
   }
 
   function handleLoadEnd() {
-    const store = searchableStores[selectedStore];
-    if (!query || searchInjected.current) return;
-    // Solo inyectar si la tienda no tiene URL de búsqueda conocida
-    const hasKnownUrl = store?.searchUrl || STORE_SEARCH_URL[store?.domain];
-    if (hasKnownUrl) return;
+    if (!query || !currentStore) return;
+    // También en la tienda que se está mirando: si dice "sin resultados", se
+    // oculta y se pasa sola a la siguiente.
+    webRef.current?.injectJavaScript(DETECT_NO_RESULTS_JS);
+    if (searchInjected.current) return;
+    // Solo inyectar la búsqueda si la tienda no tiene URL de búsqueda conocida
+    if (!storeNeedsInjectedSearch(currentStore)) return;
     searchInjected.current = true;
-    webRef.current?.injectJavaScript(buildSearchScript(query));
+    webRef.current?.injectJavaScript(buildStoreSearchScript(query));
   }
 
-  function getSearchUrl(storeIndex) {
-    const store = searchableStores[storeIndex];
-    if (!store || !query) return null;
-    // 1) URL específica del store (tiene precedencia — permite URLs por país)
-    if (store.searchUrl) return store.searchUrl(query);
-    // 2) STORE_SEARCH_URL por dominio (tiendas predefinidas UY y bas.com.uy)
-    const fn = STORE_SEARCH_URL[store.domain];
-    if (fn) return fn(query);
-    // 3) Para tiendas sin URL conocida: cargar home e inyectar búsqueda via JS
-    return store.url || null;
+  function handleResultsMessage(e) {
+    try {
+      const msg = JSON.parse(e.nativeEvent.data);
+      if (msg?.type === 'searchNoResults' && currentStore) {
+        setProbedDomains(prev => ({ ...prev, [currentStore.domain]: true }));
+        setEmptyDomains(prev => ({ ...prev, [currentStore.domain]: true }));
+        return;
+      }
+      if (msg?.type === 'searchChecked') return;
+    } catch (err) {}
+    onMessage?.(e);
   }
 
-  const searchUrl = getSearchUrl(selectedStore);
+  const searchUrl = storeSearchUrl(currentStore, query);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -5850,11 +6032,24 @@ true;
               </ScrollView>
             </View>
           )}
+          {categoryOnly && !compareMode && !!searchCategory && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
+              <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>
+                Tiendas de {(INTEREST_CATEGORIES.find(c => c.id === searchCategory)?.label || searchCategory)}
+              </Text>
+              <TouchableOpacity
+                onPress={() => { setCategoryOnly(false); setSelectedStore(null); searchInjected.current = false; }}
+                hitSlop={8}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.accent }}>Ver todas</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           {scope === 'mis' && !compareMode && (
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
               <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Buscando solo en Mis tiendas</Text>
               <TouchableOpacity
-                onPress={() => { setScope('all'); setSelectedStore(0); searchInjected.current = false; }}
+                onPress={() => { setScope('all'); setSelectedStore(null); searchInjected.current = false; }}
                 hitSlop={8}
               >
                 <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.accent }}>Buscar en todas</Text>
@@ -5868,25 +6063,46 @@ true;
             style={styles.storeTabsScroll}
             contentContainerStyle={styles.storeTabsContent}
           >
-            {searchableStores.map((store, i) => (
+            {visibleStores.map((store) => {
+              const active = store.domain === currentStore?.domain;
+              return (
               <TouchableOpacity
                 key={store.domain}
-                onPress={() => setSelectedStore(i)}
+                onPress={() => setSelectedStore(store.domain)}
                 activeOpacity={0.7}
                 style={[
                   styles.storeTab,
-                  selectedStore === i && { backgroundColor: store.bg, borderColor: store.bg },
+                  active && { backgroundColor: store.bg, borderColor: store.bg },
                 ]}
               >
                 <Text style={[
                   styles.storeTabText,
-                  selectedStore === i && { color: store.fg },
+                  active && { color: store.fg },
                 ]}>
                   {store.name}
                 </Text>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </ScrollView>
+          {hiddenCount > 0 && (
+            <Text style={{ fontSize: 11, color: COLORS.textTertiary, paddingHorizontal: 16, paddingBottom: 6 }}>
+              Ocultamos {hiddenCount} {hiddenCount === 1 ? 'tienda' : 'tiendas'} sin resultados
+            </Text>
+          )}
+
+          {/* Revisor invisible: va descartando tiendas sin resultados */}
+          {!!probeStore && (
+            <SearchProber key={`${probeStore.domain}|${query}`} store={probeStore} query={query} onResult={handleProbeResult} />
+          )}
+
+          {!currentStore && (
+            <View style={styles.searchEmpty}>
+              <Ionicons name="sad-outline" size={44} color={COLORS.border} />
+              <Text style={styles.searchEmptyTitle}>Sin resultados</Text>
+              <Text style={styles.searchEmptySubtitle}>Ninguna tienda encontró "{query}". Probá con otras palabras.</Text>
+            </View>
+          )}
 
           {/* WebView con resultados */}
           {searchUrl && (
@@ -5902,7 +6118,7 @@ true;
                 </View>
               )}
               injectedJavaScript={INJECTED_JS}
-              onMessage={onMessage}
+              onMessage={handleResultsMessage}
               javaScriptEnabled={true}
               domStorageEnabled={true}
               allowsBackForwardNavigationGestures={true}
