@@ -1926,7 +1926,7 @@ export default function App() {
                   userInterests={userInterests}
                   onOpenUrl={openUrl}
                   onAddPick={(item) => {
-                    addPick({ title: item.title, img: item.img, link: item.url, price: item.price ? String(item.price) : '' });
+                    addPick({ title: item.title, img: item.img, link: item.url, price: item.priceText || (item.price ? String(item.price) : '') });
                   }}
                   unreadNotifCount={unreadNotifCount}
                   onOpenNotifications={() => setActiveTab('notifications')}
@@ -6185,11 +6185,12 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       const params = new URLSearchParams();
       if (pickDomains.length) params.set('stores', pickDomains.join(','));
       if (customDomains.length) params.set('custom', customDomains.join(','));
-      // Títulos de picks + keywords de intereses para personalización del feed
-      const pickTitles = picks.slice(0, 30).map(p => p.title).filter(Boolean);
-      const interestKws = userInterests.flatMap(id => INTEREST_KEYWORDS[id] || []);
-      const allTitles = [...pickTitles, ...interestKws];
-      if (allTitles.length) params.set('titles', allTitles.join('|'));
+      // Nombres de los Picks (para buscar productos parecidos) y categorías de
+      // "Mis intereses". Los Picks guardan el nombre en `name`: antes se leía
+      // `title`, que no existe, y nunca se usaban para personalizar.
+      const pickTitles = picks.slice(0, 20).map(p => p.name || p.title).filter(Boolean);
+      if (pickTitles.length) params.set('titles', pickTitles.join('|'));
+      if (userInterests.length) params.set('interests', userInterests.join(','));
       const query = params.toString() ? `?${params.toString()}` : '';
       // 45s en vez de 15s: el backend (Render, plan free) se "duerme" sin
       // tráfico y puede tardar cerca de un minuto en despertar — con 15s
@@ -6216,14 +6217,6 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
   const isAlreadyPicked = (url) => picks.some(p => p.url === url);
 
-  // Keywords de "Mis intereses" — mismo criterio best-effort que se usa en
-  // el resto de la app (inferStoreCategory, personalización del Home).
-  const interestKeywords = userInterests.flatMap(id => INTEREST_KEYWORDS[id] || []);
-  const matchesInterests = (item) => {
-    if (interestKeywords.length === 0) return true; // sin intereses cargados, no filtramos
-    const t = (item.title || '').toLowerCase();
-    return interestKeywords.some(k => t.includes(k));
-  };
   const matchesQuery = (item) => {
     const q = exploreQuery.trim().toLowerCase();
     if (!q) return true;
@@ -6233,7 +6226,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   const chipBaseFeed =
     chip === 'amigos' ? friendsFeed
     : chip === 'tendencias' ? feed.filter(i => i.type === 'trending')
-    : feed.filter(matchesInterests); // 'para_vos'
+    : feed.filter(i => i.type !== 'trending'); // 'para_vos': el servidor ya lo arma según intereses y Picks
   const displayFeed = chipBaseFeed.filter(matchesQuery);
 
   // ── Lista card ──────────────────────────────────────────────────────────────
@@ -6265,15 +6258,15 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               </View>
               {item.type === 'trending' && (
                 <View style={styles.explorarTrendingBadge}>
-                  <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+                  <Text style={styles.explorarTrendingText}>{item.reason === 'searched' ? '🔎 muy buscado' : '🔥 tendencia'}</Text>
                 </View>
               )}
             </View>
           )}
           <Text style={styles.explorarCardTitle} numberOfLines={2}>{item.title}</Text>
-          {item.price ? (
+          {item.priceText || item.price ? (
             <Text style={styles.explorarCardPrice}>
-              ${item.price.toLocaleString('es-UY', { maximumFractionDigits: 0 })}
+              {item.priceText || `$${Number(item.price).toLocaleString('es-UY', { maximumFractionDigits: 0 })}`}
             </Text>
           ) : null}
         </View>
@@ -6316,15 +6309,15 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               </View>
               {item.type === 'trending' && (
                 <View style={styles.explorarTrendingBadge}>
-                  <Text style={styles.explorarTrendingText}>🔥 tendencia</Text>
+                  <Text style={styles.explorarTrendingText}>{item.reason === 'searched' ? '🔎 muy buscado' : '🔥 tendencia'}</Text>
                 </View>
               )}
             </View>
           )}
           <Text style={styles.reelTitle} numberOfLines={3}>{item.title}</Text>
-          {item.price ? (
+          {item.priceText || item.price ? (
             <Text style={styles.reelPrice}>
-              ${item.price.toLocaleString('es-UY', { maximumFractionDigits: 0 })}
+              {item.priceText || `$${Number(item.price).toLocaleString('es-UY', { maximumFractionDigits: 0 })}`}
             </Text>
           ) : null}
           <TouchableOpacity
