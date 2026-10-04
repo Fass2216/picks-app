@@ -5600,7 +5600,13 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
               Alert.alert('Permiso necesario', 'Necesitamos acceso a tu galería para elegir la foto.');
               return;
             }
-            const result = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.5 });
+            // "Compatible": el iPhone convierte las fotos HEIC a JPEG. Sin esto
+            // las entrega crudas en HEIC y la IA no puede leerlas.
+            const result = await ImagePicker.launchImageLibraryAsync({
+              base64: true,
+              quality: 0.5,
+              preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+            });
             runImageSearch(result);
           },
         },
