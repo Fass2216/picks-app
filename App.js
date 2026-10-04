@@ -1536,8 +1536,7 @@ export default function App() {
   // Intenta inferir a qué categoría de interés pertenece una tienda a partir
   // de su nombre y dominio, usando las mismas palabras clave que ya usamos
   // para personalizar Explorar. Best-effort: si no matchea nada, devuelve null
-  // y esa tienda simplemente no se suma a la base compartida (sigue quedando
-  // en "Mis tiendas" localmente, como siempre).
+  // y la categoría la asigna la IA en el servidor.
   function inferStoreCategory(name = '', domain = '') {
     const text = `${name} ${domain}`.toLowerCase();
     for (const catId of Object.keys(INTEREST_KEYWORDS)) {
@@ -1548,12 +1547,14 @@ export default function App() {
   }
 
   // Cuando el usuario agrega una tienda propia a "Mis tiendas", la suma
-  // automáticamente a la base de tiendas compartida del backend (si logramos
-  // inferirle una categoría), para que le sirva a todos los usuarios.
+  // automáticamente a la base de tiendas compartida del backend (comunitaria,
+  // en Supabase), para que le sirva a todos los usuarios.
   async function syncCustomStoreToBackend(s) {
     try {
+      // Se manda siempre (antes solo si se adivinaba la categoría por
+      // palabras, y casi nunca pasaba): si no hay categoría, la asigna la IA
+      // en el servidor y la tienda queda en la base comunitaria para todos.
       const category = inferStoreCategory(s.name, s.domain);
-      if (!category) return;
       const device_id = await getOrCreateDeviceId();
       const user_id = userProfile?.id || null;
       await fetch(`${BACKEND_URL}/api/stores`, {
