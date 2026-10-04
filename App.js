@@ -5929,8 +5929,23 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
               keyboardShouldPersistTaps="handled"
             >
               {products.length > 0 ? (
+                // Con IA, los resultados vienen en dos grupos: los muy parecidos
+                // arriba y los del mismo tipo con otro estilo en "Otras opciones".
+                // Sin grupos (búsquedas cortas), una sola grilla como siempre.
+                [
+                  { key: 'similar', title: 'Parecidos a tu búsqueda', items: products.filter(p => p.tier === 'similar') },
+                  { key: 'related', title: 'Otras opciones', items: products.filter(p => p.tier === 'related') },
+                  { key: 'all', title: null, items: products.filter(p => !p.tier) },
+                ].filter(sec => sec.items.length).map((sec, si) => (
+                <View key={sec.key}>
+                  {!!sec.title && products.some(p => p.tier) && (
+                    <Text style={[styles.searchSectionTitle, si > 0 && { marginTop: 22 }]}>
+                      {sec.title}
+                      <Text style={styles.searchSectionCount}>  {sec.items.length}</Text>
+                    </Text>
+                  )}
                 <View style={styles.picksGrid}>
-                  {products.map((p) => {
+                  {sec.items.map((p) => {
                     const saved = savedUrls.has(p.url);
                     return (
                       <TouchableOpacity
@@ -5966,6 +5981,8 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
                     );
                   })}
                 </View>
+                </View>
+                ))
               ) : (
                 <View style={[styles.searchEmpty, { paddingTop: 40 }]}>
                   <Ionicons name={productsError ? 'cloud-offline-outline' : 'sad-outline'} size={44} color={COLORS.border} />
@@ -6829,6 +6846,8 @@ const styles = StyleSheet.create({
   emptyDesc: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 21 },
   picksGridContent: { paddingBottom: 30 },
   picksGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  searchSectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, marginBottom: 10 },
+  searchSectionCount: { fontSize: 13, fontWeight: '500', color: COLORS.textTertiary },
   pickCard: {
     width: (SCREEN.width - 48 - 12) / 2,
     backgroundColor: COLORS.surface, borderColor: COLORS.border, borderWidth: 0.5,
