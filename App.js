@@ -5437,6 +5437,30 @@ function PicksView({
   );
 }
 
+// Foto de un resultado de búsqueda: si falla la descarga (red lenta, la CDN de
+// la tienda corta), reintenta una vez; si vuelve a fallar muestra un ícono en
+// vez de dejar el recuadro vacío.
+function ResultImage({ uri }) {
+  const [attempt, setAttempt] = useState(0);
+  if (!uri || attempt > 1) {
+    return (
+      <View style={[styles.pickImg, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Ionicons name="image-outline" size={28} color={COLORS.border} />
+      </View>
+    );
+  }
+  const src = attempt === 0 ? uri : uri + (uri.includes('?') ? '&' : '?') + 'r=1';
+  return (
+    <Image
+      key={src}
+      source={{ uri: src }}
+      style={styles.pickImg}
+      resizeMode="cover"
+      onError={() => setAttempt(a => a + 1)}
+    />
+  );
+}
+
 function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
@@ -5894,7 +5918,7 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
           ) : (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={styles.picksGridContent}
+              contentContainerStyle={[styles.picksGridContent, { paddingHorizontal: 24, paddingTop: 12 }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -5910,7 +5934,7 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
                         onPress={() => onOpenUrl?.(p.url, 'Buscar')}
                       >
                         <View style={styles.pickImgWrap}>
-                          <Image source={{ uri: p.img }} style={styles.pickImg} resizeMode="cover" />
+                          <ResultImage uri={p.img} />
                         </View>
                         <View style={styles.pickInfo}>
                           <Text style={styles.pickName} numberOfLines={2}>{p.title}</Text>
