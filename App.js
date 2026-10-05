@@ -145,6 +145,35 @@ async function getOrCreateDeviceId() {
 // dos cuentas de Supabase en el mismo teléfono no compartan la misma lista.
 function picksStorageKey(uid) { return `picks-v1-${uid || 'guest'}`; }
 function collectionsStorageKey(uid) { return `collections-v1-${uid || 'guest'}`; }
+// Mis tiendas: por cuenta (como los Picks). Sin sesión se usa la lista del
+// celular de siempre ('customStores-v1'). La primera cuenta que entra después
+// de separar por cuenta se queda con esa lista ("la reclama"); las cuentas
+// nuevas en el mismo celular empiezan vacías.
+const LEGACY_STORES_KEY = 'customStores-v1';
+const LEGACY_STORES_CLAIMED_KEY = 'customStores-v1-claimed-by';
+function storesStorageKey(uid) { return uid ? `customStores-v1-${uid}` : LEGACY_STORES_KEY; }
+
+// Copia en Supabase (tabla user_stores, cada usuario solo ve las suyas) para
+// recuperarlas al reinstalar o cambiar de celular.
+function storeToRow(uid, s) {
+  return { user_id: uid, domain: s.domain, name: s.name || null, url: s.url || null, bg: s.bg || null, fg: s.fg || null, short: s.short || null };
+}
+async function upsertRemoteStores(uid, stores) {
+  if (!uid || !stores?.length) return;
+  try { await supabase.from('user_stores').upsert(stores.map(s => storeToRow(uid, s)), { onConflict: 'user_id,domain' }); } catch (e) {}
+}
+async function deleteRemoteStore(uid, domain) {
+  if (!uid || !domain) return;
+  try { await supabase.from('user_stores').delete().eq('user_id', uid).eq('domain', domain); } catch (e) {}
+}
+async function fetchRemoteStores(uid) {
+  const { data, error } = await supabase.from('user_stores').select('domain,name,url,bg,fg,short,created_at').eq('user_id', uid).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(r => ({
+    name: r.name || r.domain.split('.')[0], domain: r.domain, url: r.url || `https://${r.domain}`,
+    bg: r.bg || '#2C2C2C', fg: r.fg || '#FFFFFF', short: r.short || r.domain.slice(0, 2).toUpperCase(), custom: true,
+  }));
+}
 
 // Mutex en memoria para que la migración única de datos viejos no corra dos
 // veces en paralelo si se cambia de cuenta rápido (evita copiar los picks
@@ -1153,6 +1182,7 @@ export default function App() {
   // bajo la key de la cuenta NUEVA (carrera entre el efecto de carga y el de guardado).
   const activePicksKeyRef = useRef(null);
   const activeCollectionsKeyRef = useRef(null);
+  const activeStoresKeyRef = useRef(null); // clave de Mis tiendas de la cuenta actual (null = cargando)
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Bienvenida para elegir intereses: una vez por usuario, si no tiene ninguno
@@ -1224,12 +1254,11 @@ export default function App() {
     return () => { cancelled = true; };
   }, [sharedCollectionId]);
 
-  // Cargar tiendas custom, orden y país guardados al arrancar (esto no depende de la cuenta)
+  // Cargar orden y país guardados al arrancar (no dependen de la cuenta; Mis
+  // tiendas sí, se carga más abajo según la cuenta)
   useEffect(() => {
     (async () => {
       try {
-        const sc = await AsyncStorage.getItem('customStores-v1');
-        if (sc) setCustomStores(JSON.parse(sc));
         const so = await AsyncStorage.getItem('storesOrder-v1');
         if (so === 'swapped') setStoresOrderSwapped(true);
         const savedBg = await AsyncStorage.getItem(APP_BACKGROUND_STORAGE_KEY);
@@ -1385,11 +1414,54 @@ export default function App() {
     AsyncStorage.setItem(activePicksKeyRef.current, JSON.stringify(picks)).catch(() => {});
   }, [picks, picksLoaded]);
  
-  // Persistir tiendas custom cuando cambian
+  // Persistir Mis tiendas en la clave de la cuenta actual (no mientras carga
+  // la de otra cuenta, para no mezclarlas)
   useEffect(() => {
-    if (!loaded) return;
-    AsyncStorage.setItem('customStores-v1', JSON.stringify(customStores)).catch(() => {});
-  }, [customStores, loaded]);
+    if (!activeStoresKeyRef.current) return;
+    AsyncStorage.setItem(activeStoresKeyRef.current, JSON.stringify(customStores)).catch(() => {});
+  }, [customStores]);
+
+  // Cargar Mis tiendas DE LA CUENTA ACTUAL cada vez que cambia la cuenta.
+  useEffect(() => {
+    if (!authChecked) return;
+    let cancelled = false;
+    const uid = userProfile?.id || null;
+    const key = storesStorageKey(uid);
+    activeStoresKeyRef.current = null;
+    (async () => {
+      let list = null;
+      try {
+        const local = await AsyncStorage.getItem(key);
+        if (local) list = JSON.parse(local);
+        if (!list && uid) {
+          // Celular nuevo o reinstalación: traerlas de la cuenta
+          try {
+            const remote = await fetchRemoteStores(uid);
+            if (remote.length) list = remote;
+          } catch (e) { /* sin conexión: seguimos con lo local */ }
+          // Primera vez después de separar por cuenta: la lista del celular
+          // pasa a esta cuenta (solo a la primera que entra)
+          if (!list) {
+            const claimedBy = await AsyncStorage.getItem(LEGACY_STORES_CLAIMED_KEY);
+            if (!claimedBy) {
+              const legacy = await AsyncStorage.getItem(LEGACY_STORES_KEY);
+              if (legacy) list = JSON.parse(legacy);
+              await AsyncStorage.setItem(LEGACY_STORES_CLAIMED_KEY, uid);
+            }
+          }
+        }
+      } catch (e) {}
+      if (cancelled) return;
+      list = Array.isArray(list) ? list : [];
+      setCustomStores(list);
+      activeStoresKeyRef.current = key;
+      AsyncStorage.setItem(key, JSON.stringify(list)).catch(() => {});
+      // Asegurar la copia en la cuenta (por si se agregaron sin conexión o
+      // venían de la lista del celular)
+      if (uid) upsertRemoteStores(uid, list);
+    })();
+    return () => { cancelled = true; };
+  }, [authChecked, userProfile?.id]);
 
   // Persistir orden de secciones
   useEffect(() => {
@@ -1518,6 +1590,7 @@ export default function App() {
       custom: true,
     };
     setCustomStores(prev => [...prev, newStore]);
+    upsertRemoteStores(userProfile?.id, [newStore]);
     track('custom_store_added', { store: newStore.name, domain: newStore.domain });
     showToast('Agregada a tus tiendas');
     syncCustomStoreToBackend(newStore);
@@ -1598,6 +1671,7 @@ export default function App() {
     const removed = customStores.find(s => s.domain === domain);
     if (removed) track('custom_store_removed', { store: removed.name, domain: removed.domain });
     setCustomStores(prev => prev.filter(s => s.domain !== domain));
+    deleteRemoteStore(userProfile?.id, domain);
     showToast('Tienda eliminada');
   }
 
