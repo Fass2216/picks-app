@@ -2041,6 +2041,7 @@ export default function App() {
             <SearchView
               onMessage={handleWebMessage}
               onAddPick={addPick}
+              onAddStore={(store) => addCustomStore(store)}
               savedPicks={picks}
               customStores={customStores}
               countryStores={STORES_BY_COUNTRY[country] || STORES}
@@ -5780,7 +5781,7 @@ function ResultImage({ uri }) {
   );
 }
 
-function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
+function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [pickingImage, setPickingImage] = useState(false);
@@ -5898,6 +5899,7 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
       setAiCategory(data.category || null);
       // Si en la captura se ve la tienda (@usuario, logo) y la tenemos, va primera
       setPriorityDomain(data.store_domain || null);
+      setRecognizedStore(data.store_domain ? { domain: data.store_domain, name: data.store_name || data.store_domain.split('.')[0] } : null);
       // Con foto sabemos qué producto es: buscar solo en las tiendas de su
       // categoría (y vecinas), no en decoración o tecnología por unas championes.
       setCategoryOnly(!!data.category);
@@ -6045,6 +6047,8 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
   const [categoryOnly, setCategoryOnly] = useState(false);
   // Tienda reconocida en la captura (@usuario, logo): va primera en la búsqueda
   const [priorityDomain, setPriorityDomain] = useState(null);
+  // Tienda reconocida en la captura, para la tarjeta "Abrir / Agregar a Mis tiendas"
+  const [recognizedStore, setRecognizedStore] = useState(null);
   const domainCategory = {};
   dbStores.forEach(s => { if (s.domain) domainCategory[s.domain] = s.category; });
   const allowedCats = searchCategory ? [searchCategory, ...(RELATED_CATEGORIES[searchCategory] || [])] : [];
@@ -6078,7 +6082,10 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
     const known = searchableStores.find(s => s.domain === priorityDomain)
       || dbSearchable.find(s => s.domain === priorityDomain)
       || customSearchable.find(s => s.domain === priorityDomain);
-    if (known) searchableStores = [known, ...searchableStores.filter(s => s.domain !== priorityDomain)];
+    const first = known || (recognizedStore?.domain === priorityDomain
+      ? { domain: priorityDomain, name: recognizedStore.name, url: `https://www.${priorityDomain}`, bg: '#2C2C2C', fg: '#FFFFFF', isCustom: true }
+      : null);
+    if (first) searchableStores = [first, ...searchableStores.filter(s => s.domain !== priorityDomain)];
   }
 
   // Resultados: el servidor busca en todas las tiendas a la vez y devuelve
@@ -6130,6 +6137,7 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
     setAiCategory(null);
     setCategoryOnly(false);
     setPriorityDomain(null);
+    setRecognizedStore(null);
     // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
     // se interpretan con IA antes de buscar; términos cortos van directo.
     const wordCount = q.split(/\s+/).length;
@@ -6238,6 +6246,38 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
               </ScrollView>
             </View>
           )}
+          {!!recognizedStore && !compareMode && (() => {
+            const inMyStores = customStores.some(s => s.domain === recognizedStore.domain)
+              || countryStores.some(s => s.domain === recognizedStore.domain);
+            const storeUrl = `https://www.${recognizedStore.domain}`;
+            return (
+              <View style={styles.recognizedStoreCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.recognizedStoreLabel}>Tienda de la captura</Text>
+                  <Text style={styles.recognizedStoreName} numberOfLines={1}>{recognizedStore.name}</Text>
+                  <Text style={styles.recognizedStoreDomain} numberOfLines={1}>{recognizedStore.domain}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.recognizedStoreBtn}
+                  onPress={() => { onOpenUrl?.(storeUrl, 'Buscar'); track('recognized_store_opened', { domain: recognizedStore.domain }); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.recognizedStoreBtnText}>Abrir</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.recognizedStoreBtn, styles.recognizedStoreBtnPrimary, inMyStores && { opacity: 0.6 }]}
+                  disabled={inMyStores}
+                  onPress={() => {
+                    onAddStore?.({ domain: recognizedStore.domain, name: recognizedStore.name, url: storeUrl });
+                    track('recognized_store_added', { domain: recognizedStore.domain });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.recognizedStoreBtnText, { color: '#fff' }]}>{inMyStores ? '✓ En Mis tiendas' : '+ Mis tiendas'}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
           {categoryOnly && !compareMode && !!searchCategory && (
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
               <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>
@@ -7188,6 +7228,17 @@ const styles = StyleSheet.create({
   picksGridContent: { paddingBottom: 30 },
   picksGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   searchSectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, marginBottom: 10 },
+  recognizedStoreCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 16, marginTop: 10, padding: 12, borderRadius: 14,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+  },
+  recognizedStoreLabel: { fontSize: 11, color: COLORS.textTertiary },
+  recognizedStoreName: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, textTransform: 'capitalize' },
+  recognizedStoreDomain: { fontSize: 12, color: COLORS.textSecondary },
+  recognizedStoreBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border },
+  recognizedStoreBtnPrimary: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  recognizedStoreBtnText: { fontSize: 12, fontWeight: '700', color: COLORS.textPrimary },
   searchSectionCount: { fontSize: 13, fontWeight: '500', color: COLORS.textTertiary },
   pickCard: {
     width: (SCREEN.width - 48 - 12) / 2,
