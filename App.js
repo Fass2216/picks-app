@@ -5900,6 +5900,21 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
       // Si en la captura se ve la tienda (@usuario, logo) y la tenemos, va primera
       setPriorityDomain(data.store_domain || null);
       setRecognizedStore(data.store_domain ? { domain: data.store_domain, name: data.store_name || data.store_domain.split('.')[0] } : null);
+      setExactProducts([]);
+      if (data.model && data.store_domain) {
+        fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: data.model, exact: true, stores: [{ domain: data.store_domain, name: data.store_name || data.store_domain }] }),
+        })
+          .then(r => r.json())
+          .then(j => {
+            const found = (j.results || []).slice(0, 4);
+            setExactProducts(found);
+            track('exact_product_search', { domain: data.store_domain, model: data.model, found: found.length });
+          })
+          .catch(() => {});
+      }
       // Con foto sabemos qué producto es: buscar solo en las tiendas de su
       // categoría (y vecinas), no en decoración o tecnología por unas championes.
       setCategoryOnly(!!data.category);
@@ -6049,6 +6064,8 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
   const [priorityDomain, setPriorityDomain] = useState(null);
   // Tienda reconocida en la captura, para la tarjeta "Abrir / Agregar a Mis tiendas"
   const [recognizedStore, setRecognizedStore] = useState(null);
+  // Producto exacto: el código/modelo leído en la captura, buscado en la tienda reconocida
+  const [exactProducts, setExactProducts] = useState([]);
   const domainCategory = {};
   dbStores.forEach(s => { if (s.domain) domainCategory[s.domain] = s.category; });
   const allowedCats = searchCategory ? [searchCategory, ...(RELATED_CATEGORIES[searchCategory] || [])] : [];
@@ -6138,6 +6155,7 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
     setCategoryOnly(false);
     setPriorityDomain(null);
     setRecognizedStore(null);
+    setExactProducts([]);
     // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
     // se interpretan con IA antes de buscar; términos cortos van directo.
     const wordCount = q.split(/\s+/).length;
@@ -6316,17 +6334,23 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {products.length > 0 ? (
-                // Con IA, los resultados vienen en dos grupos: los muy parecidos
-                // arriba y los del mismo tipo con otro estilo en "Otras opciones".
-                // Sin grupos (búsquedas cortas), una sola grilla como siempre.
-                [
-                  { key: 'similar', title: 'Parecidos a tu búsqueda', items: products.filter(p => p.tier === 'similar') },
-                  { key: 'related', title: 'Otras opciones', items: products.filter(p => p.tier === 'related') },
-                  { key: 'all', title: null, items: products.filter(p => !p.tier) },
-                ].filter(sec => sec.items.length).map((sec, si) => (
+              {products.length > 0 || exactProducts.length > 0 ? (
+                // Arriba, el producto exacto de la captura (si se leyó su código
+                // y se reconoció la tienda). Con IA, después vienen los muy
+                // parecidos y los del mismo tipo con otro estilo ("Otras
+                // opciones"). Sin grupos (búsquedas cortas), una sola grilla.
+                (() => {
+                  const exactUrls = new Set(exactProducts.map(p => p.url));
+                  const rest = products.filter(p => !exactUrls.has(p.url));
+                  return [
+                    { key: 'exact', title: `En ${recognizedStore?.name || 'la tienda'}`, items: exactProducts, alwaysTitle: true },
+                    { key: 'similar', title: 'Parecidos a tu búsqueda', items: rest.filter(p => p.tier === 'similar') },
+                    { key: 'related', title: 'Otras opciones', items: rest.filter(p => p.tier === 'related') },
+                    { key: 'all', title: exactProducts.length ? 'Más resultados' : null, items: rest.filter(p => !p.tier) },
+                  ];
+                })().filter(sec => sec.items.length).map((sec, si) => (
                 <View key={sec.key}>
-                  {!!sec.title && products.some(p => p.tier) && (
+                  {!!sec.title && (sec.alwaysTitle || exactProducts.length > 0 || products.some(p => p.tier)) && (
                     <Text style={[styles.searchSectionTitle, si > 0 && { marginTop: 22 }]}>
                       {sec.title}
                       <Text style={styles.searchSectionCount}>  {sec.items.length}</Text>
