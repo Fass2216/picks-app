@@ -1155,6 +1155,8 @@ export default function App() {
   const activeCollectionsKeyRef = useRef(null);
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
+  // Bienvenida para elegir intereses: una vez por usuario, si no tiene ninguno
+  const [showWelcome, setShowWelcome] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0); // para el contador de la campanita
   const [searchInitialQuery, setSearchInitialQuery] = useState(null); // texto libre pre-cargado desde "Mis tiendas" (modo Toda la web)
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
@@ -1354,6 +1356,21 @@ export default function App() {
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
+
+  // Al entrar con una cuenta que todavía no eligió intereses, mostrar la
+  // bienvenida (una sola vez por usuario: si la saltea, no vuelve a aparecer).
+  useEffect(() => {
+    if (!userProfile?.id) { setShowWelcome(false); return; }
+    if ((userInterests || []).length) return;
+    AsyncStorage.getItem(`welcome-interests-v1-${userProfile.id}`)
+      .then(seen => { if (!seen) setShowWelcome(true); })
+      .catch(() => {});
+  }, [userProfile?.id]);
+
+  function finishWelcome() {
+    setShowWelcome(false);
+    if (userProfile?.id) AsyncStorage.setItem(`welcome-interests-v1-${userProfile.id}`, '1').catch(() => {});
+  }
 
   useEffect(() => {
     if (!picksLoaded || !activeCollectionsKeyRef.current) return;
@@ -2251,6 +2268,20 @@ export default function App() {
         </SafeAreaView>
       </Modal>
 
+      <Modal visible={showWelcome} animationType="slide" presentationStyle="fullScreen" onRequestClose={finishWelcome}>
+        <WelcomeInterests
+          name={userProfile?.user_metadata?.name}
+          onSkip={() => { finishWelcome(); track('welcome_interests_skipped', {}); }}
+          onDone={async (interests) => {
+            try { await supabase.auth.updateUser({ data: { interests } }); } catch (e) {}
+            setUserInterests(interests);
+            track('welcome_interests_saved', { interests: interests.join(','), count: interests.length });
+            finishWelcome();
+            setActiveTab('picks');
+          }}
+        />
+      </Modal>
+
       <TabBar
         activeTab={
           browserUrl ? 'home'
@@ -2359,6 +2390,76 @@ function personDisplayLabel(person) {
 // ── AuthScreen ───────────────────────────────────────────────────────────────
 // Login / registro. Antes vivía adentro de la pestaña "Perfil"; ahora se llega
 // acá desde el banner de "Iniciá sesión" en Mis Picks.
+// Bienvenida después de crear la cuenta o del primer ingreso: elegir las
+// categorías de interés, que son las que arman "Para vos" en Explorar y las
+// tiendas de Mis tiendas. Se muestra una sola vez por usuario.
+function WelcomeInterests({ name, onDone, onSkip }) {
+  const [selected, setSelected] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const toggle = (id) => setSelected(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  const firstName = (name || '').trim().split(/\s+/)[0];
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }} edges={['top', 'bottom']}>
+      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 16 }} showsVerticalScrollIndicator={false}>
+        <Text style={welcomeStyles.title}>{firstName ? `¡Hola, ${firstName}!` : '¡Bienvenido a Picks!'}</Text>
+        <Text style={welcomeStyles.subtitle}>
+          ¿Qué te interesa? Elegí una o más categorías y te mostramos tiendas y productos a tu medida.
+        </Text>
+        <View style={welcomeStyles.grid}>
+          {INTEREST_CATEGORIES.map(cat => {
+            const active = selected.includes(cat.id);
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[welcomeStyles.chip, active && welcomeStyles.chipActive]}
+                onPress={() => toggle(cat.id)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name={cat.icon} size={18} color={active ? '#fff' : COLORS.textSecondary} />
+                <Text style={[welcomeStyles.chipText, active && { color: '#fff' }]} numberOfLines={2}>{cat.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
+      <View style={welcomeStyles.footer}>
+        <TouchableOpacity
+          style={[welcomeStyles.continueBtn, (!selected.length || saving) && { opacity: 0.4 }]}
+          disabled={!selected.length || saving}
+          onPress={async () => { setSaving(true); await onDone(selected); setSaving(false); }}
+          activeOpacity={0.85}
+        >
+          {saving
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={welcomeStyles.continueText}>Continuar{selected.length ? ` (${selected.length})` : ''}</Text>}
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onSkip} style={{ paddingVertical: 12, alignItems: 'center' }} hitSlop={8}>
+          <Text style={welcomeStyles.skipText}>Ahora no (podés elegirlos después en Configuración)</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const welcomeStyles = StyleSheet.create({
+  title: { fontSize: 28, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.5, marginTop: 12 },
+  subtitle: { fontSize: 15, color: COLORS.textSecondary, lineHeight: 21, marginTop: 8, marginBottom: 24 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  chip: {
+    width: (SCREEN.width - 48 - 10) / 2,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 14, borderRadius: 14,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+  },
+  chipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  chipText: { flex: 1, fontSize: 13, fontWeight: '600', color: COLORS.textPrimary },
+  footer: { paddingHorizontal: 24, paddingTop: 8, borderTopWidth: 0.5, borderTopColor: COLORS.border },
+  continueBtn: { backgroundColor: COLORS.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center' },
+  continueText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  skipText: { fontSize: 13, color: COLORS.textSecondary },
+});
+
 function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
   const [tab, setTab] = useState('login');
   const [name, setName] = useState('');
