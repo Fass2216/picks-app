@@ -1341,10 +1341,16 @@ export default function App() {
       }
       setAuthChecked(true);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       setUserProfile(session?.user || null);
       setUserInterests(session?.user?.user_metadata?.interests || []);
       setAuthChecked(true);
+      // Al iniciar sesión (a mano, al crear la cuenta o al volver de confirmar
+      // el mail), si se está en la pantalla de registro/ingreso, pasar a Mis
+      // Picks: antes quedaba en el registro aunque ya estuviera adentro.
+      if (event === 'SIGNED_IN' && session?.user) {
+        setActiveTab(prev => (prev === 'auth' ? 'picks' : prev));
+      }
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
@@ -2393,14 +2399,20 @@ function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
     if (!email.trim() || !password.trim()) { setError('Completá email y contraseña'); return; }
     if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
     setLoading(true); setError('');
-    const { error: err } = await supabase.auth.signUp({
+    const { data, error: err } = await supabase.auth.signUp({
       email: email.trim(),
       password,
       options: { data: { name: name.trim() || null, interests: [] } },
     });
     setLoading(false);
     if (err) { setError(err.message); return; }
-    setSuccess('¡Cuenta creada! Revisá tu email para confirmar.');
+    // Si la cuenta queda activa enseguida, directo a Mis Picks.
+    if (data?.session) { onClose?.(); return; }
+    // Si hay que confirmar el mail: explicar el paso siguiente y dejar lista
+    // la pestaña "Ingresar" con el mail ya escrito.
+    setTab('login');
+    setPassword('');
+    setSuccess('¡Cuenta creada! Te mandamos un mail: tocá el link para confirmarla y después volvé acá e ingresá con tu email y contraseña.');
   };
 
   const handleClearMyPicks = () => {
