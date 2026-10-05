@@ -4,6 +4,8 @@ import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-spe
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
+import { useShareIntent } from 'expo-share-intent';
+import { File as FsFile } from 'expo-file-system';
 import {
   View,
   Text,
@@ -150,6 +152,8 @@ function collectionsStorageKey(uid) { return `collections-v1-${uid || 'guest'}`;
 // de separar por cuenta se queda con esa lista ("la reclama"); las cuentas
 // nuevas en el mismo celular empiezan vacías.
 const LEGACY_STORES_KEY = 'customStores-v1';
+// Redes sociales: al compartir una publicación se usa su imagen, no el link
+const SOCIAL_HOSTS = /(^|\.)(instagram\.com|instagr\.am|tiktok\.com|facebook\.com|fb\.watch|pinterest\.[a-z.]+|pin\.it|x\.com|twitter\.com|threads\.net)$/i;
 const LEGACY_STORES_CLAIMED_KEY = 'customStores-v1-claimed-by';
 function storesStorageKey(uid) { return uid ? `customStores-v1-${uid}` : LEGACY_STORES_KEY; }
 
@@ -1187,6 +1191,9 @@ export default function App() {
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Bienvenida para elegir intereses: una vez por usuario, si no tiene ninguno
   const [showWelcome, setShowWelcome] = useState(false);
+  // Lo que llega desde el menú "Compartir" del iPhone (una captura, una
+  // publicación de Instagram, el link de una tienda o un texto)
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent({ resetOnBackground: true });
   const [unreadNotifCount, setUnreadNotifCount] = useState(0); // para el contador de la campanita
   const [searchInitialQuery, setSearchInitialQuery] = useState(null); // texto libre pre-cargado desde "Mis tiendas" (modo Toda la web)
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
@@ -1395,6 +1402,60 @@ export default function App() {
       .then(seen => { if (!seen) setShowWelcome(true); })
       .catch(() => {});
   }, [userProfile?.id]);
+
+  useEffect(() => {
+    if (!hasShareIntent || !shareIntent) return;
+    const intent = shareIntent;
+    resetShareIntent();
+    handleSharedContent(intent);
+  }, [hasShareIntent]);
+
+  async function handleSharedContent(intent) {
+    const openSearchWith = (payload) => {
+      setBrowserUrl(null);
+      setCurrentBrowserUrl(null);
+      setSearchInitialQuery({ ...payload, scope: 'all', nonce: Date.now() });
+      setActiveTab('search');
+    };
+    try {
+      // 1) Una captura o foto: buscar productos parecidos
+      const file = (intent.files || []).find(f => (f.mimeType || '').startsWith('image/'));
+      if (file?.path) {
+        const base64 = await new FsFile(file.path).base64();
+        track('share_received', { type: 'image' });
+        openSearchWith({ action: 'sharedImage', image: { base64, mimeType: file.mimeType } });
+        return;
+      }
+      const url = intent.webUrl || null;
+      if (url) {
+        let host = '';
+        try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
+        // 2) Una publicación de una red social: usar su imagen principal
+        if (SOCIAL_HOSTS.test(host)) {
+          const imageUrl = intent.meta?.['og:image'] || intent.meta?.ogImage || null;
+          track('share_received', { type: 'social', host, has_image: !!imageUrl });
+          if (imageUrl) {
+            openSearchWith({ action: 'sharedImage', image: { imageUrl } });
+          } else {
+            Alert.alert('No pudimos leer la publicación', 'Probá sacando una captura de pantalla y compartiéndola con Picks.');
+          }
+          return;
+        }
+        // 3) El link de una tienda: abrir el producto dentro de Picks
+        track('share_received', { type: 'store_url', host });
+        openUrl(url);
+        return;
+      }
+      // 4) Un texto: buscarlo como producto
+      const text = (intent.text || '').trim();
+      if (text) {
+        track('share_received', { type: 'text' });
+        openSearchWith({ query: text.slice(0, 100) });
+      }
+    } catch (e) {
+      Alert.alert('No pudimos abrir lo que compartiste', 'Probá de nuevo o buscá desde Picks.');
+    }
+  }
 
   function finishWelcome() {
     setShowWelcome(false);
@@ -5812,13 +5873,22 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
 
   async function runImageSearch(pickerResult) {
     if (pickerResult.canceled || !pickerResult.assets?.[0]?.base64) return;
+    const asset = pickerResult.assets[0];
+    return runImageSearchWith({ base64: asset.base64, mimeType: asset.mimeType });
+  }
+
+  // Búsqueda por imagen desde la cámara/galería o desde "Compartir" (una
+  // captura o la imagen de una publicación de Instagram, que llega como link).
+  async function runImageSearchWith({ base64, mimeType, imageUrl, source = 'picker' }) {
+    if (!base64 && !imageUrl) return;
     setPickingImage(true);
     try {
-      const asset = pickerResult.assets[0];
       const res = await fetch(`${BACKEND_URL}/api/vision/describe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: asset.base64, media_type: asset.mimeType || 'image/jpeg' }),
+        body: JSON.stringify(base64
+          ? { image_base64: base64, media_type: mimeType || 'image/jpeg' }
+          : { image_url: imageUrl }),
       });
       const data = await res.json();
       if (!res.ok || !data.query) throw new Error(data.error || 'No se pudo reconocer la imagen');
@@ -5826,11 +5896,13 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
       setInputText(data.query);
       setQuery(data.query);
       setAiCategory(data.category || null);
+      // Si en la captura se ve la tienda (@usuario, logo) y la tenemos, va primera
+      setPriorityDomain(data.store_domain || null);
       // Con foto sabemos qué producto es: buscar solo en las tiendas de su
       // categoría (y vecinas), no en decoración o tecnología por unas championes.
       setCategoryOnly(!!data.category);
       setCompareMode(false);
-      track('image_search', { query: data.query, category: data.category || '' });
+      track('image_search', { query: data.query, category: data.category || '', source, store: data.store || '', store_domain: data.store_domain || '' });
     } catch (e) {
       Alert.alert('No pudimos reconocer la imagen', 'Probá con otra foto o buscá escribiendo el producto.');
     } finally {
@@ -5921,6 +5993,7 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
       if (onInitialQueryConsumed) onInitialQueryConsumed();
       // Atajos de cámara/micrófono del buscador de Mis tiendas
       if (initialQuery.action === 'camera') { handleImageSearchPress(); return; }
+      if (initialQuery.action === 'sharedImage') { runImageSearchWith({ ...initialQuery.image, source: 'share' }); return; }
       if (initialQuery.action === 'mic') { handleMicPress(); return; }
       setInputText(initialQuery.query || '');
       doSearch(initialQuery.query || '');
@@ -5970,6 +6043,8 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
   // la base) se mantienen al final — si no tienen el producto, el revisor de
   // "sin resultados" las termina ocultando.
   const [categoryOnly, setCategoryOnly] = useState(false);
+  // Tienda reconocida en la captura (@usuario, logo): va primera en la búsqueda
+  const [priorityDomain, setPriorityDomain] = useState(null);
   const domainCategory = {};
   dbStores.forEach(s => { if (s.domain) domainCategory[s.domain] = s.category; });
   const allowedCats = searchCategory ? [searchCategory, ...(RELATED_CATEGORIES[searchCategory] || [])] : [];
@@ -5998,6 +6073,12 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
       .sort((a, b) => a.rank - b.rank || a.i - b.i)
       .map(x => x.s);
     if (filtered.length) searchableStores = filtered;
+  }
+  if (priorityDomain && !compareMode) {
+    const known = searchableStores.find(s => s.domain === priorityDomain)
+      || dbSearchable.find(s => s.domain === priorityDomain)
+      || customSearchable.find(s => s.domain === priorityDomain);
+    if (known) searchableStores = [known, ...searchableStores.filter(s => s.domain !== priorityDomain)];
   }
 
   // Resultados: el servidor busca en todas las tiendas a la vez y devuelve
@@ -6048,6 +6129,7 @@ function SearchView({ onMessage, onAddPick, savedPicks = [], customStores = [], 
     setCompareMode(false);
     setAiCategory(null);
     setCategoryOnly(false);
+    setPriorityDomain(null);
     // Frases largas ("quiero zapatillas de running para correr 5km, livianas")
     // se interpretan con IA antes de buscar; términos cortos van directo.
     const wordCount = q.split(/\s+/).length;

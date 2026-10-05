@@ -2,7 +2,7 @@
   "expo": {
     "name": "picks-app",
     "slug": "picks-app",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "scheme": "picks",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -49,8 +49,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Picks necesita acceso a tu galería para cambiar tu foto de perfil.",
-          "cameraPermission": "Picks necesita acceso a tu cámara para tomar una foto de perfil."
+          "photosPermission": "Picks necesita acceso a tu galería para buscar productos con una foto o captura de pantalla y para cambiar tu foto de perfil.",
+          "cameraPermission": "Picks necesita acceso a tu cámara para buscar productos con una foto y para tu foto de perfil."
         }
       ],
       [
@@ -60,6 +60,20 @@
           "speechRecognitionPermission": "Picks necesita reconocimiento de voz para buscar por voz.",
           "androidSpeechServicePackages": [
             "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsImageWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1
+          },
+          "androidIntentFilters": [
+            "text/*",
+            "image/*"
           ]
         }
       ]
