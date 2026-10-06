@@ -1520,6 +1520,19 @@ export default function App() {
       // Asegurar la copia en la cuenta (por si se agregaron sin conexión o
       // venían de la lista del celular)
       if (uid) upsertRemoteStores(uid, list);
+      // Una sola vez por cuenta (o por celular sin sesión): mandar a la base
+      // comunitaria las tiendas que ya estaban en Mis tiendas desde antes de
+      // que existiera (antes solo se mandaban si se adivinaba su categoría)
+      const backfillKey = `community-backfill-v1-${uid || 'guest'}`;
+      AsyncStorage.getItem(backfillKey).then(async (done) => {
+        if (done || !list.length) return;
+        await AsyncStorage.setItem(backfillKey, '1');
+        for (const s of list) {
+          if (cancelled) return;
+          await syncCustomStoreToBackend(s);
+        }
+        track('community_backfill', { count: list.length });
+      }).catch(() => {});
     })();
     return () => { cancelled = true; };
   }, [authChecked, userProfile?.id]);
