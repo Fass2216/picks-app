@@ -353,10 +353,10 @@ const RELATED_CATEGORIES = {
   vehiculos:    ['repuestos'],
   repuestos:    ['vehiculos', 'herramientas'],
   herramientas: ['hogar', 'repuestos'],
-  hogar:        ['herramientas'],
+  hogar:        ['herramientas', 'indumentaria'], // valijas, bolsos y textiles suelen estar en tiendas de ropa/outdoor (Zenit)
   tecnologia:   ['gaming'],
   gaming:       ['tecnologia'],
-  bebes:        ['indumentaria'],
+  bebes:        ['indumentaria', 'hogar'],
   skincare:     ['salud'],
   salud:        ['skincare'],
 };
