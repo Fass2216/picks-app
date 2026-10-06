@@ -6053,7 +6053,10 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
   const dbSearchable = dbStores
     .filter(s => s.domain && (s.url || s.domain))
     .map(s => ({ ...s, url: s.url || `https://${s.domain}`, bg: s.bg || '#2C2C2C', fg: s.fg || '#FFFFFF', isCustom: true }));
-  const categoryFirst = searchCategory ? dbSearchable.filter(s => s.category === searchCategory) : [];
+  // Cada tienda puede tener varias categorías (la primera es la principal):
+  // Decathlon es deportes, calzado e indumentaria.
+  const storeCats = (s) => (Array.isArray(s.categories) && s.categories.length ? s.categories : [s.category]).filter(Boolean);
+  const categoryFirst = searchCategory ? dbSearchable.filter(s => storeCats(s).includes(searchCategory)) : [];
 
   // Búsqueda por foto: solo tiendas de la categoría del producto y de las
   // vecinas. Las tiendas sin categoría conocida (ej. una propia que no está en
@@ -6066,14 +6069,16 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
   const [recognizedStore, setRecognizedStore] = useState(null);
   // Producto exacto: el código/modelo leído en la captura, buscado en la tienda reconocida
   const [exactProducts, setExactProducts] = useState([]);
-  const domainCategory = {};
-  dbStores.forEach(s => { if (s.domain) domainCategory[s.domain] = s.category; });
+  const domainCategories = {};
+  dbStores.forEach(s => { if (s.domain) domainCategories[s.domain] = storeCats(s); });
   const allowedCats = searchCategory ? [searchCategory, ...(RELATED_CATEGORIES[searchCategory] || [])] : [];
+  // Lugar de la tienda según su mejor categoría: primero las de la categoría
+  // buscada, después las de categorías vecinas, al final las sin categoría
   const byCategoryRank = (s) => {
-    const cat = s.category || domainCategory[s.domain];
-    if (!cat) return allowedCats.length; // sin categoría: al final
-    const i = allowedCats.indexOf(cat);
-    return i === -1 ? -1 : i;
+    const cats = storeCats(s).length ? storeCats(s) : (domainCategories[s.domain] || []);
+    if (!cats.length) return allowedCats.length; // sin categoría: al final
+    const ranks = cats.map(c => allowedCats.indexOf(c)).filter(i => i !== -1);
+    return ranks.length ? Math.min(...ranks) : -1;
   };
 
   let searchableStores = compareMode
