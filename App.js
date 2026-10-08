@@ -372,6 +372,23 @@ function storeSearchUrl(store, q) {
 }
 
 
+// Cuántas letras hay que cambiar, agregar o sacar para pasar de una palabra a
+// otra ("lemmon" → "lemon" = 1). Sirve para sugerir tiendas mal escritas.
+function editDistance(a, b) {
+  if (a === b) return 0;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
 // fetch con límite de tiempo: si no responde en `ms`, se aborta y tira error.
 function fetchWithTimeout(url, ms, options = {}) {
   const controller = new AbortController();
@@ -4484,21 +4501,77 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
   // Busca una tienda por su nombre ("lemon", "tienda inglesa") en Mis
   // tiendas, las predefinidas del país y la base compartida del backend.
   // Matchea contra el nombre o contra la primera parte del dominio.
+  // Todas las tiendas que conoce Picks: las del usuario, las predefinidas y las
+  // de la base comunitaria del servidor (esta última se pide una sola vez)
+  const knownStoresCache = useRef(null);
+  async function allKnownStores() {
+    if (!knownStoresCache.current) {
+      let db = [];
+      try {
+        const res = await fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 4000);
+        const list = await res.json();
+        db = Array.isArray(list) ? list : [];
+      } catch (e) { /* sin servidor: solo las locales */ }
+      knownStoresCache.current = db;
+    }
+    return [...(customStores || []), ...countryStores, ...knownStoresCache.current];
+  }
+  const storeNorm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const storeLabel = (s) => storeNorm((s.domain || '').split('.')[0]);
+
   async function findStoreByName(raw) {
-    const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
-    const q = norm(raw);
+    const q = storeNorm(raw);
     if (!q) return null;
-    const matches = (s) => norm(s.name) === q || norm((s.domain || '').split('.')[0]) === q;
-    const local = (customStores || []).find(matches) || countryStores.find(matches);
-    if (local) return local;
+    return (await allKnownStores()).find(s => storeNorm(s.name) === q || storeLabel(s) === q) || null;
+  }
+
+  // Tienda con el nombre mal escrito ("lemmon", "adiddas"): la más parecida,
+  // con 1 letra de diferencia en nombres cortos y hasta 2 en los largos
+  async function findStoreFuzzy(raw) {
+    const q = storeNorm(raw);
+    if (q.length < 4) return null;
+    const isProductWord = Object.values(INTEREST_KEYWORDS).some(kws => kws.some(k => storeNorm(k) === q));
+    if (isProductWord) return null;
+    const tolerance = q.length <= 5 ? 1 : 2;
+    let best = null;
+    for (const s of await allKnownStores()) {
+      const d = Math.min(editDistance(q, storeNorm(s.name)), editDistance(q, storeLabel(s)));
+      if (d > 0 && d <= tolerance && (!best || d < best.d)) best = { s, d };
+    }
+    return best?.s || null;
+  }
+
+  // ¿Responde esta web? Prueba con y sin "www." y devuelve la que anda
+  async function siteResponds(url) {
     try {
-      const res = await fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 4000);
-      const list = await res.json();
-      return (Array.isArray(list) ? list : []).find(matches) || null;
+      const u = new URL(url);
+      const host = u.hostname.replace(/^www\./, '');
+      const tries = [`${u.protocol}//${host}${u.pathname}${u.search}`, `${u.protocol}//www.${host}${u.pathname}${u.search}`];
+      return await Promise.any(tries.map(t => fetchWithTimeout(t, 4000, { method: 'HEAD' }).then(r => {
+        if (r.status >= 500) throw new Error('caida');
+        return t;
+      })));
     } catch (e) {
       return null;
     }
   }
+
+  // La dirección escrita no responde ("zara.com.uy"): buscar la correcta entre
+  // las tiendas conocidas con el mismo nombre o probando otras terminaciones
+  async function findAlternativeDomain(host) {
+    const label = storeNorm(host.replace(/^www\./, '').split('.')[0]);
+    if (!label) return null;
+    const known = (await allKnownStores()).find(s => storeLabel(s) === label && s.domain !== host);
+    if (known) return { url: known.url || `https://${known.domain}`, domain: known.domain, name: known.name };
+    const cc = (country || 'UY').toLowerCase();
+    for (const d of [`${label}.com.${cc}`, `${label}.${cc}`, `${label}.com`]) {
+      if (d === host.replace(/^www\./, '')) continue;
+      const ok = await siteResponds(`https://${d}`);
+      if (ok) return { url: ok, domain: d, name: d };
+    }
+    return null;
+  }
+
 
   // Si el nombre no está en ninguna base, prueba dominios típicos del país
   // (lemon → lemon.com.uy, lemon.uy, lemon.com) y devuelve la URL del primero
@@ -4537,7 +4610,28 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
     const isDomain = !isDirectUrl && /\.[a-z]{2,}/i.test(raw) && !raw.includes(' ');
     if (isDirectUrl || isDomain) {
       track('search_url_entered', { type: isDirectUrl ? 'direct_url' : 'domain' });
-      openStoreUrl(isDirectUrl ? raw : 'https://' + raw);
+      const url = isDirectUrl ? raw : 'https://' + raw;
+      setLookingUpStore(true);
+      try {
+        const working = await siteResponds(url);
+        if (working) { openStoreUrl(working); return; }
+        // No responde: ¿escribió mal la terminación? (zara.com.uy → zara.com)
+        let host = '';
+        try { host = new URL(url).hostname; } catch (e) {}
+        const alt = host ? await findAlternativeDomain(host) : null;
+        if (alt) {
+          track('domain_suggestion', { typed: host, suggested: alt.domain });
+          Alert.alert(`¿Quisiste decir ${alt.domain}?`, `No encontramos ${host.replace(/^www\./, '')}.`, [
+            { text: `Abrir ${alt.domain}`, onPress: () => openStoreUrl(alt.url) },
+            { text: 'Abrir igual lo que escribí', onPress: () => onOpenUrl(url) },
+            { text: 'Cancelar', style: 'cancel' },
+          ]);
+          return;
+        }
+        onOpenUrl(url); // si no anda, el navegador muestra el aviso de tienda caída
+      } finally {
+        setLookingUpStore(false);
+      }
       return;
     }
 
@@ -4549,6 +4643,17 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
         if (found) {
           track('search_store_name', { query: raw.toLowerCase(), domain: found.domain, source: 'db' });
           openStoreUrl(found.url || `https://${found.domain}`, raw);
+          return;
+        }
+        // ¿Nombre de tienda mal escrito? ("lemmon" → Lemon)
+        const similar = await findStoreFuzzy(raw);
+        if (similar) {
+          track('store_name_suggestion', { typed: raw.toLowerCase(), suggested: similar.domain });
+          Alert.alert(`¿Quisiste decir ${similar.name}?`, similar.domain, [
+            { text: `Abrir ${similar.name}`, onPress: () => openStoreUrl(similar.url || `https://${similar.domain}`) },
+            { text: `Buscar "${raw}" como producto`, onPress: () => onOpenSearchWithQuery?.(raw) },
+            { text: 'Cancelar', style: 'cancel' },
+          ]);
           return;
         }
         if (!raw.includes(' ')) {
