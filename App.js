@@ -6786,13 +6786,21 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
     const storeBg = getStoreBgColor(item.store);
     return (
       <View style={[styles.reelCard, { height: reelHeight }]}>
+        {/* Fondo de punta a punta: la misma foto desenfocada y oscurecida
+            (mantiene el efecto reel, y nunca queda blanco puro) */}
         {item.img ? (
-          <Image source={{ uri: item.img }} style={styles.reelImg} resizeMode="cover" />
+          <Image source={{ uri: item.img }} style={styles.reelImg} resizeMode="cover" blurRadius={30} />
         ) : (
           <View style={[styles.reelImg, { backgroundColor: COLORS.borderSoft }]} />
         )}
+        <View style={styles.reelDim} />
 
-        {/* Sin overlay — fondo directo en el bloque de info */}
+        {/* El producto entero, sin recortar ni estirar, en una tarjeta arriba */}
+        {!!item.img && (
+          <View style={[styles.reelProductBox, { height: Math.max(200, reelHeight - REEL_TOP_SPACE - REEL_BOTTOM_SPACE) }]}>
+            <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+          </View>
+        )}
 
         {/* Info abajo a la izquierda */}
         <View style={styles.reelInfo}>
@@ -6834,7 +6842,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
             onPress={() => !picked && onAddPick(item)}
             activeOpacity={0.7}
           >
-            <Ionicons name={picked ? 'heart' : 'heart-outline'} size={32} color={picked ? COLORS.accent : '#fff'} />
+            <View style={styles.reelActionCircle}>
+              <Ionicons name={picked ? 'heart' : 'heart-outline'} size={26} color={picked ? COLORS.accent : '#fff'} />
+            </View>
             <Text style={styles.reelActionLabel}>{picked ? 'Guardado' : 'Guardar'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -6842,7 +6852,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
             onPress={() => item.url && onOpenUrl(item.url)}
             activeOpacity={0.7}
           >
-            <Ionicons name="open-outline" size={28} color="#fff" />
+            <View style={styles.reelActionCircle}>
+              <Ionicons name="open-outline" size={23} color="#fff" />
+            </View>
             <Text style={styles.reelActionLabel}>Abrir</Text>
           </TouchableOpacity>
         </View>
@@ -7253,6 +7265,11 @@ function Tab({ label, iconName, iconActive, isActive, onPress, badge, tourId }) 
   );
 }
  
+// Reels: espacio arriba (logo y chips) y abajo (info + barra de pestañas)
+// alrededor de la tarjeta del producto
+const REEL_TOP_SPACE = 100;
+const REEL_BOTTOM_SPACE = 330;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   appBackgroundImg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
@@ -7611,6 +7628,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     width: '100%', height: '100%',
+  },
+  // Velo oscuro sobre el fondo desenfocado: los textos y botones blancos se
+  // ven aunque la foto sea blanca
+  reelDim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.38)' },
+  reelProductBox: {
+    position: 'absolute', top: REEL_TOP_SPACE, left: 20, right: 20,
+    backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', padding: 10,
+    shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 8,
+  },
+  reelActionCircle: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
   reelGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 0 },
   reelGradientTop: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 0 },
