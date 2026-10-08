@@ -4157,6 +4157,15 @@ const profileStyles = StyleSheet.create({
 });
 
 
+// Tono suave del color de la marca (mezcla con blanco) para el recuadro del logo
+function brandTint(hex, white = 0.84) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return '#F4F2EF';
+  const n = parseInt(m[1], 16);
+  const ch = (v) => Math.round(v + (255 - v) * white).toString(16).padStart(2, '0');
+  return '#' + ch((n >> 16) & 255) + ch((n >> 8) & 255) + ch(n & 255);
+}
+
 // Alturas variables para el efecto masonry (estilo Pinterest)
 const MASONRY_HEIGHTS = [128, 150, 138, 118, 146, 132, 122, 156];
 
@@ -4230,7 +4239,7 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
         ) : null}
 
         <View style={styles.masonryLogoArea}>
-          <View style={styles.masonryLogoBadge}>
+          <View style={[styles.masonryLogoBadge, { backgroundColor: brandTint(store.bg) }]}>
             {logoIdx < logoUrls.length ? (
               <Image
                 source={{ uri: logoUrls[logoIdx] }}
@@ -7379,7 +7388,8 @@ const styles = StyleSheet.create({
     maxWidth: 132,
     height: 64,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 12,
