@@ -3863,9 +3863,13 @@ function NotificationBell({ count = 0, onPress, color }) {
   );
 }
 
+// Acepta la fecha como número (milisegundos) o como texto ISO, que es como
+// llegan las notificaciones de Supabase (antes daba "hace NaNd")
 function timeAgo(ts) {
   if (!ts) return '';
-  const diffMs = Date.now() - ts;
+  const t = typeof ts === 'number' ? ts : Date.parse(ts);
+  if (!Number.isFinite(t)) return '';
+  const diffMs = Date.now() - t;
   const min = Math.floor(diffMs / 60000);
   if (min < 1) return 'ahora';
   if (min < 60) return `hace ${min}m`;
