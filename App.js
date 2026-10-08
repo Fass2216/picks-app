@@ -33,7 +33,7 @@ import {
   Modal,
   Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, SafeAreaProvider, initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -1168,7 +1168,19 @@ function MainTabsPager({ activeTab, onChangeTab, screens }) {
   );
 }
 
+// Las medidas de la zona de la hora/batería se cargan desde el arranque
+// (initialWindowMetrics): si cada pantalla las mide por su cuenta, al abrir la
+// app en frío a veces llegaban en 0 y "Picks" quedaba debajo de la hora.
 export default function App() {
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState('home');
   const [browserUrl, setBrowserUrl] = useState(null);
   const [picks, setPicks] = useState([]);
@@ -2040,9 +2052,12 @@ export default function App() {
           pointerEvents="none"
         />
       )}
-      <SafeAreaView
-        style={[styles.container, !!appBackground && { backgroundColor: 'transparent' }]}
-        edges={['top', 'left', 'right']}
+      <View
+        style={[
+          styles.container,
+          !!appBackground && { backgroundColor: 'transparent' },
+          { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+        ]}
       >
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
  
@@ -2478,7 +2493,7 @@ export default function App() {
           onSkip={tourFinish}
         />
       )}
-    </SafeAreaView>
+    </View>
     </TourContext.Provider>
   );
 }
