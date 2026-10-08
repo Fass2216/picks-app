@@ -4965,6 +4965,25 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
           canGoBackRef.current = state.canGoBack;
           if (onUrlChange) onUrlChange(state.url);
         }}
+        // Si la web de la tienda no carga (caída, certificado roto, sin
+        // conexión): un aviso claro en vez del error técnico en inglés
+        renderError={() => (
+          <View style={styles.browserErrorBox}>
+            <Ionicons name="cloud-offline-outline" size={44} color={COLORS.border} />
+            <Text style={styles.browserErrorTitle}>No pudimos abrir esta tienda</Text>
+            <Text style={styles.browserErrorText}>
+              Puede que su web esté caída o con problemas en este momento. Probá de nuevo en un rato.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <TouchableOpacity style={styles.browserErrorBtn} onPress={() => webRef.current?.reload()} activeOpacity={0.8}>
+                <Text style={styles.browserErrorBtnText}>Reintentar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.browserErrorBtn, { backgroundColor: COLORS.accent, borderColor: COLORS.accent }]} onPress={onClose} activeOpacity={0.8}>
+                <Text style={[styles.browserErrorBtnText, { color: '#fff' }]}>Volver</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
         onError={(e) => {
           // Algunas tiendas tienen el certificado solo para "www." (ej.
           // adidas.com.uy falla, www.adidas.com.uy anda) o al revés: si la
@@ -6145,6 +6164,8 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState(false);
   const [unreadableDomains, setUnreadableDomains] = useState([]);
+  // "¿Quisiste decir…?": corrección cuando la búsqueda trae pocos resultados
+  const [didYouMean, setDidYouMean] = useState(null);
   const searchSeq = useRef(0);
   const storesKey = searchableStores.slice(0, 40).map(s => s.domain).join(',');
 
@@ -6155,6 +6176,7 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
     setProductsError(false);
     setProducts([]);
     setUnreadableDomains([]);
+    setDidYouMean(null);
     fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -6169,6 +6191,17 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
         setProducts(Array.isArray(data.results) ? data.results : []);
         setUnreadableDomains([...(data.unsupported || []), ...(data.slow || [])]);
         track('product_search_results', { query, count: (data.results || []).length });
+        // Pocos resultados: puede estar mal escrito ("zapatiyas", "adiddas")
+        if ((data.results || []).length < 3) {
+          fetchWithTimeout(`${BACKEND_URL}/api/search/spellcheck`, 8000, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ q: query }),
+          })
+            .then(r => r.json())
+            .then(j => { if (seq === searchSeq.current && j.suggestion) setDidYouMean(j.suggestion); })
+            .catch(() => {});
+        }
       })
       .catch(() => { if (seq === searchSeq.current) setProductsError(true); })
       .finally(() => { if (seq === searchSeq.current) setProductsLoading(false); });
@@ -6296,6 +6329,23 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
                 ))}
               </ScrollView>
             </View>
+          )}
+          {!!didYouMean && (
+            <TouchableOpacity
+              style={styles.didYouMean}
+              activeOpacity={0.8}
+              onPress={() => {
+                const fixed = didYouMean;
+                track('did_you_mean_used', { from: query, to: fixed });
+                setInputText(fixed);
+                doSearch(fixed);
+              }}
+            >
+              <Ionicons name="sparkles-outline" size={16} color={COLORS.accent} />
+              <Text style={styles.didYouMeanText}>
+                ¿Quisiste decir <Text style={styles.didYouMeanWord}>{didYouMean}</Text>?
+              </Text>
+            </TouchableOpacity>
           )}
           {!!recognizedStore && !compareMode && (() => {
             const inMyStores = customStores.some(s => s.domain === recognizedStore.domain)
@@ -7285,6 +7335,18 @@ const styles = StyleSheet.create({
   picksGridContent: { paddingBottom: 30 },
   picksGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   searchSectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, marginBottom: 10 },
+  didYouMean: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 16, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
+    backgroundColor: COLORS.accentLight,
+  },
+  didYouMeanText: { fontSize: 14, color: COLORS.textPrimary },
+  didYouMeanWord: { fontWeight: '700', color: COLORS.accent },
+  browserErrorBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: COLORS.background },
+  browserErrorTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary, marginTop: 12, textAlign: 'center' },
+  browserErrorText: { fontSize: 14, color: COLORS.textSecondary, marginTop: 6, textAlign: 'center', lineHeight: 20 },
+  browserErrorBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  browserErrorBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
   recognizedStoreCard: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginHorizontal: 16, marginTop: 10, padding: 12, borderRadius: 14,
