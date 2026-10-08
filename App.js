@@ -4158,10 +4158,13 @@ const profileStyles = StyleSheet.create({
 
 
 // Alturas variables para el efecto masonry (estilo Pinterest)
-const MASONRY_HEIGHTS = [165, 195, 180, 150, 190, 170, 155, 205];
+const MASONRY_HEIGHTS = [128, 150, 138, 118, 146, 132, 122, 156];
 
 function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height = 200 }) {
   const [logoIdx, setLogoIdx] = useState(0);
+  // Logos de baja resolución (favicons de 32-64px) se muestran más chicos
+  // para que no se pixelen al estirarlos
+  const [logoSmall, setLogoSmall] = useState(false);
   const [bgFailed, setBgFailed] = useState(false);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -4224,23 +4227,25 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
             />
             <View style={[styles.masonryBgScrim, { backgroundColor: store.bg + 'B3' }]} />
           </>
-        ) : (
-          <Text style={[styles.masonryWatermark, { color: store.fg }]} numberOfLines={1}>
-            {store.short}
-          </Text>
-        )}
+        ) : null}
 
-        <View style={styles.masonryLogoBadge}>
-          {logoIdx < logoUrls.length ? (
-            <Image
-              source={{ uri: logoUrls[logoIdx] }}
-              style={styles.masonryLogoImg}
-              resizeMode="contain"
-              onError={() => setLogoIdx(prev => prev + 1)}
-            />
-          ) : (
-            <Text style={[styles.masonryLogoInitials, { color: store.fg }]}>{store.short}</Text>
-          )}
+        <View style={styles.masonryLogoArea}>
+          <View style={styles.masonryLogoBadge}>
+            {logoIdx < logoUrls.length ? (
+              <Image
+                source={{ uri: logoUrls[logoIdx] }}
+                style={logoSmall ? styles.masonryLogoImgSmall : styles.masonryLogoImg}
+                resizeMode="contain"
+                onLoad={(e) => {
+                  const w = e?.nativeEvent?.source?.width;
+                  setLogoSmall(!!w && w < 100);
+                }}
+                onError={() => setLogoIdx(prev => prev + 1)}
+              />
+            ) : (
+              <Text style={[styles.masonryLogoInitials, { color: store.bg }]} numberOfLines={1}>{store.short}</Text>
+            )}
+          </View>
         </View>
 
         <View style={styles.masonryCaptionScrim} />
@@ -7362,56 +7367,57 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
   },
-  masonryWatermark: {
+  masonryLogoArea: {
     position: 'absolute',
-    right: -10,
-    bottom: 22,
-    fontSize: 58,
-    fontWeight: '800',
-    letterSpacing: -1.5,
-    opacity: 0.16,
-    transform: [{ rotate: '-6deg' }],
+    top: 0, left: 0, right: 0, bottom: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
   },
   masonryLogoBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: '78%',
+    maxWidth: 132,
+    height: 64,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.16,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 3,
   },
   masonryLogoImg: {
     width: '100%',
     height: '100%',
   },
+  masonryLogoImgSmall: {
+    width: 32,
+    height: 32,
+  },
   masonryLogoInitials: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
   masonryCaptionScrim: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
-    height: '52%',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    height: 40,
+    backgroundColor: 'rgba(0,0,0,0.28)',
   },
   masonryCaption: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
+    height: 40,
+    justifyContent: 'center',
     paddingHorizontal: 10,
-    paddingBottom: 10,
-    paddingTop: 6,
   },
   masonryCaptionName: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#fff',
     textShadowColor: 'rgba(0,0,0,0.35)',
@@ -7419,7 +7425,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   masonryCaptionDomain: {
-    fontSize: 10,
+    fontSize: 9.5,
     color: 'rgba(255,255,255,0.82)',
     marginTop: 1,
   },
