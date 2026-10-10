@@ -605,13 +605,33 @@ const INJECTED_JS = `
   // Picks" (que compara por img) bloquea todo despues del primero. Por eso
   // acá leemos el atributo "real" (data-srcset/data-src/etc.) SIEMPRE que
   // exista, sin depender de que ya se haya copiado a .src.
+  // Una URL de foto usable. Algunas páginas dejan atributos a medio armar
+  // (data-src="http", "null", "#"): resueltos contra la página daban links
+  // rotos como "https://clasiautos.uy/http" y el Pick quedaba sin foto.
+  function usableImgUrl(u) {
+    if (!u) return '';
+    var t = String(u).trim();
+    var low = t.toLowerCase();
+    if (!t || low === 'http' || low === 'https' || low === 'http:' || low === 'https:' || low === 'null' || low === 'undefined' || t.charAt(0) === '#') return '';
+    if (low.indexOf('data:') === 0) return t;
+    try {
+      var abs = new URL(t, window.location.href);
+      var path = abs.pathname.toLowerCase();
+      if (path.length <= 1 || path === '/http' || path === '/https' || path === '/http:' || path === '/https:') return '';
+      return abs.href;
+    } catch (e) { return ''; }
+  }
+
   function getLazyRealSrc(img) {
-    var real = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || img.getAttribute('data-image');
-    if (real) return real;
+    var attrs = ['data-src', 'data-lazy-src', 'data-original', 'data-image'];
+    for (var a = 0; a < attrs.length; a++) {
+      var real = usableImgUrl(img.getAttribute(attrs[a]));
+      if (real) return real;
+    }
     var srcset = img.getAttribute('data-srcset');
     if (srcset) {
       var firstEntry = srcset.split(',')[0];
-      var firstUrl = firstEntry ? firstEntry.trim().split(/\\s+/)[0] : '';
+      var firstUrl = usableImgUrl(firstEntry ? firstEntry.trim().split(' ')[0] : '');
       if (firstUrl) return firstUrl;
     }
     return '';
@@ -620,7 +640,7 @@ const INJECTED_JS = `
   function getImageSrc(img) {
     var lazyReal = getLazyRealSrc(img);
     if (lazyReal) return lazyReal;
-    return img.src || img.currentSrc || img.dataset.src || img.dataset.lazySrc || img.getAttribute('data-original') || img.getAttribute('data-image') || '';
+    return usableImgUrl(img.src) || usableImgUrl(img.currentSrc) || usableImgUrl(img.dataset.src) || usableImgUrl(img.dataset.lazySrc) || '';
   }
  
   function isValidImage(img) {
