@@ -6748,6 +6748,15 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
                         style={styles.pickCard}
                         activeOpacity={0.85}
                         onPress={() => onOpenUrl?.(p.url, 'Buscar')}
+                        // Mantener apretado guarda en Mis Picks (como en la web de
+                        // una tienda), sin tener que entrar primero a la tienda
+                        onLongPress={() => {
+                          Vibration.vibrate(40);
+                          if (saved) return;
+                          onAddPick?.({ title: p.title, img: p.img, link: p.url, price: p.priceText });
+                          track('search_result_saved', { store: p.store, domain: p.domain, via: 'long_press' });
+                        }}
+                        delayLongPress={350}
                       >
                         <View style={styles.pickImgWrap}>
                           <ResultImage uri={p.img} />
