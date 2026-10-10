@@ -4610,16 +4610,18 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
   // de la base comunitaria del servidor (esta última se pide una sola vez)
   const knownStoresCache = useRef(null);
   async function allKnownStores() {
+    // Solo se guarda una lista que llegó bien. Antes, si el servidor estaba
+    // dormido (Render tarda en despertar) la lista vacía quedaba guardada
+    // hasta cerrar la app: ninguna tienda se reconocía por su nombre y todo
+    // se buscaba directo como producto, sin el "¿Agregar esta tienda?".
     if (!knownStoresCache.current) {
-      let db = [];
       try {
-        const res = await fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 4000);
+        const res = await fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 10000);
         const list = await res.json();
-        db = Array.isArray(list) ? list : [];
-      } catch (e) { /* sin servidor: solo las locales */ }
-      knownStoresCache.current = db;
+        if (Array.isArray(list) && list.length) knownStoresCache.current = list;
+      } catch (e) { /* sin servidor: solo las locales, se reintenta la próxima */ }
     }
-    return [...(customStores || []), ...countryStores, ...knownStoresCache.current];
+    return [...(customStores || []), ...countryStores, ...(knownStoresCache.current || [])];
   }
   const storeNorm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
   const storeLabel = (s) => storeNorm((s.domain || '').split('.')[0]);
