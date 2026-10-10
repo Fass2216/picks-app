@@ -452,6 +452,42 @@ function getStoreDisplayName(domain) {
   return brand.charAt(0).toUpperCase() + brand.slice(1);
 }
  
+// Nombre de una tienda al agregarla a Mis tiendas. Antes se tomaba la
+// primera parte del título de la página: en la portada anda ("Columbia |
+// Tienda oficial"), pero desde un producto o una búsqueda el título empieza
+// con eso ("Pantalón Silver Ridge | Columbia") y la tienda quedaba con el
+// nombre del producto. Orden: tienda conocida → la parte del título (o el
+// og:site_name) que coincide con el dominio → og:site_name → el dominio.
+const storeNameNorm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+function storeNameMatchesDomain(name, domain) {
+  const n = storeNameNorm(name);
+  const label = storeNameNorm(getRegisteredDomain(domain || '').split('.')[0]);
+  return !!n && !!label && (n.includes(label) || label.includes(n));
+}
+function knownStoreName(domain) {
+  const reg = getRegisteredDomain(domain || '');
+  for (const list of Object.values(STORES_BY_COUNTRY)) {
+    const hit = list.find(st => st.domain === reg);
+    if (hit) return hit.name;
+  }
+  return null;
+}
+function storeNameFor(domain, title = '', siteName = '') {
+  const reg = getRegisteredDomain(domain || '');
+  const label = reg.split('.')[0];
+  const known = knownStoreName(reg);
+  if (known) return known;
+  const parts = [siteName, ...String(title).split(/\s+[|·\-–—:]\s+|\s*[|·]\s*/)]
+    .map(t => (t || '').trim())
+    .filter(t => t.length >= 2 && t.length <= 40);
+  const hit = parts.find(t => storeNameMatchesDomain(t, reg));
+  // Largos ("Columbia Sportswear Uruguay"): cortar en una palabra entera
+  if (hit) return hit.length <= 25 ? hit : (hit.slice(0, 26).replace(/\s+\S*$/, '') || hit.slice(0, 25));
+  const site = (siteName || '').trim();
+  if (site.length >= 2 && site.length <= 25 && !/^(inicio|home|tienda|shop|store)$/i.test(site)) return site;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 const INJECTED_JS = `
 (function() {
   if (window.__picksInjected) return;
@@ -1083,7 +1119,8 @@ const INJECTED_JS = `
   function sendTitle() {
     try {
       if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'pageTitle', title: (document.title || '').slice(0, 60) }));
+        var siteMeta = document.querySelector('meta[property="og:site_name"]') || document.querySelector('meta[name="application-name"]');
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'pageTitle', title: (document.title || '').slice(0, 80), siteName: siteMeta ? (siteMeta.getAttribute('content') || '').slice(0, 40) : '' }));
       }
     } catch (e) {}
   }
@@ -1232,6 +1269,7 @@ function AppContent() {
   const [toast, setToast] = useState('');
   const [customStores, setCustomStores] = useState([]);
   const [currentPageTitle, setCurrentPageTitle] = useState('');
+  const [currentSiteName, setCurrentSiteName] = useState('');
   const [currentBrowserUrl, setCurrentBrowserUrl] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -1570,7 +1608,31 @@ function AppContent() {
       } catch (e) {}
       if (cancelled) return;
       list = Array.isArray(list) ? list : [];
+      // Tiendas que quedaron con el nombre de un producto (ver storeNameFor):
+      // si el nombre no tiene nada que ver con el dominio, se corrige.
+      list = list.map(st => (st && st.domain && !storeNameMatchesDomain(st.name, st.domain)
+        ? { ...st, name: storeNameFor(st.domain), short: getInitials(storeNameFor(st.domain)) }
+        : st));
       setCustomStores(list);
+      // Nombres en minúscula copiados del dominio ("lemon", "adidas"): se
+      // reemplazan por el nombre de la base de tiendas ("Lemon", "Adidas")
+      // cuando la base lo tiene bien escrito.
+      if (list.some(st => st && st.name && st.name === st.name.toLowerCase())) {
+        fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 6000)
+          .then(r => r.json())
+          .then(base => {
+            if (cancelled || !Array.isArray(base)) return;
+            const byDomain = {};
+            base.forEach(b => { if (b && b.domain && b.name) byDomain[b.domain] = b.name; });
+            setCustomStores(prev => prev.map(st => {
+              const better = st && byDomain[st.domain];
+              if (!better || st.name !== st.name.toLowerCase() || better === better.toLowerCase()) return st;
+              if (!storeNameMatchesDomain(better, st.domain)) return st;
+              return { ...st, name: better.slice(0, 25), short: getInitials(better) };
+            }));
+          })
+          .catch(() => {});
+      }
       activeStoresKeyRef.current = key;
       AsyncStorage.setItem(key, JSON.stringify(list)).catch(() => {});
       // Asegurar la copia en la cuenta (por si se agregaron sin conexión o
@@ -1746,8 +1808,7 @@ function AppContent() {
       return;
     }
     // No está en ninguna → agregar como custom
-    const titleSource = currentPageTitle || reg.split('.')[0];
-    const cleanName = titleSource.split(/[|·\-–—]/)[0].trim().slice(0, 25) || reg.split('.')[0];
+    const cleanName = storeNameFor(reg, currentPageTitle, currentSiteName);
     addCustomStore({ domain: reg, name: cleanName, url: url.split('#')[0] });
   }
 
@@ -1756,7 +1817,7 @@ function AppContent() {
   function onAddCustomStoreByDomain(domain, url) {
     if (!domain) return;
     if (customStores.some(s => s.domain === domain)) return;
-    addCustomStore({ domain, name: domain.split('.')[0], url });
+    addCustomStore({ domain, name: storeNameFor(domain), url });
   }
 
   // Intenta inferir a qué categoría de interés pertenece una tienda a partir
@@ -2082,6 +2143,7 @@ function AppContent() {
         });
       } else if (msg.type === 'pageTitle') {
         if (msg.title) setCurrentPageTitle(msg.title);
+        setCurrentSiteName(msg.siteName || '');
       }
     } catch (e) {}
   }
