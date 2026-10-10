@@ -1615,23 +1615,40 @@ function AppContent() {
         : st));
       setCustomStores(list);
       // Nombres en minúscula copiados del dominio ("lemon", "adidas"): se
-      // reemplazan por el nombre de la base de tiendas ("Lemon", "Adidas")
-      // cuando la base lo tiene bien escrito.
-      if (list.some(st => st && st.name && st.name === st.name.toLowerCase())) {
-        fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 6000)
+      // reemplazan por el nombre de la base de tiendas ("Lemon", "Adidas"),
+      // que el servidor saca de la web de cada tienda. Recién despierto el
+      // servidor puede no haberlos corregido todavía: se reintenta un rato
+      // después.
+      const fixNamesFromBase = () => {
+        if (cancelled) return;
+        fetchWithTimeout(`${BACKEND_URL}/api/stores?country=${country || 'UY'}`, 8000)
           .then(r => r.json())
           .then(base => {
             if (cancelled || !Array.isArray(base)) return;
             const byDomain = {};
             base.forEach(b => { if (b && b.domain && b.name) byDomain[b.domain] = b.name; });
-            setCustomStores(prev => prev.map(st => {
-              const better = st && byDomain[st.domain];
-              if (!better || st.name !== st.name.toLowerCase() || better === better.toLowerCase()) return st;
-              if (!storeNameMatchesDomain(better, st.domain)) return st;
-              return { ...st, name: better.slice(0, 25), short: getInitials(better) };
-            }));
+            setCustomStores(prev => {
+              const changed = [];
+              const next = prev.map(st => {
+                if (!st || !st.name || st.name !== st.name.toLowerCase()) return st;
+                // Sin datos en la base (ej. milgenial): el nombre con mayúscula
+                const better = byDomain[st.domain] || (storeNameNorm(st.name) === storeNameNorm(st.domain.split('.')[0])
+                  ? st.name.charAt(0).toUpperCase() + st.name.slice(1) : null);
+                if (!better || better === better.toLowerCase()) return st;
+                if (!storeNameMatchesDomain(better, st.domain)) return st;
+                const fixed = { ...st, name: better.slice(0, 25), short: getInitials(better) };
+                changed.push(fixed);
+                return fixed;
+              });
+              if (changed.length && uid) upsertRemoteStores(uid, changed);
+              return changed.length ? next : prev;
+            });
           })
           .catch(() => {});
+      };
+      if (list.some(st => st && st.name && st.name === st.name.toLowerCase())) {
+        fixNamesFromBase();
+        setTimeout(fixNamesFromBase, 30000);
       }
       activeStoresKeyRef.current = key;
       AsyncStorage.setItem(key, JSON.stringify(list)).catch(() => {});
@@ -4545,11 +4562,10 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
     );
   }
  
-  // Filtro en vivo de "Mis tiendas" por nombre (no navega a ningún lado, solo
-  // acota la grilla de abajo — es la forma de "buscar en tus tiendas").
-  const filteredCustomStores = (customStores || []).filter(s =>
-    !input.trim() || s.name.toLowerCase().includes(input.trim().toLowerCase())
-  );
+  // La grilla muestra siempre todas las tiendas: lo que se escribe es para
+  // buscar productos (antes filtraba las tiendas por nombre letra a letra y
+  // parecía que desaparecían).
+  const filteredCustomStores = customStores || [];
 
   // Al cambiar entre Mis tiendas / Toda la web se mantiene lo escrito, para
   // poder repetir la misma búsqueda en el otro modo sin volver a tipearla.
