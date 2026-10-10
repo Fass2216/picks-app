@@ -2192,6 +2192,10 @@ function AppContent() {
             <SearchView
               onMessage={handleWebMessage}
               onAddPick={addPick}
+              // Guardar desde los resultados con la animación de "bajar a Mis
+              // Picks" (flyToPicks suma el alto de la barra del navegador:
+              // acá las coordenadas ya son de pantalla)
+              onFlyPick={(x, y, data) => flyToPicks(x, y - URL_BAR_OFFSET, data.img, data)}
               onAddStore={(store) => addCustomStore(store)}
               savedPicks={picks}
               customStores={customStores}
@@ -6128,7 +6132,7 @@ function ResultImage({ uri }) {
   );
 }
 
-function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
+function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [pickingImage, setPickingImage] = useState(false);
@@ -6750,10 +6754,13 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
                         onPress={() => onOpenUrl?.(p.url, 'Buscar')}
                         // Mantener apretado guarda en Mis Picks (como en la web de
                         // una tienda), sin tener que entrar primero a la tienda
-                        onLongPress={() => {
+                        onLongPress={(e) => {
                           Vibration.vibrate(40);
                           if (saved) return;
-                          onAddPick?.({ title: p.title, img: p.img, link: p.url, price: p.priceText });
+                          const data = { title: p.title, img: p.img, link: p.url, price: p.priceText };
+                          const { pageX, pageY } = e?.nativeEvent || {};
+                          if (onFlyPick && p.img && pageX != null) onFlyPick(pageX, pageY, data);
+                          else onAddPick?.(data);
                           track('search_result_saved', { store: p.store, domain: p.domain, via: 'long_press' });
                         }}
                         delayLongPress={350}
@@ -6769,9 +6776,12 @@ function SearchView({ onMessage, onAddPick, onAddStore, savedPicks = [], customS
                           </View>
                           <TouchableOpacity
                             style={styles.shareBtn}
-                            onPress={() => {
+                            onPress={(e) => {
                               if (saved) return;
-                              onAddPick?.({ title: p.title, img: p.img, link: p.url, price: p.priceText });
+                              const data = { title: p.title, img: p.img, link: p.url, price: p.priceText };
+                              const { pageX, pageY } = e?.nativeEvent || {};
+                              if (onFlyPick && p.img && pageX != null) onFlyPick(pageX, pageY, data);
+                              else onAddPick?.(data);
                               track('search_result_saved', { store: p.store, domain: p.domain });
                             }}
                             hitSlop={8}
