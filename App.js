@@ -4752,8 +4752,40 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
           openStoreUrl(found.url || `https://${found.domain}`, raw);
           return;
         }
-        // ¿Nombre de tienda mal escrito? ("lemmon" → Lemon)
-        const similar = await findStoreFuzzy(raw);
+        // Se prueban a la vez: ¿hay una tienda parecida en la base ("lemmon" →
+        // Lemon)? y ¿existe una web con ese nombre exacto (peekaboo.com.uy)?
+        // Antes el parecido ganaba siempre: "peekaboo" sugería Peekabo
+        // (peekabo.com) aunque peekaboo.com.uy existiera.
+        // Una palabra ("febo") o dos que no son de producto ("under armour").
+        const words = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/);
+        const productWord = words.some(w => Object.values(INTEREST_KEYWORDS).some(kws => kws.includes(w)));
+        const canGuess = words.length === 1 || (words.length === 2 && !productWord);
+        const [similar, guessed] = await Promise.all([
+          findStoreFuzzy(raw),
+          canGuess ? guessStoreDomain(raw) : Promise.resolve(null),
+        ]);
+        let guessedHost = '';
+        try { guessedHost = guessed ? getRegisteredDomain(new URL(guessed).hostname.replace(/^www\./, '')) : ''; } catch (e) {}
+        const cc = (country || 'UY').toLowerCase();
+        const guessedIsLocal = !!guessedHost && (guessedHost.endsWith(`.${cc}`));
+        // 1) Web exacta del país (.com.uy / .uy): es casi seguro la que buscaba
+        if (guessed && (guessedIsLocal || !similar)) {
+          track('search_store_name', { query: raw.toLowerCase(), domain: guessedHost, source: 'guess' });
+          openStoreUrl(guessed, raw);
+          return;
+        }
+        // 2) Una parecida en la base y además una web exacta (.com): las dos
+        if (guessed && similar) {
+          track('store_name_suggestion', { typed: raw.toLowerCase(), suggested: similar.domain, guessed: guessedHost });
+          Alert.alert('¿Cuál buscabas?', `Encontramos dos tiendas parecidas a "${raw}".`, [
+            { text: `Abrir ${guessedHost}`, onPress: () => openStoreUrl(guessed) },
+            { text: `Abrir ${similar.name} (${similar.domain})`, onPress: () => openStoreUrl(similar.url || `https://${similar.domain}`) },
+            { text: `Buscar "${raw}" como producto`, onPress: () => onOpenSearchWithQuery?.(raw) },
+            { text: 'Cancelar', style: 'cancel' },
+          ]);
+          return;
+        }
+        // 3) Solo una parecida: nombre mal escrito ("lemmon" → Lemon)
         if (similar) {
           track('store_name_suggestion', { typed: raw.toLowerCase(), suggested: similar.domain });
           Alert.alert(`¿Quisiste decir ${similar.name}?`, similar.domain, [
@@ -4762,19 +4794,6 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
             { text: 'Cancelar', style: 'cancel' },
           ]);
           return;
-        }
-        // Una palabra ("febo") o dos que no son de producto ("under armour"
-        // → underarmour.uy); antes con espacio no se probaba y "under armour"
-        // se buscaba directo como producto.
-        const words = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/);
-        const productWord = words.some(w => Object.values(INTEREST_KEYWORDS).some(kws => kws.includes(w)));
-        if (words.length === 1 || (words.length === 2 && !productWord)) {
-          const guessed = await guessStoreDomain(raw);
-          if (guessed) {
-            track('search_store_name', { query: raw.toLowerCase(), domain: guessed, source: 'guess' });
-            openStoreUrl(guessed, raw);
-            return;
-          }
         }
       } finally {
         setLookingUpStore(false);
