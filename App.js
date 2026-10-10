@@ -4763,7 +4763,12 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
           ]);
           return;
         }
-        if (!raw.includes(' ')) {
+        // Una palabra ("febo") o dos que no son de producto ("under armour"
+        // → underarmour.uy); antes con espacio no se probaba y "under armour"
+        // se buscaba directo como producto.
+        const words = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/);
+        const productWord = words.some(w => Object.values(INTEREST_KEYWORDS).some(kws => kws.includes(w)));
+        if (words.length === 1 || (words.length === 2 && !productWord)) {
           const guessed = await guessStoreDomain(raw);
           if (guessed) {
             track('search_store_name', { query: raw.toLowerCase(), domain: guessed, source: 'guess' });
