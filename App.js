@@ -4623,6 +4623,7 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
     }
     return [...(customStores || []), ...countryStores, ...(knownStoresCache.current || [])];
   }
+  const storeTextNorm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const storeNorm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
   const storeLabel = (s) => storeNorm((s.domain || '').split('.')[0]);
 
@@ -4643,9 +4644,40 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
     let best = null;
     for (const s of await allKnownStores()) {
       const d = Math.min(editDistance(q, storeNorm(s.name)), editDistance(q, storeLabel(s)));
-      if (d > 0 && d <= tolerance && (!best || d < best.d)) best = { s, d };
+      if (d <= 0 || d > tolerance) continue;
+      // A igual parecido, gana la de una categoría de "Mis intereses" (idea
+      // de Agus: con Bebés activado, "peekaboo" se asocia a la de bebés)
+      const score = d - (storeMatchesInterests(s) ? 0.5 : 0);
+      if (!best || score < best.score) best = { s, score };
     }
     return best?.s || null;
+  }
+
+  // ¿La tienda es de alguna categoría de "Mis intereses"?
+  function storeMatchesInterests(s) {
+    if (!s || !userInterests.length) return false;
+    const cats = [...(Array.isArray(s.categories) ? s.categories : []), s.category].filter(Boolean);
+    return cats.some(c => userInterests.includes(c));
+  }
+
+  // ¿La web habla de algo de "Mis intereses"? Para una tienda que no está en
+  // la base (no tiene categoría): se mira el título y la descripción de su
+  // portada ("juguetes… bebés y niños" → Bebés).
+  async function siteMatchesInterests(url) {
+    if (!userInterests.length) return false;
+    try {
+      const res = await fetchWithTimeout(url, 5000);
+      const html = (await res.text()).slice(0, 60000);
+      const pick = (re) => (html.match(re) || [])[1] || '';
+      const text = storeTextNorm([
+        pick(/<title[^>]*>([^<]+)<\/title>/i),
+        pick(/name=["']description["'][^>]*content=["']([^"']+)/i),
+        pick(/property=["']og:description["'][^>]*content=["']([^"']+)/i),
+      ].join(' '));
+      return userInterests.some(cat => (INTEREST_KEYWORDS[cat] || []).some(k => text.includes(storeTextNorm(k))));
+    } catch (e) {
+      return false;
+    }
   }
 
   // ¿Responde esta web? Prueba con y sin "www." y devuelve la que anda
@@ -4768,8 +4800,14 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
         try { guessedHost = guessed ? getRegisteredDomain(new URL(guessed).hostname.replace(/^www\./, '')) : ''; } catch (e) {}
         const cc = (country || 'UY').toLowerCase();
         const guessedIsLocal = !!guessedHost && (guessedHost.endsWith(`.${cc}`));
+        // Con las dos opciones, "Mis intereses" desempata: la parecida cuenta
+        // si su categoría está en tus intereses; la exacta, si su portada
+        // habla de eso.
+        const similarFits = !!similar && storeMatchesInterests(similar);
+        const guessedFits = !!(guessed && similar) && await siteMatchesInterests(guessed);
         // 1) Web exacta del país (.com.uy / .uy): es casi seguro la que buscaba
-        if (guessed && (guessedIsLocal || !similar)) {
+        //    (salvo que solo la parecida sea de tus intereses)
+        if (guessed && (!similar || (guessedIsLocal && (guessedFits || !similarFits)))) {
           track('search_store_name', { query: raw.toLowerCase(), domain: guessedHost, source: 'guess' });
           openStoreUrl(guessed, raw);
           return;
@@ -4777,9 +4815,13 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
         // 2) Una parecida en la base y además una web exacta (.com): las dos
         if (guessed && similar) {
           track('store_name_suggestion', { typed: raw.toLowerCase(), suggested: similar.domain, guessed: guessedHost });
+          const fitsTag = ' · de tus intereses';
+          const guessedBtn = { text: `Abrir ${guessedHost}${guessedFits ? fitsTag : ''}`, onPress: () => openStoreUrl(guessed) };
+          const similarBtn = { text: `Abrir ${similar.name} (${similar.domain})${similarFits ? fitsTag : ''}`, onPress: () => openStoreUrl(similar.url || `https://${similar.domain}`) };
+          // Primero la que encaja con tus intereses
+          const ordered = similarFits && !guessedFits ? [similarBtn, guessedBtn] : [guessedBtn, similarBtn];
           Alert.alert('¿Cuál buscabas?', `Encontramos dos tiendas parecidas a "${raw}".`, [
-            { text: `Abrir ${guessedHost}`, onPress: () => openStoreUrl(guessed) },
-            { text: `Abrir ${similar.name} (${similar.domain})`, onPress: () => openStoreUrl(similar.url || `https://${similar.domain}`) },
+            ...ordered,
             { text: `Buscar "${raw}" como producto`, onPress: () => onOpenSearchWithQuery?.(raw) },
             { text: 'Cancelar', style: 'cancel' },
           ]);
