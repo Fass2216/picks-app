@@ -4157,6 +4157,14 @@ const profileStyles = StyleSheet.create({
 });
 
 
+// Etiqueta de un producto de Tendencias: si lo guardaron varias personas,
+// se dice cuántas (es lo que más pesa); si no, si es muy buscado o tendencia.
+function trendingLabel(item) {
+  if (item.reason === 'searched') return '🔎 muy buscado';
+  if (item.reason === 'saved' && item.count >= 2) return `❤️ ${item.count} lo pickearon`;
+  return '🔥 tendencia';
+}
+
 // Tono suave del color de la marca (mezcla con blanco) para el recuadro del logo
 function brandTint(hex, white = 0.84) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
@@ -6770,7 +6778,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               </View>
               {item.type === 'trending' && (
                 <View style={styles.explorarTrendingBadge}>
-                  <Text style={styles.explorarTrendingText}>{item.reason === 'searched' ? '🔎 muy buscado' : '🔥 tendencia'}</Text>
+                  <Text style={styles.explorarTrendingText}>{trendingLabel(item)}</Text>
                 </View>
               )}
             </View>
@@ -6829,7 +6837,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               </View>
               {item.type === 'trending' && (
                 <View style={styles.explorarTrendingBadge}>
-                  <Text style={styles.explorarTrendingText}>{item.reason === 'searched' ? '🔎 muy buscado' : '🔥 tendencia'}</Text>
+                  <Text style={styles.explorarTrendingText}>{trendingLabel(item)}</Text>
                 </View>
               )}
             </View>
