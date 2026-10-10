@@ -681,10 +681,17 @@ const INJECTED_JS = `
     // un producto, asi que las descartamos por el dominio directamente.
     var src = getImageSrc(img);
     if (/googleusercontent\\.com/i.test(src)) return true;
+    // Despues clasiautos paso a subir esas fotos a su propio sitio, con el
+    // nombre que les pone Google al descargarlas ("unnamed.jpg",
+    // "unnamed-1.png") y dentro de un bloque "listivo-listing-user" (sin la
+    // palabra avatar). Se detectan por el nombre del archivo, por la clase
+    // del bloque (usuario/autor/vendedor/perfil) o porque linkean al perfil.
+    if (/\\/unnamed(-\\d+)?\\.(jpe?g|png|webp|gif)/i.test(src)) return true;
     var p = img, depth = 0;
-    while (p && depth < 3) {
+    while (p && depth < 4) {
       var cls = (p.className && typeof p.className === 'string') ? p.className : '';
-      if (/avatar/i.test(cls)) return true;
+      if (/(avatar|listing-user|user-v\\d|author|seller|vendedor|profile|perfil)/i.test(cls)) return true;
+      if (p.tagName === 'A' && /\\/(usuario|usuarios|user|users|author|autor|vendedor|perfil|profile)\\//i.test(p.getAttribute('href') || '')) return true;
       p = p.parentElement;
       depth++;
     }
