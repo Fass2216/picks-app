@@ -4162,6 +4162,7 @@ const profileStyles = StyleSheet.create({
 function trendingLabel(item) {
   if (item.reason === 'searched') return '🔎 muy buscado';
   if (item.reason === 'saved' && item.count >= 2) return `❤️ ${item.count} lo pickearon`;
+  if (item.reason === 'discover') return '✨ para descubrir';
   return '🔥 tendencia';
 }
 
@@ -6635,6 +6636,12 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   const [exploreQuery, setExploreQuery] = useState('');
   const [friendsFeed, setFriendsFeed] = useState([]);
   const [friendsLoading, setFriendsLoading] = useState(false);
+  // Scroll infinito: al acercarse al final se pide otra tanda al servidor
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  const morePageRef = useRef({ para_vos: 0, tendencias: 0 });
+  const moreBusyRef = useRef(false);
+  const seenUrlsRef = useRef(new Set());
 
   const titleScale   = useRef(new Animated.Value(2.2)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
@@ -6694,23 +6701,30 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
     return () => { cancelled = true; };
   }, [userProfile?.id]);
 
+  // Parámetros de personalización (Mis tiendas, Picks, intereses), iguales
+  // para la primera carga y para las tandas siguientes
+  function exploreParams() {
+    // Dominios de picks del usuario (para priorizar esas tiendas)
+    const pickDomains = [...new Set(picks.map(p => p.domain).filter(Boolean))];
+    // Dominios de Mis tiendas (para intentar traer productos de tiendas custom)
+    const customDomains = customStores.map(s => s.domain).filter(Boolean);
+    const params = new URLSearchParams();
+    if (pickDomains.length) params.set('stores', pickDomains.join(','));
+    if (customDomains.length) params.set('custom', customDomains.join(','));
+    // Nombres de los Picks (para buscar productos parecidos) y categorías de
+    // "Mis intereses". Los Picks guardan el nombre en `name`: antes se leía
+    // `title`, que no existe, y nunca se usaban para personalizar.
+    const pickTitles = picks.slice(0, 20).map(p => p.name || p.title).filter(Boolean);
+    if (pickTitles.length) params.set('titles', pickTitles.join('|'));
+    if (userInterests.length) params.set('interests', userInterests.join(','));
+    return params;
+  }
+
   async function loadFeed(isRefresh = false) {
     if (!isRefresh) setLoading(true);
     setLoadError(false);
     try {
-      // Dominios de picks del usuario (para priorizar esas tiendas)
-      const pickDomains = [...new Set(picks.map(p => p.domain).filter(Boolean))];
-      // Dominios de Mis tiendas (para intentar traer productos de tiendas custom)
-      const customDomains = customStores.map(s => s.domain).filter(Boolean);
-      const params = new URLSearchParams();
-      if (pickDomains.length) params.set('stores', pickDomains.join(','));
-      if (customDomains.length) params.set('custom', customDomains.join(','));
-      // Nombres de los Picks (para buscar productos parecidos) y categorías de
-      // "Mis intereses". Los Picks guardan el nombre en `name`: antes se leía
-      // `title`, que no existe, y nunca se usaban para personalizar.
-      const pickTitles = picks.slice(0, 20).map(p => p.name || p.title).filter(Boolean);
-      if (pickTitles.length) params.set('titles', pickTitles.join('|'));
-      if (userInterests.length) params.set('interests', userInterests.join(','));
+      const params = exploreParams();
       const query = params.toString() ? `?${params.toString()}` : '';
       // 45s en vez de 15s: el backend (Render, plan free) se "duerme" sin
       // tráfico y puede tardar cerca de un minuto en despertar — con 15s
@@ -6721,7 +6735,11 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 45000)),
       ]);
       const data = await res.json();
-      setFeed(data.feed || []);
+      const first = data.feed || [];
+      seenUrlsRef.current = new Set(first.map(i => i.url).filter(Boolean));
+      morePageRef.current = { para_vos: 0, tendencias: 0 };
+      setMoreFailed(false);
+      setFeed(first);
     } catch (e) {
       console.log('[explorar] Error:', e.message);
       setLoadError(true);
@@ -6734,6 +6752,68 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   useEffect(() => { loadFeed(); }, []);
 
   function onRefresh() { setRefreshing(true); loadFeed(true); }
+
+  // Otra tanda de productos para la pestaña actual. El servidor arma cada
+  // tanda de nuevo (otras tiendas y términos, cada vez más amplio); acá se
+  // descarta lo ya mostrado. Si una tanda viene toda repetida, se pide la
+  // siguiente (hasta 3 veces seguidas).
+  async function loadMore() {
+    const tab = chip;
+    if (tab === 'amigos' || moreBusyRef.current || loading || exploreQuery.trim()) return;
+    moreBusyRef.current = true;
+    setMoreLoading(true);
+    setMoreFailed(false);
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const page = ++morePageRef.current[tab];
+        const params = exploreParams();
+        params.set('tab', tab);
+        params.set('page', String(page));
+        const res = await Promise.race([
+          fetch(`${BACKEND_URL}/api/explorar/more?${params.toString()}`),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 45000)),
+        ]);
+        const data = await res.json();
+        const fresh = (data.feed || []).filter(i => i.url && !seenUrlsRef.current.has(i.url));
+        fresh.forEach(i => seenUrlsRef.current.add(i.url));
+        if (fresh.length) {
+          setFeed(prev => [...prev, ...fresh]);
+          track('explorar_more_loaded', { tab, page, count: fresh.length });
+          if (fresh.length >= 4) break;
+        }
+      }
+    } catch (e) {
+      console.log('[explorar] Error cargando más:', e.message);
+      setMoreFailed(true);
+    } finally {
+      moreBusyRef.current = false;
+      setMoreLoading(false);
+    }
+  }
+
+  // Pie de la lista: cargando más / reintentar (no en Amigos ni buscando)
+  const showMoreFooter = chip !== 'amigos' && !exploreQuery.trim();
+  function renderMoreFooter(asReel) {
+    if (!showMoreFooter) return null;
+    const color = asReel ? '#fff' : COLORS.textSecondary;
+    return (
+      <View style={asReel
+        ? { height: reelHeight, justifyContent: 'center', alignItems: 'center', backgroundColor: '#161616' }
+        : { paddingVertical: 24, alignItems: 'center' }}>
+        {moreFailed ? (
+          <TouchableOpacity onPress={loadMore} activeOpacity={0.8} style={{ alignItems: 'center', gap: 8 }}>
+            <Ionicons name="refresh" size={22} color={color} />
+            <Text style={{ color, fontSize: 14, fontWeight: '500' }}>Tocá para cargar más</Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <ActivityIndicator color={asReel ? '#fff' : COLORS.accent} />
+            <Text style={{ color, fontSize: 13, marginTop: 10 }}>Buscando más productos…</Text>
+          </>
+        )}
+      </View>
+    );
+  }
 
   const isAlreadyPicked = (url) => picks.some(p => p.url === url);
 
@@ -6986,6 +7066,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
             refreshing={refreshing}
             onRefresh={onRefresh}
             showsVerticalScrollIndicator={false}
+            onEndReached={loadMore}
+            onEndReachedThreshold={1.5}
+            ListFooterComponent={renderMoreFooter(false)}
           />
         )
       ) : (
@@ -7032,6 +7115,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               decelerationRate="fast"
               showsVerticalScrollIndicator={false}
               getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
+              onEndReached={loadMore}
+              onEndReachedThreshold={4}
+              ListFooterComponent={renderMoreFooter(true)}
             />
           )}
         </View>
