@@ -4810,6 +4810,7 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
 
       {/* Buscador único: Mis tiendas (filtra la grilla) / Toda la web (abre o manda a Buscar) */}
       <View style={homeExtraStyles.searchRow}>
+        <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
         <View style={homeExtraStyles.searchInputWrap}>
           <Ionicons name="search-outline" size={17} color={COLORS.textSecondary} />
           <TextInput
@@ -4840,36 +4841,25 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
             </View>
           )}
         </View>
-        <TourTarget id="search-mode-chip">
-          <TouchableOpacity
-            style={homeExtraStyles.modeChip}
-            activeOpacity={0.7}
-            onPress={() => switchSearchMode(searchMode === 'mis' ? 'web' : 'mis')}
-          >
-            <Ionicons name={searchMode === 'mis' ? 'lock-closed-outline' : 'globe-outline' } size={13} color={COLORS.textPrimary} />
-            <Text style={homeExtraStyles.modeChipText}>{searchMode === 'mis' ? 'Mis tiendas' : 'Toda la web'}</Text>
-          </TouchableOpacity>
         </TourTarget>
       </View>
 
-      {searchMode === 'web' && (
-        <TouchableOpacity
-          style={[homeExtraStyles.webSearchBtn, (!input.trim() || lookingUpStore) && { opacity: 0.5 }]}
-          onPress={submitWebSearch}
-          disabled={!input.trim() || lookingUpStore}
-          activeOpacity={0.8}
-        >
-          <Text style={homeExtraStyles.webSearchBtnText}>{lookingUpStore ? 'Buscando...' : 'Buscar en la web'}</Text>
-        </TouchableOpacity>
-      )}
-      {searchMode === 'mis' && !!input.trim() && (
-        <TouchableOpacity
-          style={homeExtraStyles.webSearchBtn}
-          onPress={submitMyStoresSearch}
-          activeOpacity={0.8}
-        >
-          <Text style={homeExtraStyles.webSearchBtnText}>Buscar en mis tiendas</Text>
-        </TouchableOpacity>
+      {/* Con algo escrito: dónde buscar (Mis tiendas / Toda la web) y el botón.
+          Antes era un chip chico al lado del buscador que casi nadie notaba. */}
+      {!!input.trim() && (
+        <View style={{ marginBottom: 14 }}>
+          <SearchModeSelector mode={searchMode} onChange={switchSearchMode} />
+          <TouchableOpacity
+            style={[homeExtraStyles.webSearchBtn, { marginBottom: 0 }, lookingUpStore && { opacity: 0.5 }]}
+            onPress={searchMode === 'web' ? submitWebSearch : submitMyStoresSearch}
+            disabled={lookingUpStore}
+            activeOpacity={0.8}
+          >
+            <Text style={homeExtraStyles.webSearchBtnText}>
+              {lookingUpStore ? 'Buscando...' : searchMode === 'web' ? 'Buscar en toda la web' : 'Buscar en mis tiendas'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       <Text style={homeExtraStyles.sectionHeading}>
@@ -4986,6 +4976,38 @@ const homeExtraStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.textPrimary,
+  },
+  modeSelector: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 3,
+    height: 38,
+    marginBottom: 10,
+  },
+  modeSelectorPill: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    left: 3,
+    borderRadius: 9,
+    backgroundColor: COLORS.accentLight,
+  },
+  modeSelectorOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  modeSelectorText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
+  },
+  modeSelectorTextActive: {
+    color: COLORS.accent,
+    fontWeight: '700',
   },
   webSearchBtn: {
     backgroundColor: COLORS.accent,
@@ -7240,6 +7262,47 @@ const explorarExtraStyles = StyleSheet.create({
 // cambiando de pantalla (activeTab) cuando hace falta.
 const TourContext = createContext(null);
 
+// Selector "Mis tiendas | Toda la web" debajo del buscador. Se cambia
+// tocando (no deslizando: deslizar a los costados ya cambia de pestaña) y el
+// resaltado se desliza hacia la opción elegida.
+function SearchModeSelector({ mode, onChange }) {
+  const [width, setWidth] = useState(0);
+  const anim = useRef(new Animated.Value(mode === 'web' ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(anim, { toValue: mode === 'web' ? 1 : 0, speed: 22, bounciness: 4, useNativeDriver: true }).start();
+  }, [mode]);
+  const half = Math.max(0, (width - 6) / 2);
+  const options = [
+    { id: 'mis', label: 'Mis tiendas', icon: 'storefront-outline' },
+    { id: 'web', label: 'Toda la web', icon: 'globe-outline' },
+  ];
+  return (
+    <View style={homeExtraStyles.modeSelector} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      {width > 0 && (
+        <Animated.View
+          style={[homeExtraStyles.modeSelectorPill, { width: half, transform: [{ translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [0, half] }) }] }]}
+        />
+      )}
+      {options.map(o => {
+        const active = mode === o.id;
+        return (
+          <TouchableOpacity
+            key={o.id}
+            style={homeExtraStyles.modeSelectorOption}
+            onPress={() => { if (!active) { onChange(o.id); track('search_mode_switched', { mode: o.id }); } }}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+          >
+            <Ionicons name={o.icon} size={14} color={active ? COLORS.accent : COLORS.textSecondary} />
+            <Text style={[homeExtraStyles.modeSelectorText, active && homeExtraStyles.modeSelectorTextActive]}>{o.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function TourTarget({ id, style, children }) {
   const ctx = useContext(TourContext);
   const viewRef = useRef(null);
@@ -7296,8 +7359,8 @@ const TOUR_STEPS = [
     tab: 'home',
     targetKey: 'search-mode-chip',
     placement: 'bottom',
-    title: 'Mis tiendas o toda la web',
-    body: 'Tocá acá para alternar: "Mis tiendas" busca solo en las que agregaste; "Toda la web" te deja escribir cualquier producto o sitio.',
+    title: 'Buscá en tus tiendas o en toda la web',
+    body: 'Escribí lo que buscás y abajo elegí dónde: "Mis tiendas" busca solo en las que agregaste; "Toda la web", cualquier producto o sitio.',
   },
   {
     id: 'explorar-chips',
