@@ -2599,7 +2599,12 @@ function AppContent() {
             },
           ]}
         >
-          <Image source={{ uri: ghost.img }} style={styles.ghostImg} />
+          {/* La foto con un velo y un borde naranja muy suaves, para que se
+              note mejor mientras baja a Mis Picks */}
+          <View style={styles.ghostInner}>
+            <Image source={{ uri: ghost.img }} style={styles.ghostImg} />
+            <View style={styles.ghostTint} pointerEvents="none" />
+          </View>
         </Animated.View>
       )}
  
@@ -8073,10 +8078,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     zIndex: 10,
   },
+  // Sin overflow: hidden acá (en iOS taparía la sombra): el recorte va en
+  // ghostInner. La sombra es un resplandor naranja tenue.
   ghost: {
     position: 'absolute', width: 120, height: 150, borderRadius: 12,
-    overflow: 'hidden', backgroundColor: '#fff', top: 0, left: 0,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2, shadowRadius: 12, elevation: 5,
+    top: 0, left: 0,
+    shadowColor: COLORS.accent, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28, shadowRadius: 14, elevation: 6,
+  },
+  ghostInner: {
+    flex: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: '#fff',
+    borderWidth: 1.5, borderColor: 'rgba(232, 81, 42, 0.35)',
+  },
+  // Faltaba este estilo: la foto quedaba sin tamaño y volaba solo el
+  // recuadro blanco
+  ghostImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  ghostTint: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(232, 81, 42, 0.07)',
   },
 });
