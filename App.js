@@ -1313,6 +1313,10 @@ function AppContent() {
   const [collectionModal, setCollectionModal] = useState(null); // pick pendiente de asignar
   const [picksTab, setPicksTab] = useState('todos');            // persiste al abrir browser
   const [openCollection, setOpenCollection] = useState(null);   // persiste al abrir browser
+  // Alto del menú de abajo (se mide). En Mis tiendas el menú flota encima y
+  // las tiendas pasan por detrás; en el resto de las pantallas se deja ese
+  // espacio abajo para no tapar nada.
+  const [tabBarHeight, setTabBarHeight] = useState(90);
   const [appBackground, setAppBackground] = useState(null);     // id del fondo elegido, o null = ninguno
 
   const changeAppBackground = async (id) => {
@@ -2185,7 +2189,7 @@ function AppContent() {
       >
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
  
-      <View style={styles.content}>
+      <View style={[styles.content, !(activeTab === 'home' && !browserUrl) && { paddingBottom: tabBarHeight }]}>
         {/* Buscar queda montada (oculta) mientras se abre un producto de los
             resultados, así al volver siguen ahí y no hay que buscar de nuevo. */}
         {activeTab === 'search' && (
@@ -2250,6 +2254,7 @@ function AppContent() {
               ),
               home: (
                 <HomeView
+                  bottomInset={tabBarHeight}
                   backgroundSource={getBackgroundSource(appBackground)}
                   onOpenUrl={openUrl}
                   customStores={customStores}
@@ -2576,6 +2581,7 @@ function AppContent() {
       </Modal>
 
       <TabBar
+        onHeight={setTabBarHeight}
         activeTab={
           browserUrl ? 'home'
           : activeTab === 'search' ? 'home'
@@ -4468,7 +4474,7 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
+function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
@@ -4882,7 +4888,8 @@ function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, 
   return (
     <ScrollView
       style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
+      // Espacio abajo para que las últimas tiendas no queden debajo del menú
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + bottomInset }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // El buscador (2º hijo) queda fijo arriba al deslizar las tiendas
@@ -7604,9 +7611,9 @@ const tourStyles = StyleSheet.create({
   bubbleNextText: { fontSize: 13, fontWeight: '700', color: '#fff' },
 });
 
-function TabBar({ activeTab, setActiveTab, pickCount }) {
+function TabBar({ activeTab, setActiveTab, pickCount, onHeight }) {
   return (
-    <SafeAreaView edges={['bottom']} style={styles.tabBarWrap}>
+    <SafeAreaView edges={['bottom']} style={styles.tabBarWrap} onLayout={(e) => onHeight?.(Math.round(e.nativeEvent.layout.height))}>
       <View style={styles.tabBar}>
         <Tab
           label="Explorar"
@@ -7904,11 +7911,12 @@ const styles = StyleSheet.create({
   chipCount: { fontSize: 11, color: COLORS.textTertiary, fontWeight: '400' },
   chipCountActive: { color: COLORS.background, opacity: 0.7 },
   chipClear: { borderColor: COLORS.accentLight, backgroundColor: 'transparent' },
-  tabBarWrap: { backgroundColor: 'transparent' },
+  // Flota sobre el contenido (fijo abajo) y es levemente transparente
+  tabBarWrap: { backgroundColor: 'transparent', position: 'absolute', left: 0, right: 0, bottom: 0 },
   tabBar: {
     flexDirection: 'row', marginHorizontal: 16, marginBottom: 6,
     paddingTop: 10, paddingBottom: 10, paddingHorizontal: 8,
-    backgroundColor: COLORS.surface, borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.86)', borderRadius: 28,
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12,
     elevation: 8,
   },
