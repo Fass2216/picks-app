@@ -600,8 +600,13 @@ const INJECTED_JS = `
   document.addEventListener('click', function(e) {
     var a = e.target && e.target.closest ? e.target.closest('a') : null;
     if (a && a.href) {
-      var h = a.getAttribute('href') || '';
-      if (h.indexOf('http') !== 0 && h.indexOf('#') !== 0 && h.indexOf('/') !== 0 && h.indexOf('mailto:') !== 0) {
+      var h = (a.getAttribute('href') || '').trim();
+      // Solo se bloquean esquemas de apps (instagram://, intent://, whatsapp:).
+      // Antes se bloqueaba todo lo que no empezara con http, # o /: los menús
+      // con href="javascript:..." (Saura), los botones de cookies (Columbia) y
+      // los links relativos ("catalogo/...") no hacían nada.
+      var scheme = (h.match(/^([a-z][a-z0-9+.-]*):/i) || [])[1];
+      if (scheme && !/^(https?|mailto|tel|javascript)$/i.test(scheme)) {
         e.preventDefault();
         e.stopPropagation();
         return false;
@@ -1778,8 +1783,9 @@ function AppContent() {
     try {
       const d = new URL(url).hostname.replace(/^www\./, '');
       const reg = getRegisteredDomain(d);
-      const activeStores = STORES_BY_COUNTRY[country] || STORES;
-    return activeStores.some(s => s.domain === reg) || customStores.some(s => s.domain === reg);
+      // Solo si está en Mis tiendas. Antes las predefinidas de la app (ej. Caro
+      // Criado) salían con la estrella llena sin estar en Mis tiendas.
+      return customStores.some(s => s.domain === reg);
     } catch (e) { return false; }
   }
  
@@ -1814,11 +1820,6 @@ function AppContent() {
     const reg = getRegisteredDomain(domain);
     const activeStores = STORES_BY_COUNTRY[country] || STORES;
 
-    // Si ya está en tiendas predefinidas del país → no se puede quitar
-    if (activeStores.some(s => s.domain === reg)) {
-      showToast('Tienda predefinida de tu país');
-      return;
-    }
     // Si está en Mis tiendas → quitarla
     if (customStores.some(s => s.domain === reg)) {
       removeCustomStore(reg);
@@ -4589,7 +4590,9 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
     let domain = '';
     try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
     const reg = getRegisteredDomain(domain);
-    const known = countryStores.some(s => s.domain === reg) || (customStores || []).some(s => s.domain === reg);
+    // Se pregunta si agregarla salvo que ya esté en Mis tiendas (antes las
+    // predefinidas de la app se abrían sin preguntar, aunque no estuvieran)
+    const known = (customStores || []).some(s => s.domain === reg);
     if (known || !reg || reg === 'web') {
       onOpenUrl(url);
       return;
