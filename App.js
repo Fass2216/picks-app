@@ -1317,6 +1317,7 @@ function AppContent() {
   // las tiendas pasan por detrás; en el resto de las pantallas se deja ese
   // espacio abajo para no tapar nada.
   const [tabBarHeight, setTabBarHeight] = useState(90);
+  const menuFloats = !browserUrl && ['home', 'picks', 'explorar', 'search'].includes(activeTab);
   const [appBackground, setAppBackground] = useState(null);     // id del fondo elegido, o null = ninguno
 
   const changeAppBackground = async (id) => {
@@ -2189,7 +2190,11 @@ function AppContent() {
       >
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
  
-      <View style={[styles.content, !(activeTab === 'home' && !browserUrl) && { paddingBottom: tabBarHeight }]}>
+      {/* El menú flota encima (el contenido pasa por detrás) en las pantallas
+          principales. En el navegador no: las webs tienen botones y avisos
+          fijos abajo (carrito, cookies) que quedarían tapados. */}
+      <TabBarInsetContext.Provider value={menuFloats ? tabBarHeight : 0}>
+      <View style={[styles.content, !menuFloats && { paddingBottom: tabBarHeight }]}>
         {/* Buscar queda montada (oculta) mientras se abre un producto de los
             resultados, así al volver siguen ahí y no hay que buscar de nuevo. */}
         {activeTab === 'search' && (
@@ -2394,6 +2399,7 @@ function AppContent() {
           />
         ) : null}
       </View>
+      </TabBarInsetContext.Provider>
 
       {collectionModal && (
         <CollectionModal
@@ -5576,6 +5582,7 @@ function PicksView({
   userProfile, avatarUrl, onOpenAuth, onOpenEditProfile, onOpenSettings, onOpenCommunity,
   unreadNotifCount = 0, onOpenNotifications,
 }) {
+  const menuInset = useContext(TabBarInsetContext);
   const [myProfileRow, setMyProfileRow] = useState(null);
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
@@ -5817,7 +5824,7 @@ function PicksView({
             keyExtractor={p => p.id}
             numColumns={2}
             columnWrapperStyle={{ gap: 10 }}
-            contentContainerStyle={{ gap: 10, paddingBottom: 20 }}
+            contentContainerStyle={{ gap: 10, paddingBottom: 20 + menuInset }}
             renderItem={({ item: p }) => (
               <TouchableOpacity
                 style={styles.pickCard}
@@ -5957,7 +5964,7 @@ function PicksView({
           <FlatList
             data={collections}
             keyExtractor={c => c.id}
-            contentContainerStyle={{ gap: 10, paddingBottom: 20, paddingTop: 4 }}
+            contentContainerStyle={{ gap: 10, paddingBottom: 20 + menuInset, paddingTop: 4 }}
             renderItem={({ item: col }) => {
               const thumb = picks.find(p => col.pickIds.includes(p.id));
               return (
@@ -6079,7 +6086,7 @@ function PicksView({
           ) : (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={styles.picksGridContent}
+              contentContainerStyle={[styles.picksGridContent, { paddingBottom: 30 + menuInset }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -6174,6 +6181,7 @@ function ResultImage({ uri }) {
 }
 
 function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
+  const menuInset = useContext(TabBarInsetContext);
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
   const [pickingImage, setPickingImage] = useState(false);
@@ -6758,7 +6766,7 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
           ) : (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={[styles.picksGridContent, { paddingHorizontal: 24, paddingTop: 12 }]}
+              contentContainerStyle={[styles.picksGridContent, { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 30 + menuInset }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -6881,6 +6889,7 @@ function getStoreBgColor(storeName) {
 }
 
 function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
+  const menuInset = useContext(TabBarInsetContext);
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -7154,13 +7163,13 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
         {/* El producto entero, sin recortar ni estirar, en una tarjeta arriba */}
         {!!item.img && (
-          <View style={[styles.reelProductBox, { height: Math.max(200, reelHeight - REEL_TOP_SPACE - REEL_BOTTOM_SPACE) }]}>
+          <View style={[styles.reelProductBox, { height: Math.max(200, reelHeight - REEL_TOP_SPACE - REEL_BOTTOM_SPACE - menuInset) }]}>
             <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           </View>
         )}
 
         {/* Info abajo a la izquierda */}
-        <View style={styles.reelInfo}>
+        <View style={[styles.reelInfo, { bottom: 90 + menuInset }]}>
           {item.type === 'friend_pick' ? (
             <View style={[styles.explorarStoreBadge, { backgroundColor: COLORS.accent, marginBottom: 10, alignSelf: 'flex-start' }]}>
               <Text style={styles.explorarStoreBadgeText}>🧡 {item.actorName} guardó un Pick</Text>
@@ -7193,7 +7202,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
         </View>
 
         {/* Acciones lado derecho */}
-        <View style={styles.reelActions}>
+        <View style={[styles.reelActions, { bottom: 100 + menuInset }]}>
           <TouchableOpacity
             style={styles.reelActionBtn}
             onPress={() => !picked && onAddPick(item)}
@@ -7317,7 +7326,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
             data={displayFeed}
             renderItem={renderListCard}
             keyExtractor={(item, i) => `lista-${i}-${item.url || ''}`}
-            contentContainerStyle={styles.explorarList}
+            contentContainerStyle={[styles.explorarList, { paddingBottom: 30 + menuInset }]}
             refreshing={refreshing}
             onRefresh={onRefresh}
             showsVerticalScrollIndicator={false}
@@ -7610,6 +7619,10 @@ const tourStyles = StyleSheet.create({
   },
   bubbleNextText: { fontSize: 13, fontWeight: '700', color: '#fff' },
 });
+
+// Alto del menú de abajo cuando flota encima de la pantalla (0 si no): las
+// listas lo suman a su espacio de abajo para que lo último no quede tapado.
+const TabBarInsetContext = React.createContext(0);
 
 function TabBar({ activeTab, setActiveTab, pickCount, onHeight }) {
   return (
