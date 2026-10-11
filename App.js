@@ -4472,14 +4472,7 @@ function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, 
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
-  // Buscador fijo con fondo personalizado: la franja muestra el mismo fondo
-  // de la app, corrido para que calce justo con el de atrás (si no, quedaba
-  // una franja color crema). Se calcula dónde está la franja en pantalla:
-  // baja con el scroll hasta quedar pegada arriba.
-  const homeScrollY = useRef(new Animated.Value(0)).current;
-  const homeScrollRef = useRef(null);
-  const [scrollTopOnScreen, setScrollTopOnScreen] = useState(0);
-  const [stickyTopInContent, setStickyTopInContent] = useState(0);
+
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
   const [interestStoresByCat, setInterestStoresByCat] = useState({}); // categoria -> tiendas del backend
@@ -4887,17 +4880,13 @@ function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, 
   }
 
   return (
-    <Animated.ScrollView
-      ref={homeScrollRef}
+    <ScrollView
       style={styles.scroll}
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // El buscador (2º hijo) queda fijo arriba al deslizar las tiendas
       stickyHeaderIndices={[1]}
-      scrollEventThrottle={16}
-      onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: homeScrollY } } }], { useNativeDriver: true })}
-      onLayout={() => homeScrollRef.current?.measureInWindow?.((x, y) => setScrollTopOnScreen(y))}
     >
       <View style={styles.brandHeader}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -4920,27 +4909,10 @@ function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, 
       </View>
 
       {/* Buscador único (fijo arriba al deslizar): Mis tiendas / Toda la web */}
-      <View
-        style={[homeExtraStyles.stickySearch, !!backgroundSource && { backgroundColor: 'transparent', overflow: 'hidden' }]}
-        onLayout={(e) => setStickyTopInContent(e.nativeEvent.layout.y)}
-      >
-        {!!backgroundSource && (
-          <Animated.Image
-            source={backgroundSource}
-            resizeMode="cover"
-            pointerEvents="none"
-            style={{
-              position: 'absolute', left: 0, top: 0, width: SCREEN.width, height: SCREEN.height,
-              transform: [{
-                translateY: homeScrollY.interpolate({
-                  inputRange: [0, Math.max(1, stickyTopInContent)],
-                  outputRange: [-(scrollTopOnScreen + stickyTopInContent), -scrollTopOnScreen],
-                  extrapolate: 'clamp',
-                }),
-              }],
-            }}
-          />
-        )}
+      {/* Con fondo personalizado no hay franja: el buscador flota (con una
+          sombra suave) sobre tu fondo, como el menú de abajo. Una franja de
+          color o con el fondo recortado se notaba como un corte. */}
+      <View style={[homeExtraStyles.stickySearch, !!backgroundSource && homeExtraStyles.stickySearchFloating]}>
       <View style={homeExtraStyles.searchRow}>
         <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
         <View style={homeExtraStyles.searchInputWrap}>
@@ -5064,7 +5036,7 @@ function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, 
           a tus tiendas destacadas.
         </Text>
       </View>
-    </Animated.ScrollView>
+    </ScrollView>
   );
 }
 
@@ -5081,6 +5053,14 @@ const homeExtraStyles = StyleSheet.create({
     marginHorizontal: -24,
     paddingHorizontal: 24,
     zIndex: 2,
+  },
+  stickySearchFloating: {
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
   },
   searchRow: {
     flexDirection: 'row',
