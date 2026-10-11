@@ -7622,7 +7622,7 @@ const tourStyles = StyleSheet.create({
 
 // Alto del menú de abajo cuando flota encima de la pantalla (0 si no): las
 // listas lo suman a su espacio de abajo para que lo último no quede tapado.
-const TabBarInsetContext = React.createContext(0);
+const TabBarInsetContext = createContext(0);
 
 function TabBar({ activeTab, setActiveTab, pickCount, onHeight }) {
   return (
