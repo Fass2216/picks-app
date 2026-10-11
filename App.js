@@ -4883,6 +4883,8 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      // El buscador (2º hijo) queda fijo arriba al deslizar las tiendas
+      stickyHeaderIndices={[1]}
     >
       <View style={styles.brandHeader}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -4904,7 +4906,8 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
         </View>
       </View>
 
-      {/* Buscador único: Mis tiendas (filtra la grilla) / Toda la web (abre o manda a Buscar) */}
+      {/* Buscador único (fijo arriba al deslizar): Mis tiendas / Toda la web */}
+      <View style={homeExtraStyles.stickySearch}>
       <View style={homeExtraStyles.searchRow}>
         <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
         <View style={homeExtraStyles.searchInputWrap}>
@@ -4957,6 +4960,8 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
           </TouchableOpacity>
         </View>
       )}
+
+      </View>
 
       <Text style={homeExtraStyles.sectionHeading}>
         Mis tiendas{customStores && customStores.length > 0 ? ` (${customStores.length})` : ''}
@@ -5035,6 +5040,14 @@ const homeExtraStyles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '800',
     color: COLORS.textPrimary,
+  },
+  // Fondo propio para que las tiendas no se vean por detrás al quedar fijo;
+  // a todo el ancho (compensa el padding de 24 de la pantalla)
+  stickySearch: {
+    backgroundColor: COLORS.background,
+    marginHorizontal: -24,
+    paddingHorizontal: 24,
+    zIndex: 2,
   },
   searchRow: {
     flexDirection: 'row',
