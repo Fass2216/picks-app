@@ -2250,6 +2250,7 @@ function AppContent() {
               ),
               home: (
                 <HomeView
+                  backgroundSource={getBackgroundSource(appBackground)}
                   onOpenUrl={openUrl}
                   customStores={customStores}
                   onRemoveCustom={removeCustomStore}
@@ -4467,10 +4468,18 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
+function HomeView({ backgroundSource = null, onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
+  // Buscador fijo con fondo personalizado: la franja muestra el mismo fondo
+  // de la app, corrido para que calce justo con el de atrás (si no, quedaba
+  // una franja color crema). Se calcula dónde está la franja en pantalla:
+  // baja con el scroll hasta quedar pegada arriba.
+  const homeScrollY = useRef(new Animated.Value(0)).current;
+  const homeScrollRef = useRef(null);
+  const [scrollTopOnScreen, setScrollTopOnScreen] = useState(0);
+  const [stickyTopInContent, setStickyTopInContent] = useState(0);
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
   const [interestStoresByCat, setInterestStoresByCat] = useState({}); // categoria -> tiendas del backend
@@ -4878,13 +4887,17 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
   }
 
   return (
-    <ScrollView
+    <Animated.ScrollView
+      ref={homeScrollRef}
       style={styles.scroll}
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // El buscador (2º hijo) queda fijo arriba al deslizar las tiendas
       stickyHeaderIndices={[1]}
+      scrollEventThrottle={16}
+      onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: homeScrollY } } }], { useNativeDriver: true })}
+      onLayout={() => homeScrollRef.current?.measureInWindow?.((x, y) => setScrollTopOnScreen(y))}
     >
       <View style={styles.brandHeader}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -4907,7 +4920,27 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
       </View>
 
       {/* Buscador único (fijo arriba al deslizar): Mis tiendas / Toda la web */}
-      <View style={homeExtraStyles.stickySearch}>
+      <View
+        style={[homeExtraStyles.stickySearch, !!backgroundSource && { backgroundColor: 'transparent', overflow: 'hidden' }]}
+        onLayout={(e) => setStickyTopInContent(e.nativeEvent.layout.y)}
+      >
+        {!!backgroundSource && (
+          <Animated.Image
+            source={backgroundSource}
+            resizeMode="cover"
+            pointerEvents="none"
+            style={{
+              position: 'absolute', left: 0, top: 0, width: SCREEN.width, height: SCREEN.height,
+              transform: [{
+                translateY: homeScrollY.interpolate({
+                  inputRange: [0, Math.max(1, stickyTopInContent)],
+                  outputRange: [-(scrollTopOnScreen + stickyTopInContent), -scrollTopOnScreen],
+                  extrapolate: 'clamp',
+                }),
+              }],
+            }}
+          />
+        )}
       <View style={homeExtraStyles.searchRow}>
         <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
         <View style={homeExtraStyles.searchInputWrap}>
@@ -5031,7 +5064,7 @@ function HomeView({ onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCus
           a tus tiendas destacadas.
         </Text>
       </View>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 
