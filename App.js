@@ -4525,7 +4525,21 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       return;
     }
     let cancelled = false;
+    let gotFresh = false;
     setInterestStoresLoading(true);
+    // Lo último que se cargó, guardado en el celular: se muestra al instante
+    // mientras llega lo nuevo del servidor (antes había que esperarlo)
+    const cacheKey = `interest-stores-v1-${country || 'UY'}`;
+    AsyncStorage.getItem(cacheKey).then((raw) => {
+      if (cancelled || gotFresh || !raw) return;
+      const cached = JSON.parse(raw) || {};
+      const map = {};
+      userInterests.forEach((cat) => { if (cached[cat]?.length) map[cat] = cached[cat]; });
+      if (!Object.keys(map).length) return;
+      setInterestStoresByCat(map);
+      setSelectedInterestCat((prev) => (prev && map[prev]) ? prev : (Object.keys(map)[0] || null));
+      setInterestStoresLoading(false);
+    }).catch(() => {});
     Promise.all(
       userInterests.map((cat) =>
         fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${cat}&limit=10`)
@@ -4537,6 +4551,12 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       if (cancelled) return;
       const map = {};
       results.forEach(([cat, list]) => { if (list.length) map[cat] = list; });
+      // Si el servidor no respondió (todo vacío), queda lo guardado
+      if (!Object.keys(map).length) { setInterestStoresLoading(false); return; }
+      gotFresh = true;
+      AsyncStorage.getItem(cacheKey)
+        .then((raw) => AsyncStorage.setItem(cacheKey, JSON.stringify({ ...(raw ? JSON.parse(raw) : {}), ...map })))
+        .catch(() => {});
       setInterestStoresByCat(map);
       // Si la categoría elegida ya no está disponible, cae a la primera de la
       // lista (orden = mismo orden que "Mis intereses" en Perfil).
@@ -4553,6 +4573,18 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
   const titleScale   = useRef(new Animated.Value(2.2)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleSkew    = useRef(new Animated.Value(0)).current;
+
+  // Fotos de portada ya conocidas, guardadas en el celular
+  useEffect(() => {
+    AsyncStorage.getItem('store-images-v1')
+      .then((raw) => { if (raw) setStoreImages(prev => ({ ...JSON.parse(raw), ...prev })); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    const entries = Object.entries(storeImages);
+    if (!entries.length) return;
+    AsyncStorage.setItem('store-images-v1', JSON.stringify(Object.fromEntries(entries.slice(-300)))).catch(() => {});
+  }, [storeImages]);
 
   // Traer la imagen de portada (og:image) de cada tienda visible, en batch
   useEffect(() => {
@@ -6928,6 +6960,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   const morePageRef = useRef({ para_vos: 0, tendencias: 0 });
   const moreBusyRef = useRef(false);
   const seenUrlsRef = useRef(new Set());
+  const feedRef = useRef([]);
+  // Si ya deslizó, lo que llega del servidor se suma al final (no reemplaza)
+  const userScrolledRef = useRef(false);
 
   const titleScale   = useRef(new Animated.Value(2.2)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
@@ -7022,22 +7057,50 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       ]);
       const data = await res.json();
       const first = data.feed || [];
+      if (!first.length && feedRef.current.length) return; // servidor sin nada: queda lo que se ve
+      AsyncStorage.setItem(EXPLORAR_CACHE_KEY, JSON.stringify(first)).catch(() => {});
+      setMoreFailed(false);
+      if (userScrolledRef.current && feedRef.current.length) {
+        // Ya está mirando los reels guardados: lo nuevo se suma al final en
+        // vez de cambiarle la pantalla de golpe
+        const fresh = first.filter(i => i.url && !seenUrlsRef.current.has(i.url));
+        fresh.forEach(i => seenUrlsRef.current.add(i.url));
+        setFeed(prev => [...prev, ...fresh]);
+        return;
+      }
       seenUrlsRef.current = new Set(first.map(i => i.url).filter(Boolean));
       morePageRef.current = { para_vos: 0, tendencias: 0 };
-      setMoreFailed(false);
       setFeed(first);
     } catch (e) {
       console.log('[explorar] Error:', e.message);
-      setLoadError(true);
+      if (!feedRef.current.length) setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }
 
-  useEffect(() => { loadFeed(); }, []);
+  // Al abrir: primero los últimos reels guardados en el celular (aparecen al
+  // instante) y de fondo se piden los nuevos. Sin nada guardado, como antes.
+  useEffect(() => {
+    let done = false;
+    AsyncStorage.getItem(EXPLORAR_CACHE_KEY)
+      .then((raw) => {
+        const cached = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(cached) && cached.length && !feedRef.current.length) {
+          seenUrlsRef.current = new Set(cached.map(i => i.url).filter(Boolean));
+          setFeed(cached);
+          setLoading(false);
+          done = true;
+          loadFeed(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!done) loadFeed(); });
+  }, []);
+  useEffect(() => { feedRef.current = feed; }, [feed]);
 
-  function onRefresh() { setRefreshing(true); loadFeed(true); }
+  function onRefresh() { setRefreshing(true); userScrolledRef.current = false; loadFeed(true); }
 
   // Otra tanda de productos para la pestaña actual. El servidor arma cada
   // tanda de nuevo (otras tiendas y términos, cada vez más amplio); acá se
@@ -7354,6 +7417,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
             showsVerticalScrollIndicator={false}
             onEndReached={loadMore}
             onEndReachedThreshold={1.5}
+            onScrollBeginDrag={() => { userScrolledRef.current = true; }}
             ListFooterComponent={renderMoreFooter(false)}
           />
         )
@@ -7403,6 +7467,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
               onEndReached={loadMore}
               onEndReachedThreshold={4}
+              onScrollBeginDrag={() => { userScrolledRef.current = true; }}
               ListFooterComponent={renderMoreFooter(true)}
             />
           )}
@@ -7411,6 +7476,9 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
     </View>
   );
 }
+
+// Últimos reels de Explorar guardados en el celular (se muestran al abrir)
+const EXPLORAR_CACHE_KEY = 'explorar-feed-v1';
 
 const EXPLORAR_CHIPS = [
   { id: 'para_vos', label: 'Para vos' },
