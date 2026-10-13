@@ -1769,7 +1769,15 @@ function AppContent() {
       return { ...prev, [id]: layout };
     });
   }, []);
-  const tourCtxValue = useMemo(() => ({ registerTarget: registerTourTarget }), [registerTourTarget]);
+  // Cada paso del tour vuelve a medir los elementos cuando terminó de cambiar
+  // de pantalla (las pestañas se deslizan: medidos antes quedaban corridos)
+  const [tourMeasureTick, setTourMeasureTick] = useState(0);
+  useEffect(() => {
+    if (!tourActive) return;
+    const t = setTimeout(() => setTourMeasureTick(n => n + 1), 500);
+    return () => clearTimeout(t);
+  }, [tourActive, tourStepIndex]);
+  const tourCtxValue = useMemo(() => ({ registerTarget: registerTourTarget, measureTick: tourMeasureTick }), [registerTourTarget, tourMeasureTick]);
 
   // La primera vez que se abre la app (nunca antes visto), arranca el tour solo.
   useEffect(() => {
@@ -7603,7 +7611,12 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
               </View>
             </View>
             <View style={{ marginTop: 10 }}>
-              {chipsRow(true)}
+              {/* También en modo reels (el que viene por defecto): si no, el
+                  último paso del tutorial no encontraba los chips y la
+                  pantalla quedaba oscura y trancada */}
+              <TourTarget id="explorar-chips">
+                {chipsRow(true)}
+              </TourTarget>
             </View>
           </View>
 
@@ -7729,6 +7742,7 @@ function TourTarget({ id, style, children }) {
       });
     });
   }, [ctx, id]);
+  useEffect(() => { if (ctx?.measureTick) measure(); }, [ctx?.measureTick]);
   return (
     <View ref={viewRef} collapsable={false} onLayout={measure} style={style}>
       {children}
@@ -7789,12 +7803,40 @@ const TOUR_STEPS = [
 
 function TourOverlay({ step, stepIndex, totalSteps, target, onNext, onSkip }) {
   const { width: W, height: H } = Dimensions.get('window');
+  // Si el elemento a señalar no aparece (ej. otra vista de la pantalla), a los
+  // 2,5 s se muestra el globito igual, centrado y sin recuadro: nunca más la
+  // pantalla oscura sin botones, que trababa la app
+  const [gaveUpWaiting, setGaveUpWaiting] = useState(false);
+  useEffect(() => {
+    setGaveUpWaiting(false);
+    if (target) return;
+    const t = setTimeout(() => setGaveUpWaiting(true), 2500);
+    return () => clearTimeout(t);
+  }, [step?.id, !!target]);
   if (!step) return null;
   const pad = 8;
+  const isLast = stepIndex >= totalSteps - 1;
   if (!target) {
     // Todavía no se midió el elemento (recién se cambió de pantalla) — mostramos
     // solo el fondo oscuro mientras tanto, sin globito, para no "flashear" mal ubicado.
-    return <View pointerEvents="auto" style={tourStyles.backdrop} />;
+    if (!gaveUpWaiting) return <View pointerEvents="auto" style={tourStyles.backdrop} />;
+    return (
+      <View pointerEvents="auto" style={[tourStyles.backdrop, { justifyContent: 'center', paddingHorizontal: 20 }]}>
+        <View style={tourStyles.bubble}>
+          <Text style={tourStyles.bubbleStep}>{stepIndex + 1} / {totalSteps}</Text>
+          <Text style={tourStyles.bubbleTitle}>{step.title}</Text>
+          <Text style={tourStyles.bubbleBody}>{step.body}</Text>
+          <View style={tourStyles.bubbleActions}>
+            <TouchableOpacity onPress={onSkip} hitSlop={8}>
+              <Text style={tourStyles.bubbleSkip}>Saltar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onNext} style={tourStyles.bubbleNextBtn} activeOpacity={0.85}>
+              <Text style={tourStyles.bubbleNextText}>{isLast ? 'Entendido' : 'Siguiente'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
   }
   const rect = {
     x: Math.max(0, target.x - pad),
@@ -7802,7 +7844,6 @@ function TourOverlay({ step, stepIndex, totalSteps, target, onNext, onSkip }) {
     width: target.width + pad * 2,
     height: target.height + pad * 2,
   };
-  const isLast = stepIndex >= totalSteps - 1;
   return (
     <View style={StyleSheet.absoluteFill}>
       {/* Cuatro franjas oscuras alrededor del target = efecto "spotlight" */}
