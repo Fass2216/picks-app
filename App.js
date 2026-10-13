@@ -739,6 +739,24 @@ const INJECTED_JS = `
     return false;
   }
 
+  // Sellos de promoción encima de la foto del producto: "UTE Plan Redondo"
+  // (Ltienda, clase "ico grupo", archivo "cocarda-..."), "10% Club Card"
+  // (Tienda Inglesa, clase "card-product-badge-img", archivo "/banners/").
+  // Suelen estar ANTES que la foto en la página y la app se quedaba con el
+  // sello (y con su texto como nombre del producto).
+  function isBadgeImg(img) {
+    // Sin lo que va después de "?": ahí algunas tiendas ponen el nombre del
+    // producto ("Jamon-Cocido-Etiqueta-Azul") y no es un sello
+    var hay = (getImageSrc(img) || '').split('?')[0] + ' ' + (typeof img.className === 'string' ? img.className : '');
+    var p = img.parentElement, d = 0;
+    while (p && d < 2) {
+      hay += ' ' + (typeof p.className === 'string' ? p.className : '');
+      p = p.parentElement;
+      d++;
+    }
+    return /(cocarda|badge|promo|banner|sello|sticker|etiqueta|ribbon|marketing|grupoproductos)/i.test(hay);
+  }
+
   // Cuenta cuantos avisos DISTINTOS hay linkeados dentro de root. Un solo
   // aviso puede tener muchas fotos en su carrusel sin problema; lo que hay
   // que evitar es escaparse a un contenedor que junta VARIOS avisos (grilla
@@ -766,17 +784,21 @@ const INJECTED_JS = `
     if (distinctLinksIn(root) > 1) return { best: null, fallback: null };
     var imgs = root.querySelectorAll('img');
     var fallback = null;
+    var best = null, bestArea = -1;
     for (var i = 0; i < imgs.length; i++) {
       if (!isValidImage(imgs[i])) continue;
-      if (isAvatarImg(imgs[i])) { if (!fallback) fallback = imgs[i]; continue; }
-      return { best: imgs[i], fallback: fallback };
+      if (isAvatarImg(imgs[i]) || isBadgeImg(imgs[i])) { if (!fallback) fallback = imgs[i]; continue; }
+      // La más grande de la tarjeta es la foto del producto (las que no se
+      // pueden medir, ej. slides ocultos de un carrusel, cuentan poco)
+      var area = (imgs[i].clientWidth || 0) * (imgs[i].clientHeight || 0) || 1;
+      if (area > bestArea) { best = imgs[i]; bestArea = area; }
     }
-    return { best: null, fallback: fallback };
+    return { best: best, fallback: fallback };
   }
 
   function getImageElement(target) {
     if (!target) return null;
-    if (target.tagName === 'IMG' && isValidImage(target) && !isAvatarImg(target)) return target;
+    if (target.tagName === 'IMG' && isValidImage(target) && !isAvatarImg(target) && !isBadgeImg(target)) return target;
 
     var bestFallback = null;
     function consider(root) {
