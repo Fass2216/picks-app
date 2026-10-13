@@ -5003,6 +5003,8 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       {/* Con fondo personalizado y el selector abierto: un panel claro detrás
           de buscador + selector + botón, para que las tiendas que pasan por
           debajo no se vean entre los huecos (quedaba entreverado) */}
+      {/* Contenedor del ancho exacto del buscador: el panel se mide desde acá */}
+      <View>
       {!!backgroundSource && !!input.trim() && (
         <View pointerEvents="none" style={homeExtraStyles.stickySearchPanel} />
       )}
@@ -5059,6 +5061,7 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
         </View>
       )}
 
+      </View>
       </View>
 
       <Text style={homeExtraStyles.sectionHeading}>
@@ -5147,9 +5150,10 @@ const homeExtraStyles = StyleSheet.create({
     paddingHorizontal: 24,
     zIndex: 2,
   },
+  // Un poco más grande que buscador + selector + botón, para enmarcarlos
   stickySearchPanel: {
     position: 'absolute',
-    top: 6, bottom: 6, left: 14, right: 14,
+    top: 4, bottom: 4, left: -10, right: -10,
     borderRadius: 22,
     backgroundColor: 'rgba(250, 247, 242, 0.9)',
     borderWidth: 1,
