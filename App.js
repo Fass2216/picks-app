@@ -4526,6 +4526,9 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
+  const homeScrollRef = useRef(null);
+  const stickyTopRef = useRef(0);           // dónde empieza el buscador fijo
+  const [scrolledPast, setScrolledPast] = useState(false); // ¿ya quedó pegado arriba?
 
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
@@ -4967,6 +4970,12 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
 
   return (
     <ScrollView
+      ref={homeScrollRef}
+      scrollEventThrottle={32}
+      onScroll={(e) => {
+        const past = e.nativeEvent.contentOffset.y > stickyTopRef.current + 2;
+        if (past !== scrolledPast) setScrolledPast(past);
+      }}
       style={styles.scroll}
       // Espacio abajo para que las últimas tiendas no queden debajo del menú
       contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + bottomInset }]}
@@ -4999,13 +5008,17 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       {/* Con fondo personalizado no hay franja: el buscador flota (con una
           sombra suave) sobre tu fondo, como el menú de abajo. Una franja de
           color o con el fondo recortado se notaba como un corte. */}
-      <View style={[homeExtraStyles.stickySearch, !!backgroundSource && homeExtraStyles.stickySearchFloating]}>
+      <View
+        style={[homeExtraStyles.stickySearch, !!backgroundSource && homeExtraStyles.stickySearchFloating]}
+        onLayout={(e) => { stickyTopRef.current = e.nativeEvent.layout.y; }}
+      >
       {/* Con fondo personalizado y el selector abierto: un panel claro detrás
           de buscador + selector + botón, para que las tiendas que pasan por
           debajo no se vean entre los huecos (quedaba entreverado) */}
       {/* Contenedor del ancho exacto del buscador: el panel se mide desde acá */}
       <View>
-      {!!backgroundSource && !!input.trim() && (
+      {/* Solo si bajaste: arriba de todo se ve mejor sin panel */}
+      {!!backgroundSource && !!input.trim() && scrolledPast && (
         <View pointerEvents="none" style={homeExtraStyles.stickySearchPanel} />
       )}
       <View style={homeExtraStyles.searchRow}>
@@ -5018,6 +5031,9 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
             placeholderTextColor={COLORS.textTertiary}
             value={input}
             onChangeText={setInput}
+            // Si bajaste por las tiendas, al tocar el buscador la pantalla sube:
+            // buscador, selector y botón quedan en su lugar, sin nada detrás
+            onFocus={() => { if (scrolledPast) homeScrollRef.current?.scrollTo({ y: 0, animated: true }); }}
             onSubmitEditing={submitSearch}
             returnKeyType={searchMode === 'mis' ? 'search' : 'go'}
             autoCapitalize="none"
@@ -5155,9 +5171,9 @@ const homeExtraStyles = StyleSheet.create({
     position: 'absolute',
     top: 4, bottom: 4, left: -10, right: -10,
     borderRadius: 22,
-    backgroundColor: 'rgba(250, 247, 242, 0.9)',
+    backgroundColor: COLORS.background, // sólido: con transparencia se mezclaban las tiendas
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.7)',
+    borderColor: COLORS.border,
   },
   stickySearchFloating: {
     backgroundColor: 'transparent',
