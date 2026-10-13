@@ -5000,6 +5000,12 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
           sombra suave) sobre tu fondo, como el menú de abajo. Una franja de
           color o con el fondo recortado se notaba como un corte. */}
       <View style={[homeExtraStyles.stickySearch, !!backgroundSource && homeExtraStyles.stickySearchFloating]}>
+      {/* Con fondo personalizado y el selector abierto: un panel claro detrás
+          de buscador + selector + botón, para que las tiendas que pasan por
+          debajo no se vean entre los huecos (quedaba entreverado) */}
+      {!!backgroundSource && !!input.trim() && (
+        <View pointerEvents="none" style={homeExtraStyles.stickySearchPanel} />
+      )}
       <View style={homeExtraStyles.searchRow}>
         <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
         <View style={homeExtraStyles.searchInputWrap}>
@@ -5140,6 +5146,14 @@ const homeExtraStyles = StyleSheet.create({
     marginHorizontal: -24,
     paddingHorizontal: 24,
     zIndex: 2,
+  },
+  stickySearchPanel: {
+    position: 'absolute',
+    top: 6, bottom: 6, left: 14, right: 14,
+    borderRadius: 22,
+    backgroundColor: 'rgba(250, 247, 242, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.7)',
   },
   stickySearchFloating: {
     backgroundColor: 'transparent',
