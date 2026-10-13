@@ -4529,6 +4529,15 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
   const homeScrollRef = useRef(null);
   const stickyTopRef = useRef(0);           // dónde empieza el buscador fijo
   const [scrolledPast, setScrolledPast] = useState(false); // ¿ya quedó pegado arriba?
+  const scrollYRef = useRef(0);
+  // Subir hasta arriba de todo. Con un pequeño retraso: si se hace en el mismo
+  // momento en que se abre el teclado, iOS lo pisa y la pantalla no se movía.
+  function scrollHomeToTop() {
+    if (scrollYRef.current <= 2) return;
+    [60, 350].forEach(ms => setTimeout(() => {
+      if (scrollYRef.current > 2) homeScrollRef.current?.scrollTo({ y: 0, animated: true });
+    }, ms));
+  }
 
   const [featuredCollapsed, setFeaturedCollapsed] = useState(false);
   const [storeImages, setStoreImages] = useState({}); // domain -> og:image url de la web de la tienda
@@ -4973,6 +4982,7 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       ref={homeScrollRef}
       scrollEventThrottle={32}
       onScroll={(e) => {
+        scrollYRef.current = e.nativeEvent.contentOffset.y;
         const past = e.nativeEvent.contentOffset.y > stickyTopRef.current + 2;
         if (past !== scrolledPast) setScrolledPast(past);
       }}
@@ -5030,10 +5040,14 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
             placeholder="Buscar…"
             placeholderTextColor={COLORS.textTertiary}
             value={input}
-            onChangeText={setInput}
+            onChangeText={(t) => {
+              // Primera letra habiendo bajado: subir (por si al tocar no subió)
+              if (!input.trim() && t.trim()) scrollHomeToTop();
+              setInput(t);
+            }}
             // Si bajaste por las tiendas, al tocar el buscador la pantalla sube:
             // buscador, selector y botón quedan en su lugar, sin nada detrás
-            onFocus={() => { if (scrolledPast) homeScrollRef.current?.scrollTo({ y: 0, animated: true }); }}
+            onFocus={scrollHomeToTop}
             onSubmitEditing={submitSearch}
             returnKeyType={searchMode === 'mis' ? 'search' : 'go'}
             autoCapitalize="none"
