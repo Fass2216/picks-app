@@ -3568,10 +3568,21 @@ function SettingsScreen({
           <View style={profileStyles.sectionDivider} />
           <Text style={profileStyles.sectionEyebrow}>AYUDA</Text>
           {!!onReplayTour && (
-            <TouchableOpacity style={profileStyles.notifRow} onPress={() => { onClose?.(); onReplayTour(); }} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={profileStyles.notifRow}
+              onPress={() => {
+                // También vuelven los avisos del navegador (estrella y
+                // mantener apretada la foto), para repasarlos en una tienda
+                AsyncStorage.removeItem(BROWSER_TIPS_KEY).catch(() => {});
+                browserTipShownThisSession = false;
+                onClose?.();
+                onReplayTour();
+              }}
+              activeOpacity={0.7}
+            >
               <View style={{ flex: 1, marginRight: 12 }}>
                 <Text style={profileStyles.notifRowLabel}>Ver tutorial de nuevo</Text>
-                <Text style={profileStyles.notifRowSub}>Repetí la guía de las funciones principales de la app</Text>
+                <Text style={profileStyles.notifRowSub}>Repetí la guía de las funciones principales y los consejos dentro de las tiendas</Text>
               </View>
               <Ionicons name="school-outline" size={18} color={COLORS.textTertiary} />
             </TouchableOpacity>
