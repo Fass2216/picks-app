@@ -2142,6 +2142,7 @@ function AppContent() {
   }
  
   function flyToPicks(startX, startY, imgUri, productData) {
+    markBrowserTip('pick', 'done'); // ya sabe guardar productos: no más aviso
     const screenStartX = startX;
     const screenStartY = startY + URL_BAR_OFFSET;
  
@@ -5246,6 +5247,71 @@ function toggleWww(u) {
   }
 }
 
+// ── Avisos dentro del navegador de las tiendas ───────────────────────────────
+// Idea de Agus: quien entra a una tienda no sabe que la estrella la guarda en
+// Mis tiendas ni que manteniendo apretada una foto guarda el producto. Se
+// muestra un aviso chico en el momento justo, con reglas para no molestar:
+//   - como mucho uno por cada vez que se abre la app;
+//   - cada aviso deja de salir para siempre cuando se hace esa acción;
+//   - si se cerró 3 veces sin usarlo, tampoco vuelve.
+const BROWSER_TIPS_KEY = 'browser-tips-v1';
+const BROWSER_TIP_MAX_DISMISS = 3;
+let browserTipShownThisSession = false;
+async function readBrowserTips() {
+  try { return JSON.parse(await AsyncStorage.getItem(BROWSER_TIPS_KEY)) || {}; } catch (e) { return {}; }
+}
+// kind: 'star' | 'pick'; field: 'done' | 'dismiss' | 'shown'
+async function markBrowserTip(kind, field) {
+  const tips = await readBrowserTips();
+  const t = tips[kind] || {};
+  tips[kind] = field === 'done' ? { ...t, done: true } : { ...t, [field]: (t[field] || 0) + 1 };
+  AsyncStorage.setItem(BROWSER_TIPS_KEY, JSON.stringify(tips)).catch(() => {});
+}
+
+function BrowserTip({ tip, onClose }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(anim, { toValue: 1, friction: 7, tension: 70, useNativeDriver: true }).start();
+  }, []);
+  const isStar = tip === 'star';
+  return (
+    <Animated.View
+      style={[
+        isStar ? browserTipStyles.starWrap : browserTipStyles.pickWrap,
+        { opacity: anim, transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [isStar ? -8 : 12, 0] }) }] },
+      ]}
+    >
+      {isStar && <View style={browserTipStyles.arrowUp} />}
+      <TouchableOpacity style={browserTipStyles.bubble} onPress={onClose} activeOpacity={0.9}>
+        <Text style={browserTipStyles.emoji}>{isStar ? '⭐' : '👆'}</Text>
+        <Text style={browserTipStyles.text}>
+          {isStar
+            ? '¿Te gusta esta tienda? Tocá la estrella para guardarla en Mis tiendas'
+            : 'Mantené apretada la foto de un producto para guardarlo en Mis Picks'}
+        </Text>
+        <Ionicons name="close" size={16} color="rgba(255,255,255,0.75)" />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+const browserTipStyles = StyleSheet.create({
+  starWrap: { position: 'absolute', top: 54, right: 50, left: 40, alignItems: 'flex-end', zIndex: 30 },
+  pickWrap: { position: 'absolute', bottom: 18, left: 16, right: 16, zIndex: 30 },
+  arrowUp: {
+    width: 0, height: 0, marginRight: 22,
+    borderLeftWidth: 8, borderRightWidth: 8, borderBottomWidth: 9,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: COLORS.textPrimary,
+  },
+  bubble: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.textPrimary, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 6,
+  },
+  emoji: { fontSize: 18 },
+  text: { flex: 1, color: '#fff', fontSize: 13.5, fontWeight: '600', lineHeight: 18 },
+});
+
 function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare, onBlockedRedirect }) {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -5254,6 +5320,45 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
   const webRef = useRef(null);
   const canGoBackRef = useRef(false);
   const lastSafeUrlRef = useRef(url);
+  const [tip, setTip] = useState(null); // 'star' | 'pick' | null
+  const tipHideTimer = useRef(null);
+  const isSavedStoreRef = useRef(!!isCustomFavorite);
+  useEffect(() => { isSavedStoreRef.current = !!isCustomFavorite; }, [isCustomFavorite]);
+
+  // Un aviso por sesión, a los ~20 s de estar en una tienda (ver BrowserTip)
+  useEffect(() => {
+    if (browserTipShownThisSession) return;
+    const timer = setTimeout(async () => {
+      if (browserTipShownThisSession) return;
+      const tips = await readBrowserTips();
+      const eligible = (kind) => {
+        const t = tips[kind] || {};
+        return !t.done && (t.dismiss || 0) < BROWSER_TIP_MAX_DISMISS;
+      };
+      const options = [];
+      if (eligible('star') && !isSavedStoreRef.current) options.push('star');
+      if (eligible('pick')) options.push('pick');
+      if (!options.length) return;
+      // El que menos veces se mostró; a igual cantidad, la estrella
+      options.sort((a, b) => ((tips[a]?.shown || 0) - (tips[b]?.shown || 0)));
+      const chosen = options[0];
+      browserTipShownThisSession = true;
+      markBrowserTip(chosen, 'shown');
+      track('browser_tip_shown', { tip: chosen });
+      setTip(chosen);
+      tipHideTimer.current = setTimeout(() => setTip(null), 9000);
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => () => clearTimeout(tipHideTimer.current), []);
+  // Si guarda la tienda mientras está el aviso de la estrella, se va
+  useEffect(() => { if (isCustomFavorite && tip === 'star') setTip(null); }, [isCustomFavorite]);
+
+  function dismissTip() {
+    if (tip) { markBrowserTip(tip, 'dismiss'); track('browser_tip_dismissed', { tip }); }
+    clearTimeout(tipHideTimer.current);
+    setTip(null);
+  }
 
   // Franja izquierda: captura swipe antes que el WebView
   const edgePan = useRef(
@@ -5317,7 +5422,13 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
             {getDomain(currentUrl)}
           </Text>
         </View>
-        <TouchableOpacity onPress={onToggleFavorite} hitSlop={8}>
+        <TouchableOpacity
+          onPress={() => {
+            if (!isCustomFavorite) { markBrowserTip('star', 'done'); if (tip === 'star') setTip(null); }
+            onToggleFavorite?.();
+          }}
+          hitSlop={8}
+        >
           <Ionicons
             name={isCustomFavorite ? 'star' : isFavorite ? 'star' : 'star-outline'}
             size={20}
@@ -5433,6 +5544,7 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
           return false;
         }}
       />
+      {!!tip && <BrowserTip tip={tip} onClose={dismissTip} />}
     </View>
   );
 }
