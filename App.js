@@ -6905,8 +6905,41 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
                   <Ionicons name={productsError ? 'cloud-offline-outline' : 'sad-outline'} size={44} color={COLORS.border} />
                   <Text style={styles.searchEmptyTitle}>{productsError ? 'No pudimos buscar' : 'Sin resultados'}</Text>
                   <Text style={styles.searchEmptySubtitle}>
-                    {productsError ? 'Revisá tu conexión y probá de nuevo.' : `No encontramos "${query}" en las tiendas. Probá con otras palabras.`}
+                    {productsError
+                      ? 'Revisá tu conexión y probá de nuevo.'
+                      : scope === 'mis'
+                        ? `No encontramos "${query}" en tus tiendas.`
+                        : `No encontramos "${query}" en las tiendas. Probá con otras palabras.`}
                   </Text>
+                  {/* Sin nada en Mis tiendas: ofrecer lo mismo en todas, sin
+                      volver atrás ni escribirlo de nuevo */}
+                  {!productsError && scope === 'mis' && !compareMode && (
+                    <TouchableOpacity
+                      style={searchWidenStyles.btn}
+                      onPress={() => { track('search_widened', { query, from: 'empty' }); setScope('all'); }}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="globe-outline" size={16} color="#fff" />
+                      <Text style={searchWidenStyles.btnText} numberOfLines={1}>Buscar "{query}" en todas las tiendas</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {/* Pocos resultados en Mis tiendas: la misma propuesta, abajo */}
+              {scope === 'mis' && !compareMode && !productsError &&
+                products.length + exactProducts.length > 0 && products.length + exactProducts.length < 6 && (
+                <View style={searchWidenStyles.card}>
+                  <Text style={searchWidenStyles.cardTitle}>¿No encontraste lo que buscabas?</Text>
+                  <Text style={searchWidenStyles.cardSub}>Buscamos solo en tus tiendas. Probá en todas las que conoce Picks.</Text>
+                  <TouchableOpacity
+                    style={[searchWidenStyles.btn, { marginTop: 12 }]}
+                    onPress={() => { track('search_widened', { query, from: 'few' }); setScope('all'); }}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="globe-outline" size={16} color="#fff" />
+                    <Text style={searchWidenStyles.btnText} numberOfLines={1}>Buscar en todas las tiendas</Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
@@ -7479,6 +7512,22 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
 // Últimos reels de Explorar guardados en el celular (se muestran al abrir)
 const EXPLORAR_CACHE_KEY = 'explorar-feed-v1';
+
+// "Buscar en todas las tiendas" cuando en Mis tiendas no hay (casi) nada
+const searchWidenStyles = StyleSheet.create({
+  btn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: COLORS.accent, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 18,
+    marginTop: 18, alignSelf: 'stretch',
+  },
+  btnText: { color: '#fff', fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  card: {
+    marginTop: 22, padding: 16, borderRadius: 16,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+  },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
+  cardSub: { fontSize: 13, color: COLORS.textSecondary, marginTop: 4, lineHeight: 18 },
+});
 
 const EXPLORAR_CHIPS = [
   { id: 'para_vos', label: 'Para vos' },
