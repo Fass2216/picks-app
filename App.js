@@ -1321,6 +1321,45 @@ export default function App() {
   );
 }
 
+// Pantalla de inicio: fondo gris, "Picks" sube desde abajo hasta el centro,
+// al frenar se inclina a cursiva (el mismo gesto del logo en Mis tiendas) y
+// después se desvanece mostrando la app. Poco más de 1,5 s.
+const INTRO_BG = '#ECEAE6';
+function IntroSplash({ onDone }) {
+  const { height: H } = Dimensions.get('window');
+  const rise = useRef(new Animated.Value(0)).current;   // 0 = abajo, 1 = centro
+  const skew = useRef(new Animated.Value(0)).current;   // 0 = recta, 1 = cursiva
+  const fade = useRef(new Animated.Value(1)).current;   // opacidad de toda la pantalla
+  useEffect(() => {
+    Animated.sequence([
+      Animated.spring(rise, { toValue: 1, friction: 7, tension: 45, useNativeDriver: true }),
+      Animated.spring(skew, { toValue: 1, friction: 5, tension: 90, useNativeDriver: true }),
+      Animated.delay(250),
+      Animated.timing(fade, { toValue: 0, duration: 320, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start(() => onDone?.());
+  }, []);
+  return (
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: INTRO_BG, alignItems: 'center', justifyContent: 'center', zIndex: 1000, elevation: 1000, opacity: fade }]}>
+      <Animated.Text
+        style={[
+          styles.brandName,
+          {
+            fontSize: 64,
+            letterSpacing: -2,
+            opacity: rise.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 1, 1] }),
+            transform: [
+              { translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [H * 0.55, 0] }) },
+              { skewX: skew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+            ],
+          },
+        ]}
+      >
+        Picks
+      </Animated.Text>
+    </Animated.View>
+  );
+}
+
 function AppContent() {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState('home');
@@ -1343,6 +1382,7 @@ function AppContent() {
   const activeCollectionsKeyRef = useRef(null);
   const activeStoresKeyRef = useRef(null); // clave de Mis tiendas de la cuenta actual (null = cargando)
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
+  const [showIntro, setShowIntro] = useState(true); // pantalla de inicio al abrir
   useEffect(() => { setAnalyticsUser(userProfile?.id || null); }, [userProfile?.id]);
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Bienvenida para elegir intereses: una vez por usuario, si no tiene ninguno
@@ -2706,6 +2746,7 @@ function AppContent() {
         />
       )}
     </View>
+      {showIntro && <IntroSplash onDone={() => setShowIntro(false)} />}
     </TourContext.Provider>
   );
 }
