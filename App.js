@@ -1332,7 +1332,7 @@ function IntroSplash({ onDone }) {
   const fade = useRef(new Animated.Value(1)).current;   // opacidad de toda la pantalla
   useEffect(() => {
     Animated.sequence([
-      Animated.spring(rise, { toValue: 1, friction: 7, tension: 45, useNativeDriver: true }),
+      Animated.spring(rise, { toValue: 1, friction: 7.5, tension: 36, useNativeDriver: true }),
       Animated.spring(skew, { toValue: 1, friction: 5, tension: 90, useNativeDriver: true }),
       Animated.delay(250),
       Animated.timing(fade, { toValue: 0, duration: 320, easing: Easing.out(Easing.quad), useNativeDriver: true }),
@@ -4422,6 +4422,23 @@ function brandTint(hex, white = 0.84) {
   return '#' + ch((n >> 16) & 255) + ch((n >> 8) & 255) + ch(n & 255);
 }
 
+// Qué dirección de logo funcionó para cada tienda, guardado en el celular:
+// la próxima vez se pide directo esa, sin probar antes las que fallan.
+const LOGO_CACHE_KEY = 'store-logo-src-v1';
+const logoSrcCache = {};
+AsyncStorage.getItem(LOGO_CACHE_KEY)
+  .then((raw) => { if (raw) Object.assign(logoSrcCache, JSON.parse(raw)); })
+  .catch(() => {});
+let logoCacheSaveTimer = null;
+function rememberLogoSrc(domain, url) {
+  if (!domain || !url || logoSrcCache[domain] === url) return;
+  logoSrcCache[domain] = url;
+  clearTimeout(logoCacheSaveTimer);
+  logoCacheSaveTimer = setTimeout(() => {
+    AsyncStorage.setItem(LOGO_CACHE_KEY, JSON.stringify(logoSrcCache)).catch(() => {});
+  }, 1500);
+}
+
 // Alturas variables para el efecto masonry (estilo Pinterest)
 const MASONRY_HEIGHTS = [128, 150, 138, 118, 146, 132, 122, 156];
 
@@ -4445,12 +4462,18 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
   };
   const bgOpacity = bgFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] });
 
-  const logoUrls = [
-    ...(store.logo ? [store.logo] : []),
-    `https://logo.clearbit.com/${store.domain}?size=256&format=png`,
-    `https://${store.domain}/apple-touch-icon.png`,
-    `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${store.domain}&size=256`,
-  ];
+  // Clearbit (logo.clearbit.com) dejó de existir: cada logo perdía tiempo en
+  // ese intento antes de pasar al siguiente. La que ya funcionó otra vez va
+  // primero (logoSrcCache).
+  const logoUrls = useMemo(() => {
+    const list = [
+      ...(store.logo ? [store.logo] : []),
+      `https://${store.domain}/apple-touch-icon.png`,
+      `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${store.domain}&size=256`,
+    ];
+    const known = logoSrcCache[store.domain];
+    return known ? [known, ...list.filter(u => u !== known)] : list;
+  }, [store.domain, store.logo]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -4504,6 +4527,7 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
                 onLoad={(e) => {
                   const w = e?.nativeEvent?.source?.width;
                   setLogoSmall(!!w && w < 100);
+                  rememberLogoSrc(store.domain, logoUrls[logoIdx]);
                 }}
                 onError={() => setLogoIdx(prev => prev + 1)}
               />
