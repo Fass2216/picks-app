@@ -126,6 +126,7 @@ function detectSearchCategory(text) {
 
 // ID de dispositivo persistente (se guarda en AsyncStorage la primera vez)
 let DEVICE_ID = null; // caché en memoria para track()
+const APP_VERSION = '1.1.0'; // misma que app.json (para las estadísticas)
 async function getOrCreateDeviceId() {
   if (DEVICE_ID) return DEVICE_ID;
   try {
@@ -227,7 +228,8 @@ function track(event, props) {
     api_key: POSTHOG_KEY,
     event: event,
     distinct_id: DEVICE_ID,
-    properties: { ...(props || {}), $lib: 'picks-native', $lib_version: '1.0.0' },
+    // Sistema y versión de Picks: para distinguir celulares en las estadísticas
+    properties: { ...(props || {}), $lib: 'picks-native', $lib_version: '1.0.0', $os: Platform.OS, $os_version: String(Platform.Version), app_version: APP_VERSION },
     timestamp: new Date().toISOString(),
   });
   fetch(POSTHOG_HOST + '/capture/', {
