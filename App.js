@@ -216,6 +216,13 @@ Notifications.setNotificationHandler({
 let debugAlertShown = false;
  
 function track(event, props) {
+  // Sin el ID del celular PostHog descarta el evento. "app_opened" se manda
+  // apenas abre la app, antes de que el ID termine de cargarse: nunca llegaba
+  // (y no se podían contar los usuarios por día). Ahora espera al ID.
+  if (!DEVICE_ID) {
+    getOrCreateDeviceId().then(() => track(event, props)).catch(() => {});
+    return;
+  }
   const body = JSON.stringify({
     api_key: POSTHOG_KEY,
     event: event,
