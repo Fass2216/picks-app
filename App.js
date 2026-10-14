@@ -4523,13 +4523,13 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
             {logoIdx < logoUrls.length ? (
               <Image
                 source={{ uri: logoUrls[logoIdx] }}
-                // Ocupa el recuadro, pero como máximo a la mitad de sus píxeles
-                // reales: la pantalla usa 3 píxeles por punto, así casi no se
-                // estira y no se pixela. Un logo de 256 px llena el recuadro;
-                // uno de 64 px queda chico, como antes.
+                // Ocupa el recuadro, pero como máximo a su tamaño real (así no
+                // se estira de más), y nunca menos de 36: la versión anterior
+                // usaba la mitad y algunos logos (Lemon, Columbia) quedaron más
+                // chicos que antes, porque iOS informa el tamaño más bajo.
                 style={[
                   styles.masonryLogoImg,
-                  logoNatural && { maxWidth: Math.max(24, logoNatural.w / 2), maxHeight: Math.max(24, logoNatural.h / 2) },
+                  logoNatural && { maxWidth: Math.max(36, logoNatural.w), maxHeight: Math.max(36, logoNatural.h) },
                 ]}
                 resizeMode="contain"
                 onLoad={(e) => {
