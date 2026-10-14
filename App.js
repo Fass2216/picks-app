@@ -4440,13 +4440,14 @@ function rememberLogoSrc(domain, url) {
 }
 
 // Alturas variables para el efecto masonry (estilo Pinterest)
-const MASONRY_HEIGHTS = [128, 150, 138, 118, 146, 132, 122, 156];
+const MASONRY_HEIGHTS = [136, 158, 146, 126, 154, 140, 130, 164];
 
 function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height = 200 }) {
   const [logoIdx, setLogoIdx] = useState(0);
   // Logos de baja resolución (favicons de 32-64px) se muestran más chicos
   // para que no se pixelen al estirarlos
-  const [logoSmall, setLogoSmall] = useState(false);
+  // Tamaño real de la imagen del logo (en píxeles), para no estirarla de más
+  const [logoNatural, setLogoNatural] = useState(null);
   const [bgFailed, setBgFailed] = useState(false);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -4522,11 +4523,18 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
             {logoIdx < logoUrls.length ? (
               <Image
                 source={{ uri: logoUrls[logoIdx] }}
-                style={logoSmall ? styles.masonryLogoImgSmall : styles.masonryLogoImg}
+                // Ocupa el recuadro, pero como máximo a la mitad de sus píxeles
+                // reales: la pantalla usa 3 píxeles por punto, así casi no se
+                // estira y no se pixela. Un logo de 256 px llena el recuadro;
+                // uno de 64 px queda chico, como antes.
+                style={[
+                  styles.masonryLogoImg,
+                  logoNatural && { maxWidth: Math.max(24, logoNatural.w / 2), maxHeight: Math.max(24, logoNatural.h / 2) },
+                ]}
                 resizeMode="contain"
                 onLoad={(e) => {
-                  const w = e?.nativeEvent?.source?.width;
-                  setLogoSmall(!!w && w < 100);
+                  const src = e?.nativeEvent?.source;
+                  if (src?.width && src?.height) setLogoNatural({ w: src.width, h: src.height });
                   rememberLogoSrc(store.domain, logoUrls[logoIdx]);
                 }}
                 onError={() => setLogoIdx(prev => prev + 1)}
@@ -8238,16 +8246,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   masonryLogoBadge: {
-    width: '78%',
-    maxWidth: 132,
-    height: 64,
+    width: '82%',
+    maxWidth: 150,
+    height: 76,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
@@ -8257,10 +8265,6 @@ const styles = StyleSheet.create({
   masonryLogoImg: {
     width: '100%',
     height: '100%',
-  },
-  masonryLogoImgSmall: {
-    width: 32,
-    height: 32,
   },
   masonryLogoInitials: {
     fontSize: 20,
