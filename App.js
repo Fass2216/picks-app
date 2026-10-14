@@ -127,6 +127,31 @@ function detectSearchCategory(text) {
 // ID de dispositivo persistente (se guarda en AsyncStorage la primera vez)
 let DEVICE_ID = null; // caché en memoria para track()
 const APP_VERSION = '1.1.0'; // misma que app.json (para las estadísticas)
+// Con sesión iniciada, los eventos van a nombre de la CUENTA y no del celular:
+// si se reinstala la app (ID de celular nuevo) o se usa en otro celular, sigue
+// siendo la misma persona en las estadísticas. Sin sesión, el del celular.
+let ANALYTICS_USER_ID = null;
+function setAnalyticsUser(userId) {
+  const next = userId ? `u_${userId}` : null;
+  if (next === ANALYTICS_USER_ID) return;
+  ANALYTICS_USER_ID = next;
+  if (!next) return;
+  // "$identify" une en PostHog lo hecho con este celular (antes de iniciar
+  // sesión) con la cuenta
+  getOrCreateDeviceId().then((deviceId) => {
+    fetch(POSTHOG_HOST + '/capture/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: POSTHOG_KEY,
+        event: '$identify',
+        distinct_id: next,
+        properties: { $anon_distinct_id: deviceId, $lib: 'picks-native' },
+        timestamp: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  }).catch(() => {});
+}
 async function getOrCreateDeviceId() {
   if (DEVICE_ID) return DEVICE_ID;
   try {
@@ -227,9 +252,9 @@ function track(event, props) {
   const body = JSON.stringify({
     api_key: POSTHOG_KEY,
     event: event,
-    distinct_id: DEVICE_ID,
+    distinct_id: ANALYTICS_USER_ID || DEVICE_ID,
     // Sistema y versión de Picks: para distinguir celulares en las estadísticas
-    properties: { ...(props || {}), $lib: 'picks-native', $lib_version: '1.0.0', $os: Platform.OS, $os_version: String(Platform.Version), app_version: APP_VERSION },
+    properties: { ...(props || {}), $lib: 'picks-native', $lib_version: '1.0.0', device_id: DEVICE_ID, $os: Platform.OS, $os_version: String(Platform.Version), app_version: APP_VERSION },
     timestamp: new Date().toISOString(),
   });
   fetch(POSTHOG_HOST + '/capture/', {
@@ -1318,6 +1343,7 @@ function AppContent() {
   const activeCollectionsKeyRef = useRef(null);
   const activeStoresKeyRef = useRef(null); // clave de Mis tiendas de la cuenta actual (null = cargando)
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
+  useEffect(() => { setAnalyticsUser(userProfile?.id || null); }, [userProfile?.id]);
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Bienvenida para elegir intereses: una vez por usuario, si no tiene ninguno
   const [showWelcome, setShowWelcome] = useState(false);
