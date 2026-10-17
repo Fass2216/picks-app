@@ -1384,16 +1384,25 @@ function AppContent() {
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [showIntro, setShowIntro] = useState(true); // pantalla de inicio al abrir
   const [promosByDomain, setPromosByDomain] = useState({});
+  const promosRetries = useRef(0);
   function loadPromos() {
     return fetchWithTimeout(`${BACKEND_URL}/api/promos`, 15000)
       .then(r => r.json())
       .then((data) => {
         const byDomain = data?.byDomain || {};
-        if (!Object.keys(byDomain).length) return; // servidor recién arrancado: queda lo guardado
+        if (!Object.keys(byDomain).length) {
+          // Servidor recién arrancado o dormido: queda lo guardado y se
+          // reintenta cada minuto (hasta 5 veces) para no quedarse sin etiquetas
+          if (promosRetries.current < 5) { promosRetries.current += 1; setTimeout(loadPromos, 60000); }
+          return;
+        }
         setPromosByDomain(byDomain);
         AsyncStorage.setItem(PROMOS_CACHE_KEY, JSON.stringify(byDomain)).catch(() => {});
       })
-      .catch(() => {});
+      .catch(() => {
+        // sin conexión o servidor caído: también se reintenta
+        if (promosRetries.current < 5) { promosRetries.current += 1; setTimeout(loadPromos, 60000); }
+      });
   }
   useEffect(() => {
     AsyncStorage.getItem(PROMOS_CACHE_KEY)
