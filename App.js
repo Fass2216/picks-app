@@ -4215,8 +4215,9 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0 }}
-        contentContainerStyle={notifStyles.tabsRow}
+        // flexShrink 0: si no, la lista de abajo la achicaba y cortaba las palabras
+        style={{ flexGrow: 0, flexShrink: 0 }}
+        contentContainerStyle={[notifStyles.tabsRow, { paddingBottom: 4, alignItems: 'center' }]}
       >
         {NOTIF_GROUPS.filter(g => !g.onlyIfAny || grouped[g.id]?.length).map(g => {
           const active = group === g.id;
