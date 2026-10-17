@@ -1387,6 +1387,7 @@ function AppContent() {
   // producto que menciona. Antes solo abría la app.
   const openUrlRef = useRef(null);
   const [promoListOpen, setPromoListOpen] = useState(false);
+  const [whatsNew, setWhatsNew] = useState(null);
   useEffect(() => {
     const openFrom = async (response) => {
       const id = response?.notification?.request?.identifier;
@@ -1944,6 +1945,26 @@ function AppContent() {
     AsyncStorage.getItem('onboarding-tour-seen-v1').then((seen) => {
       if (!seen) setTimeout(() => setTourActive(true), 900);
     }).catch(() => {});
+  }, []);
+
+  // Novedades: el anuncio más reciente del servidor, una vez por persona. A
+  // quien instala por primera vez no se le muestra (tiene el recorrido de
+  // bienvenida): se marca como visto.
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetchWithTimeout(`${BACKEND_URL}/api/whats-new?t=${Date.now()}`, 15000);
+        const ann = await res.json();
+        if (!ann?.id) return;
+        const seenId = await AsyncStorage.getItem('whats-new-seen');
+        if (seenId === ann.id) return;
+        const tourSeen = await AsyncStorage.getItem('onboarding-tour-seen-v1');
+        if (!tourSeen) { AsyncStorage.setItem('whats-new-seen', ann.id).catch(() => {}); return; }
+        setWhatsNew(ann);
+        track('whats_new_shown', { id: ann.id });
+      } catch (e) { /* sin servidor: la próxima vez */ }
+    }, 2500); // después de la pantalla de inicio
+    return () => clearTimeout(t);
   }, []);
 
   // Cada paso del tour puede requerir estar en otra pantalla — si no coincide, cambiamos de tab.
@@ -2839,6 +2860,15 @@ function AppContent() {
         />
       )}
     </View>
+      {!tourActive && (
+        <WhatsNewModal
+          announcement={whatsNew}
+          onClose={() => {
+            if (whatsNew?.id) AsyncStorage.setItem('whats-new-seen', whatsNew.id).catch(() => {});
+            setWhatsNew(null);
+          }}
+        />
+      )}
       <PromoListModal
         visible={promoListOpen}
         picks={picks}
@@ -8277,6 +8307,50 @@ function bestPromoFor(promosByDomain, domain) {
   const list = promosByDomain[getRegisteredDomain(domain)] || promosByDomain[domain];
   return list && list.length ? list[0] : null;
 }
+
+// "Novedades": se muestra una vez por anuncio (el texto viene del servidor)
+function WhatsNewModal({ announcement, onClose }) {
+  if (!announcement) return null;
+  return (
+    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+      <View style={whatsNewStyles.backdrop}>
+        <View style={whatsNewStyles.card}>
+          <Text style={whatsNewStyles.kicker}>✨ Lo nuevo</Text>
+          <Text style={whatsNewStyles.title}>{announcement.title || 'Novedades en Picks'}</Text>
+          <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ gap: 14, paddingVertical: 6 }}>
+            {(announcement.items || []).map((it, i) => (
+              <View key={i} style={whatsNewStyles.item}>
+                <View style={whatsNewStyles.icon}>
+                  <Ionicons name={it.icon || 'sparkles-outline'} size={20} color={COLORS.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={whatsNewStyles.itemTitle}>{it.title}</Text>
+                  <Text style={whatsNewStyles.itemText}>{it.text}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+          <TouchableOpacity style={whatsNewStyles.btn} onPress={onClose} activeOpacity={0.85}>
+            <Text style={whatsNewStyles.btnText}>¡Genial!</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const whatsNewStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', paddingHorizontal: 22 },
+  card: { backgroundColor: COLORS.background, borderRadius: 24, padding: 22 },
+  kicker: { fontSize: 13, fontWeight: '700', color: COLORS.accent, marginBottom: 4 },
+  title: { fontSize: 22, fontWeight: '800', color: COLORS.textPrimary, marginBottom: 12 },
+  item: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  icon: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.accentLight, alignItems: 'center', justifyContent: 'center' },
+  itemTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
+  itemText: { fontSize: 13.5, color: COLORS.textSecondary, lineHeight: 19, marginTop: 2 },
+  btn: { marginTop: 18, backgroundColor: COLORS.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+});
 
 // Lista "Promos en tus tiendas": las tiendas donde tenés Picks y hay promo
 // bancaria. Se abre desde el aviso de varias tiendas; tocar una abre tu Pick.
