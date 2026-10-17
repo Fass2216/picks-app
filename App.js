@@ -4147,6 +4147,9 @@ const NOTIF_GROUPS = [
   { id: 'precio', label: 'Precio', icon: 'pricetag-outline' },
   { id: 'stock', label: 'Stock', icon: 'cube-outline' },
   { id: 'social', label: 'Social', icon: 'people-outline' },
+  // Avisos internos para el equipo (ej. "BROU empezó a publicar promociones").
+  // La pestaña solo aparece si hay alguno: los usuarios comunes no la ven.
+  { id: 'equipo', label: 'Equipo', icon: 'briefcase-outline', onlyIfAny: true },
 ];
 
 function notifIconFor(type) {
@@ -4154,6 +4157,7 @@ function notifIconFor(type) {
   if (type === 'out_of_stock') return { name: 'close-circle-outline', color: '#ef4444' };
   if (type === 'back_in_stock') return { name: 'checkmark-circle-outline', color: '#22c55e' };
   if (type === 'new_follower') return { name: 'person-add-outline', color: COLORS.accent };
+  if (type === 'team_alert') return { name: 'megaphone-outline', color: COLORS.accent };
   return { name: 'notifications-outline', color: COLORS.textSecondary };
 }
 
@@ -4208,7 +4212,7 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
       </View>
 
       <View style={notifStyles.tabsRow}>
-        {NOTIF_GROUPS.map(g => {
+        {NOTIF_GROUPS.filter(g => !g.onlyIfAny || grouped[g.id]?.length).map(g => {
           const active = group === g.id;
           const count = grouped[g.id]?.length || 0;
           return (
@@ -4233,6 +4237,7 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
         <Text style={[profileStyles.sectionSub, { textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }]}>
           {group === 'precio' ? 'Sin novedades de precio todavía.'
             : group === 'stock' ? 'Sin novedades de stock todavía.'
+            : group === 'equipo' ? 'Sin avisos del equipo.'
             : 'Sin actividad social todavía.'}
         </Text>
       ) : (
