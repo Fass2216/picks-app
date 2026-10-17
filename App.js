@@ -1412,6 +1412,36 @@ function AppContent() {
   openUrlRef.current = openUrl; // siempre la versión actual (openUrl está más abajo)
   const [promosByDomain, setPromosByDomain] = useState({});
   const promosRetries = useRef(0);
+  // "Mis bancos": vacío = mostrar todas las promos
+  const [myBanks, setMyBanks] = useState([]);
+  useEffect(() => {
+    AsyncStorage.getItem(MY_BANKS_KEY)
+      .then(async (raw) => {
+        const banks = raw ? JSON.parse(raw) : [];
+        setMyBanks(banks);
+        // el servidor también los necesita, para los avisos de promos
+        const device_id = await getOrCreateDeviceId();
+        fetch(`${BACKEND_URL}/api/devices/banks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id, banks }) }).catch(() => {});
+      })
+      .catch(() => {});
+  }, []);
+  async function changeMyBanks(banks) {
+    setMyBanks(banks);
+    AsyncStorage.setItem(MY_BANKS_KEY, JSON.stringify(banks)).catch(() => {});
+    track('my_banks_changed', { banks: banks.join(','), count: banks.length });
+    const device_id = await getOrCreateDeviceId();
+    fetch(`${BACKEND_URL}/api/devices/banks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id, banks }) }).catch(() => {});
+  }
+  // Las promos que ve la persona: solo las de sus bancos (si eligió alguno)
+  const visiblePromos = useMemo(() => {
+    if (!myBanks.length) return promosByDomain;
+    const out = {};
+    for (const [d, list] of Object.entries(promosByDomain)) {
+      const mine = list.filter(p => myBanks.includes(p.bank));
+      if (mine.length) out[d] = mine;
+    }
+    return out;
+  }, [promosByDomain, myBanks]);
   function loadPromos() {
     // `t` distinto en cada pedido: el iPhone no reusa una respuesta vieja
     return fetchWithTimeout(`${BACKEND_URL}/api/promos?t=${Date.now()}`, 15000)
@@ -2357,7 +2387,7 @@ function AppContent() {
       {/* El menú flota encima (el contenido pasa por detrás) en las pantallas
           principales. En el navegador no: las webs tienen botones y avisos
           fijos abajo (carrito, cookies) que quedarían tapados. */}
-      <PromosContext.Provider value={promosByDomain}>
+      <PromosContext.Provider value={visiblePromos}>
       <TabBarInsetContext.Provider value={menuFloats ? tabBarHeight : 0}>
       <View style={[styles.content, !menuFloats && { paddingBottom: tabBarHeight }]}>
         {/* Buscar queda montada (oculta) mientras se abre un producto de los
@@ -2512,6 +2542,8 @@ function AppContent() {
           />
         ) : activeTab === 'settings' ? (
           <SettingsScreen
+            myBanks={myBanks}
+            onMyBanksChange={changeMyBanks}
             userProfile={userProfile}
             userInterests={userInterests}
             onInterestsChange={async (interests) => {
@@ -2810,7 +2842,7 @@ function AppContent() {
       <PromoListModal
         visible={promoListOpen}
         picks={picks}
-        promosByDomain={promosByDomain}
+        promosByDomain={visiblePromos}
         onOpenUrl={(url) => openUrl(url)}
         onClose={() => setPromoListOpen(false)}
       />
@@ -3332,7 +3364,7 @@ function SettingsScreen({
   userProfile, userInterests, onInterestsChange, country, onChangeCountry,
   picksCount = 0, onClearMyPicks, onCheckOutOfStock, onRemoveOutOfStock,
   currentBackground, onBackgroundChange, onLogout, onOpenCommunity, onOpenEditProfile, onClose,
-  onReplayTour,
+  onReplayTour, myBanks = [], onMyBanksChange,
 }) {
   const [myProfileRow, setMyProfileRow] = useState(null);
   const [savingInterests, setSavingInterests] = useState(false);
@@ -3714,6 +3746,40 @@ function SettingsScreen({
             <Ionicons name="trash-outline" size={18} color={COLORS.danger || '#e0524a'} />
           </TouchableOpacity>
         </View>
+
+        {/* Mis bancos: para ver solo las promos de tus tarjetas */}
+        {!!onMyBanksChange && (
+          <View style={profileStyles.section}>
+            <View style={profileStyles.sectionDivider} />
+            <Text style={profileStyles.sectionEyebrow}>MIS BANCOS</Text>
+            <Text style={[profileStyles.notifRowSub, { marginBottom: 10 }]}>
+              {myBanks.length
+                ? 'Te mostramos y avisamos solo las promos de estos bancos y tarjetas.'
+                : 'Marcá tus bancos y tarjetas para ver solo sus promos. Sin marcar, ves todas.'}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {BANK_OPTIONS.map(b => {
+                const on = myBanks.includes(b);
+                return (
+                  <TouchableOpacity
+                    key={b}
+                    onPress={() => onMyBanksChange(on ? myBanks.filter(x => x !== b) : [...myBanks, b])}
+                    activeOpacity={0.75}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 5,
+                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, borderWidth: 1,
+                      borderColor: on ? COLORS.accent : COLORS.border,
+                      backgroundColor: on ? COLORS.accentLight : COLORS.surface,
+                    }}
+                  >
+                    {on && <Ionicons name="checkmark" size={14} color={COLORS.accent} />}
+                    <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? COLORS.accent : COLORS.textPrimary }}>{b}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Ayuda */}
         <View style={profileStyles.section}>
@@ -8203,6 +8269,9 @@ const TabBarInsetContext = createContext(0);
 // { "columbia.com.uy": [{ bank, discount, text, validTo, url }] }
 const PromosContext = createContext({});
 const PROMOS_CACHE_KEY = 'bank-promos-v1';
+const MY_BANKS_KEY = 'my-banks-v1';
+// Bancos y tarjetas para "Mis bancos" (mismos nombres que usa el servidor)
+const BANK_OPTIONS = ['Itaú', 'Santander', 'BROU', 'Scotiabank', 'BBVA', 'OCA', 'HSBC', 'Prex', 'Mi Dinero', 'Visa', 'Mastercard'];
 function bestPromoFor(promosByDomain, domain) {
   if (!domain) return null;
   const list = promosByDomain[getRegisteredDomain(domain)] || promosByDomain[domain];
