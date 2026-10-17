@@ -1386,10 +1386,23 @@ function AppContent() {
   // Tocar una notificación push (baja de precio, promo bancaria…) abre el
   // producto que menciona. Antes solo abría la app.
   const openUrlRef = useRef(null);
+  const [promoListOpen, setPromoListOpen] = useState(false);
   useEffect(() => {
-    const openFrom = (response) => {
-      const url = response?.notification?.request?.content?.data?.url;
-      if (url && openUrlRef.current) setTimeout(() => openUrlRef.current(url), 400);
+    const openFrom = async (response) => {
+      const id = response?.notification?.request?.identifier;
+      const data = response?.notification?.request?.content?.data || {};
+      if (!id) return;
+      // El iPhone recuerda la última notificación tocada y la devolvía en cada
+      // apertura: la tienda se volvía a abrir sola (y quedaba en blanco)
+      try {
+        if ((await AsyncStorage.getItem('last-notif-opened')) === id) return;
+        await AsyncStorage.setItem('last-notif-opened', id);
+      } catch (e) {}
+      if (data.type === 'bank_promo' && Array.isArray(data.domains) && data.domains.length > 1) {
+        setTimeout(() => setPromoListOpen(true), 600);
+        return;
+      }
+      if (data.url && openUrlRef.current) setTimeout(() => openUrlRef.current(data.url), 900);
     };
     const sub = Notifications.addNotificationResponseReceivedListener(openFrom);
     // App cerrada: la abrió el toque en la notificación
@@ -2545,6 +2558,7 @@ function AppContent() {
           <NotificationsScreen
             userProfile={userProfile}
             onOpenUrl={openUrl}
+            onOpenPromos={() => setPromoListOpen(true)}
             onOpenCommunity={() => setActiveTab('community')}
             onClose={() => setActiveTab('picks')}
             onRead={() => setUnreadNotifCount(0)}
@@ -2793,6 +2807,13 @@ function AppContent() {
         />
       )}
     </View>
+      <PromoListModal
+        visible={promoListOpen}
+        picks={picks}
+        promosByDomain={promosByDomain}
+        onOpenUrl={(url) => openUrl(url)}
+        onClose={() => setPromoListOpen(false)}
+      />
       {showIntro && <IntroSplash onDone={() => setShowIntro(false)} />}
     </TourContext.Provider>
   );
@@ -4193,7 +4214,7 @@ function notifIconFor(type) {
 }
 
 // ── NotificationsScreen ───────────────────────────────────────────────────────
-function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose, onRead }) {
+function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommunity, onClose, onRead }) {
   const [group, setGroup] = useState('precio');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4229,6 +4250,8 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
   const list = grouped[group] || [];
 
   const handlePress = (n) => {
+    // Aviso de promos en varias tiendas: la lista de todas
+    if (n.type === 'bank_promo' && (n.data?.domains?.length > 1 || /tiendas de tus Picks/.test(n.title || ''))) { onOpenPromos?.(); return; }
     if (n.data?.url) { onOpenUrl?.(n.data.url); return; }
     if (n.type === 'new_follower') { onOpenCommunity?.(); return; }
     // Avisos del equipo: pueden ser largos (lista de comercios), se ven enteros
@@ -8185,6 +8208,74 @@ function bestPromoFor(promosByDomain, domain) {
   const list = promosByDomain[getRegisteredDomain(domain)] || promosByDomain[domain];
   return list && list.length ? list[0] : null;
 }
+
+// Lista "Promos en tus tiendas": las tiendas donde tenés Picks y hay promo
+// bancaria. Se abre desde el aviso de varias tiendas; tocar una abre tu Pick.
+function PromoListModal({ visible, picks = [], promosByDomain, onOpenUrl, onClose }) {
+  const rows = [];
+  const byDomain = new Map();
+  for (const p of picks) {
+    let host = '';
+    try { host = new URL(p.url).hostname.replace(/^www\./, ''); } catch (e) { continue; }
+    const domain = getRegisteredDomain(host);
+    const promo = bestPromoFor(promosByDomain, domain);
+    if (!promo) continue;
+    if (!byDomain.has(domain)) byDomain.set(domain, { domain, promo, picks: [] });
+    byDomain.get(domain).picks.push(p);
+  }
+  byDomain.forEach(r => rows.push(r));
+  rows.sort((a, b) => b.promo.discount - a.promo.discount);
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={promoListStyles.backdrop}>
+        <View style={promoListStyles.sheet}>
+          <View style={promoListStyles.header}>
+            <Text style={promoListStyles.title}>💳 Promos en tus tiendas</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ paddingBottom: 12 }}>
+            {rows.length === 0 ? (
+              <Text style={promoListStyles.empty}>Ahora no hay promos en las tiendas de tus Picks.</Text>
+            ) : rows.map(r => (
+              <TouchableOpacity
+                key={r.domain}
+                style={promoListStyles.row}
+                activeOpacity={0.8}
+                onPress={() => { track('bank_promo_list_open', { domain: r.domain, bank: r.promo.bank }); onClose(); setTimeout(() => onOpenUrl(r.picks[0].url), 250); }}
+              >
+                <View style={promoListStyles.pct}><Text style={promoListStyles.pctText}>{r.promo.discount}%</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={promoListStyles.store} numberOfLines={1}>{getStoreDisplayName(r.domain)}</Text>
+                  <Text style={promoListStyles.detail} numberOfLines={1}>
+                    con {r.promo.bank}{r.promo.validTo ? ` · hasta el ${r.promo.validTo.split('-').reverse().slice(0, 2).join('/')}` : ''}
+                  </Text>
+                  <Text style={promoListStyles.picks}>{r.picks.length} {r.picks.length === 1 ? 'Pick guardado' : 'Picks guardados'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const promoListStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: COLORS.background, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 34 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  title: { fontSize: 18, fontWeight: '800', color: COLORS.textPrimary },
+  empty: { fontSize: 14, color: COLORS.textSecondary, paddingVertical: 20, textAlign: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
+  pct: { width: 52, height: 52, borderRadius: 14, backgroundColor: COLORS.accentLight, alignItems: 'center', justifyContent: 'center' },
+  pctText: { fontSize: 16, fontWeight: '800', color: COLORS.accent },
+  store: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
+  detail: { fontSize: 13, color: COLORS.textSecondary, marginTop: 1 },
+  picks: { fontSize: 12, color: COLORS.textTertiary, marginTop: 2 },
+});
 
 // Etiqueta chica en la tarjeta de la tienda: "15% Santander"
 function PromoBadge({ promo, extra = 0 }) {
