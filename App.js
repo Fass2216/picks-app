@@ -1383,6 +1383,20 @@ function AppContent() {
   const activeStoresKeyRef = useRef(null); // clave de Mis tiendas de la cuenta actual (null = cargando)
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [showIntro, setShowIntro] = useState(true); // pantalla de inicio al abrir
+  // Tocar una notificación push (baja de precio, promo bancaria…) abre el
+  // producto que menciona. Antes solo abría la app.
+  const openUrlRef = useRef(null);
+  useEffect(() => {
+    const openFrom = (response) => {
+      const url = response?.notification?.request?.content?.data?.url;
+      if (url && openUrlRef.current) setTimeout(() => openUrlRef.current(url), 400);
+    };
+    const sub = Notifications.addNotificationResponseReceivedListener(openFrom);
+    // App cerrada: la abrió el toque en la notificación
+    Notifications.getLastNotificationResponseAsync?.().then(openFrom).catch(() => {});
+    return () => sub.remove();
+  }, []);
+  openUrlRef.current = openUrl; // siempre la versión actual (openUrl está más abajo)
   const [promosByDomain, setPromosByDomain] = useState({});
   const promosRetries = useRef(0);
   function loadPromos() {
@@ -4170,6 +4184,7 @@ const NOTIF_GROUPS = [
 
 function notifIconFor(type) {
   if (type === 'price_drop') return { name: 'trending-down-outline', color: '#22c55e' };
+  if (type === 'bank_promo') return { name: 'card-outline', color: COLORS.accent };
   if (type === 'out_of_stock') return { name: 'close-circle-outline', color: '#ef4444' };
   if (type === 'back_in_stock') return { name: 'checkmark-circle-outline', color: '#22c55e' };
   if (type === 'new_follower') return { name: 'person-add-outline', color: COLORS.accent };
