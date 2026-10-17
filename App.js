@@ -1384,11 +1384,8 @@ function AppContent() {
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [showIntro, setShowIntro] = useState(true); // pantalla de inicio al abrir
   const [promosByDomain, setPromosByDomain] = useState({});
-  useEffect(() => {
-    AsyncStorage.getItem(PROMOS_CACHE_KEY)
-      .then((raw) => { if (raw) setPromosByDomain(prev => (Object.keys(prev).length ? prev : JSON.parse(raw))); })
-      .catch(() => {});
-    fetchWithTimeout(`${BACKEND_URL}/api/promos`, 15000)
+  function loadPromos() {
+    return fetchWithTimeout(`${BACKEND_URL}/api/promos`, 15000)
       .then(r => r.json())
       .then((data) => {
         const byDomain = data?.byDomain || {};
@@ -1397,6 +1394,12 @@ function AppContent() {
         AsyncStorage.setItem(PROMOS_CACHE_KEY, JSON.stringify(byDomain)).catch(() => {});
       })
       .catch(() => {});
+  }
+  useEffect(() => {
+    AsyncStorage.getItem(PROMOS_CACHE_KEY)
+      .then((raw) => { if (raw) setPromosByDomain(prev => (Object.keys(prev).length ? prev : JSON.parse(raw))); })
+      .catch(() => {});
+    loadPromos();
   }, []);
   useEffect(() => { setAnalyticsUser(userProfile?.id || null); }, [userProfile?.id]);
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
@@ -1934,6 +1937,9 @@ function AppContent() {
     track('custom_store_added', { store: newStore.name, domain: newStore.domain });
     showToast('Agregada a tus tiendas');
     syncCustomStoreToBackend(newStore);
+    // Si la tienda nueva tiene promo bancaria, que la etiqueta aparezca ya
+    // (el servidor la suma a la base unos segundos después)
+    setTimeout(loadPromos, 5000);
     return newStore;
   }
 
