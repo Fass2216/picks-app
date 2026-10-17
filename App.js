@@ -1386,7 +1386,8 @@ function AppContent() {
   const [promosByDomain, setPromosByDomain] = useState({});
   const promosRetries = useRef(0);
   function loadPromos() {
-    return fetchWithTimeout(`${BACKEND_URL}/api/promos`, 15000)
+    // `t` distinto en cada pedido: el iPhone no reusa una respuesta vieja
+    return fetchWithTimeout(`${BACKEND_URL}/api/promos?t=${Date.now()}`, 15000)
       .then(r => r.json())
       .then((data) => {
         const byDomain = data?.byDomain || {};
