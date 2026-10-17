@@ -1383,6 +1383,21 @@ function AppContent() {
   const activeStoresKeyRef = useRef(null); // clave de Mis tiendas de la cuenta actual (null = cargando)
   const [userProfile, setUserProfile] = useState(null);   // null = no logueado
   const [showIntro, setShowIntro] = useState(true); // pantalla de inicio al abrir
+  const [promosByDomain, setPromosByDomain] = useState({});
+  useEffect(() => {
+    AsyncStorage.getItem(PROMOS_CACHE_KEY)
+      .then((raw) => { if (raw) setPromosByDomain(prev => (Object.keys(prev).length ? prev : JSON.parse(raw))); })
+      .catch(() => {});
+    fetchWithTimeout(`${BACKEND_URL}/api/promos`, 15000)
+      .then(r => r.json())
+      .then((data) => {
+        const byDomain = data?.byDomain || {};
+        if (!Object.keys(byDomain).length) return; // servidor recién arrancado: queda lo guardado
+        setPromosByDomain(byDomain);
+        AsyncStorage.setItem(PROMOS_CACHE_KEY, JSON.stringify(byDomain)).catch(() => {});
+      })
+      .catch(() => {});
+  }, []);
   useEffect(() => { setAnalyticsUser(userProfile?.id || null); }, [userProfile?.id]);
   const [userInterests, setUserInterests] = useState([]);  // ids de categorías
   // Bienvenida para elegir intereses: una vez por usuario, si no tiene ninguno
@@ -2299,6 +2314,7 @@ function AppContent() {
       {/* El menú flota encima (el contenido pasa por detrás) en las pantallas
           principales. En el navegador no: las webs tienen botones y avisos
           fijos abajo (carrito, cookies) que quedarían tapados. */}
+      <PromosContext.Provider value={promosByDomain}>
       <TabBarInsetContext.Provider value={menuFloats ? tabBarHeight : 0}>
       <View style={[styles.content, !menuFloats && { paddingBottom: tabBarHeight }]}>
         {/* Buscar queda montada (oculta) mientras se abre un producto de los
@@ -2506,6 +2522,7 @@ function AppContent() {
         ) : null}
       </View>
       </TabBarInsetContext.Provider>
+      </PromosContext.Provider>
 
       {collectionModal && (
         <CollectionModal
@@ -4446,6 +4463,9 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
   const [logoIdx, setLogoIdx] = useState(0);
   // Logos de baja resolución (favicons de 32-64px) se muestran más chicos
   // para que no se pixelen al estirarlos
+  const promosByDomain = useContext(PromosContext);
+  const storePromo = bestPromoFor(promosByDomain, store.domain);
+  const storePromoCount = (promosByDomain[store.domain] || []).length;
   // Tamaño real de la imagen del logo (en píxeles), para no estirarla de más
   const [logoNatural, setLogoNatural] = useState(null);
   const [bgFailed, setBgFailed] = useState(false);
@@ -4518,6 +4538,7 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
           </>
         ) : null}
 
+        <PromoBadge promo={storePromo} extra={storePromoCount - 1} />
         <View style={styles.masonryLogoArea}>
           <View style={[styles.masonryLogoBadge, { backgroundColor: brandTint(store.bg) }]}>
             {logoIdx < logoUrls.length ? (
@@ -5489,6 +5510,12 @@ const browserTipStyles = StyleSheet.create({
 
 function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite, isCustomFavorite, onToggleFavorite, onUrlChange, onCompare, onBlockedRedirect }) {
   const [currentUrl, setCurrentUrl] = useState(url);
+  const promosByDomain = useContext(PromosContext);
+  const [promoClosedFor, setPromoClosedFor] = useState(null);
+  let currentHost = '';
+  try { currentHost = new URL(currentUrl).hostname.replace(/^www\./, ''); } catch (e) {}
+  const browserPromo = bestPromoFor(promosByDomain, currentHost);
+  const showPromoBar = !!browserPromo && promoClosedFor !== getRegisteredDomain(currentHost);
   const [canGoBack, setCanGoBack] = useState(false);
   const [forceReloadUrl, setForceReloadUrl] = useState(null);
   const wwwRetriedRef = useRef(new Set());
@@ -5623,6 +5650,27 @@ function BrowserView({ url, onClose, backLabel = 'Volver', onMessage, isFavorite
         )}
       </View>
 
+      {/* Promoción bancaria de esta tienda: "Hoy 15% pagando con Santander" */}
+      {showPromoBar && (
+        <View style={promoStyles.bar}>
+          <Text style={{ fontSize: 15 }}>💳</Text>
+          <Text style={promoStyles.barText} numberOfLines={2}>
+            <Text style={promoStyles.barBold}>{browserPromo.discount}% </Text>
+            pagando con {browserPromo.bank}{browserPromo.validTo ? ` · hasta el ${browserPromo.validTo.split('-').reverse().join('/')}` : ''}
+          </Text>
+          {!!browserPromo.url && (
+            <TouchableOpacity
+              onPress={() => { track('bank_promo_conditions', { bank: browserPromo.bank, domain: currentHost }); Linking.openURL(browserPromo.url).catch(() => {}); }}
+              hitSlop={8}
+            >
+              <Text style={promoStyles.barLink}>Condiciones</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => setPromoClosedFor(getRegisteredDomain(currentHost))} hitSlop={10}>
+            <Ionicons name="close" size={16} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      )}
       <WebView
         ref={webRef}
         source={{ uri: forceReloadUrl || url }}
@@ -8082,6 +8130,46 @@ const tourStyles = StyleSheet.create({
 // Alto del menú de abajo cuando flota encima de la pantalla (0 si no): las
 // listas lo suman a su espacio de abajo para que lo último no quede tapado.
 const TabBarInsetContext = createContext(0);
+
+// Promociones bancarias por dominio de tienda (del servidor: /api/promos):
+// { "columbia.com.uy": [{ bank, discount, text, validTo, url }] }
+const PromosContext = createContext({});
+const PROMOS_CACHE_KEY = 'bank-promos-v1';
+function bestPromoFor(promosByDomain, domain) {
+  if (!domain) return null;
+  const list = promosByDomain[getRegisteredDomain(domain)] || promosByDomain[domain];
+  return list && list.length ? list[0] : null;
+}
+
+// Etiqueta chica en la tarjeta de la tienda: "15% Santander"
+function PromoBadge({ promo, extra = 0 }) {
+  if (!promo) return null;
+  return (
+    <View style={promoStyles.badge} pointerEvents="none">
+      <Text style={promoStyles.badgeText} numberOfLines={1}>
+        {promo.discount}% {promo.bank}{extra > 0 ? ` +${extra}` : ''}
+      </Text>
+    </View>
+  );
+}
+
+const promoStyles = StyleSheet.create({
+  badge: {
+    position: 'absolute', top: 8, right: 8, zIndex: 3,
+    backgroundColor: '#FFFFFF', borderRadius: 10,
+    paddingHorizontal: 7, paddingVertical: 3, maxWidth: '70%',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.18, shadowRadius: 3, elevation: 3,
+  },
+  badgeText: { fontSize: 10.5, fontWeight: '800', color: COLORS.accent },
+  bar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 9,
+    backgroundColor: COLORS.accentLight, borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
+  },
+  barText: { flex: 1, fontSize: 13, color: COLORS.textPrimary },
+  barBold: { fontWeight: '800', color: COLORS.accent },
+  barLink: { fontSize: 12.5, fontWeight: '700', color: COLORS.accent },
+});
 
 function TabBar({ activeTab, setActiveTab, pickCount, onHeight }) {
   return (
