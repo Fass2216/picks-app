@@ -1953,15 +1953,23 @@ function AppContent() {
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
-        const res = await fetchWithTimeout(`${BACKEND_URL}/api/whats-new?t=${Date.now()}`, 15000);
-        const ann = await res.json();
-        if (!ann?.id) return;
+        const res = await fetchWithTimeout(`${BACKEND_URL}/api/whats-new/recent?t=${Date.now()}`, 15000);
+        const list = ((await res.json())?.announcements || []).filter(a => a?.id);
+        if (!list.length) return;
+        const newest = list[0];
         const seenId = await AsyncStorage.getItem('whats-new-seen');
-        if (seenId === ann.id) return;
+        if (seenId === newest.id) return;
         const tourSeen = await AsyncStorage.getItem('onboarding-tour-seen-v1');
-        if (!tourSeen) { AsyncStorage.setItem('whats-new-seen', ann.id).catch(() => {}); return; }
-        setWhatsNew(ann);
-        track('whats_new_shown', { id: ann.id });
+        if (!tourSeen) { AsyncStorage.setItem('whats-new-seen', newest.id).catch(() => {}); return; }
+        // Los que no vio (hasta el último que sí vio), juntos en una pantalla
+        const seenAt = list.findIndex(a => a.id === seenId);
+        const unseen = seenAt === -1 ? list : list.slice(0, seenAt);
+        setWhatsNew({
+          id: newest.id,
+          title: unseen.length > 1 ? 'Novedades en Picks' : newest.title,
+          items: unseen.flatMap(a => a.items || []),
+        });
+        track('whats_new_shown', { id: newest.id, count: unseen.length });
       } catch (e) { /* sin servidor: la próxima vez */ }
     }, 2500); // después de la pantalla de inicio
     return () => clearTimeout(t);
