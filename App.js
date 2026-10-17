@@ -4206,6 +4206,8 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
   const handlePress = (n) => {
     if (n.data?.url) { onOpenUrl?.(n.data.url); return; }
     if (n.type === 'new_follower') { onOpenCommunity?.(); return; }
+    // Avisos del equipo: pueden ser largos (lista de comercios), se ven enteros
+    if (n.type === 'team_alert') { Alert.alert(n.title, n.body); return; }
   };
 
   return (
