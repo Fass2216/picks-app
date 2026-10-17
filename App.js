@@ -4211,7 +4211,13 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
         <Text style={[profileStyles.viewingTitle, { flex: 1 }]}>Notificaciones</Text>
       </View>
 
-      <View style={notifStyles.tabsRow}>
+      {/* Desliza hacia el costado cuando no entran todas (con "Equipo" son 4) */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={notifStyles.tabsRow}
+      >
         {NOTIF_GROUPS.filter(g => !g.onlyIfAny || grouped[g.id]?.length).map(g => {
           const active = group === g.id;
           const count = grouped[g.id]?.length || 0;
@@ -4229,7 +4235,7 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenCommunity, onClose,
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       {loading ? (
         <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
