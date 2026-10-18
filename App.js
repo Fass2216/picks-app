@@ -7041,6 +7041,17 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
     const ranks = cats.map(c => allowedCats.indexOf(c)).filter(i => i !== -1);
     return ranks.length ? Math.min(...ranks) : -1;
   };
+  // Orden para "todas las tiendas": se busca de a SEARCH_BATCH, así que las
+  // que van primero son las que más pueden tener el producto. Con categoría:
+  // las de esa categoría, las vecinas, las sin categoría y al final las de
+  // otros rubros (no automotoras por un pantalón). Sin categoría, o dentro
+  // del mismo lugar: tus tiendas, las fijas y las más elegidas de la base.
+  const dbByUse = [...dbSearchable].sort((a, b) => (b.uses || 0) - (a.uses || 0));
+  const searchRank = (s) => {
+    if (!allowedCats.length) return 0;
+    const r = byCategoryRank(s);
+    return r === -1 ? allowedCats.length + 1 : r;
+  };
 
   let searchableStores = compareMode
     ? dedupedExtra
@@ -7051,8 +7062,11 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
           ...categoryFirst,
           ...customSearchable,
           ...predefinedSearchable,
-          ...dbSearchable,
-        ]);
+          ...dbByUse,
+        ])
+          .map((s, i) => ({ s, i, r: searchRank(s) }))
+          .sort((a, b) => a.r - b.r || a.i - b.i)
+          .map(x => x.s);
   if (categoryOnly && !compareMode && allowedCats.length) {
     const filtered = searchableStores
       .map((s, i) => ({ s, i, rank: byCategoryRank(s) }))
@@ -7081,7 +7095,10 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
   // "¿Quisiste decir…?": corrección cuando la búsqueda trae pocos resultados
   const [didYouMean, setDidYouMean] = useState(null);
   const searchSeq = useRef(0);
-  const storesKey = searchableStores.slice(0, 40).map(s => s.domain).join(',');
+  const storesKey = searchableStores.slice(0, SEARCH_BATCH).map(s => s.domain).join(',');
+  // "Buscar en más tiendas": cuántas de la lista ya se revisaron
+  const [searchedCount, setSearchedCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     if (!query || nlLoading || !searchableStores.length) return;
@@ -7091,12 +7108,14 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
     setProducts([]);
     setUnreadableDomains([]);
     setDidYouMean(null);
+    setSearchedCount(Math.min(searchableStores.length, SEARCH_BATCH));
+    setLoadingMore(false);
     fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         q: query,
-        stores: searchableStores.slice(0, 40).map(s => ({ domain: s.domain, name: s.name })),
+        stores: searchableStores.slice(0, SEARCH_BATCH).map(s => ({ domain: s.domain, name: s.name })),
       }),
     })
       .then(r => r.json())
@@ -7120,6 +7139,38 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
       .catch(() => { if (seq === searchSeq.current) setProductsError(true); })
       .finally(() => { if (seq === searchSeq.current) setProductsLoading(false); });
   }, [query, storesKey, nlLoading]);
+
+  // Las siguientes SEARCH_BATCH tiendas de la lista: lo que encuentra se suma
+  // abajo de lo que ya había
+  function searchMoreStores() {
+    if (loadingMore) return;
+    const batch = searchableStores.slice(searchedCount, searchedCount + SEARCH_BATCH);
+    if (!batch.length) return;
+    const seq = searchSeq.current;
+    setLoadingMore(true);
+    track('search_more_stores', { query, from: searchedCount, stores: batch.length });
+    fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: query, stores: batch.map(s => ({ domain: s.domain, name: s.name })) }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (seq !== searchSeq.current) return; // ya hay otra búsqueda
+        const found = Array.isArray(data.results) ? data.results : [];
+        setProducts(prev => {
+          const have = new Set(prev.map(p => p.url));
+          return [...prev, ...found.filter(p => !have.has(p.url))];
+        });
+        setUnreadableDomains(prev => [...prev, ...(data.unsupported || []), ...(data.slow || [])]);
+        setSearchedCount(c => c + batch.length);
+        track('search_more_results', { query, count: found.length });
+        if (!found.length) Alert.alert('Sin resultados nuevos', `No encontramos "${query}" en esas ${batch.length} tiendas.`);
+      })
+      .catch(() => { if (seq === searchSeq.current) Alert.alert('No pudimos buscar', 'Revisá tu conexión y probá de nuevo.'); })
+      .finally(() => { if (seq === searchSeq.current) setLoadingMore(false); });
+  }
+  const moreStoresLeft = !compareMode && scope !== 'mis' ? Math.max(0, searchableStores.length - searchedCount) : 0;
 
   // Tiendas que el servidor no pudo leer: se ofrecen para abrir en su web
   const openInWebStores = searchableStores.filter(s => unreadableDomains.includes(s.domain));
@@ -7321,7 +7372,7 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
             <View style={styles.searchEmpty}>
               <ActivityIndicator size="small" color={COLORS.accent} />
               <Text style={[styles.searchEmptySubtitle, { marginTop: 10 }]}>
-                Buscando en {Math.min(searchableStores.length, 40)} tiendas…
+                Buscando en {Math.min(searchableStores.length, SEARCH_BATCH)} tiendas…
               </Text>
             </View>
           ) : (
@@ -7446,6 +7497,29 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
                   >
                     <Ionicons name="globe-outline" size={16} color="#fff" />
                     <Text style={searchWidenStyles.btnText} numberOfLines={1}>Buscar en todas las tiendas</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Al final de lo encontrado: seguir con las tiendas que faltan */}
+              {!productsError && moreStoresLeft > 0 && (
+                <View style={searchWidenStyles.card}>
+                  <Text style={searchWidenStyles.cardTitle}>¿Querés más opciones?</Text>
+                  <Text style={searchWidenStyles.cardSub}>
+                    Buscamos en {searchedCount} tiendas. Quedan {moreStoresLeft} más por revisar.
+                  </Text>
+                  <TouchableOpacity
+                    style={[searchWidenStyles.btn, { marginTop: 12 }, loadingMore && { opacity: 0.6 }]}
+                    onPress={searchMoreStores}
+                    disabled={loadingMore}
+                    activeOpacity={0.85}
+                  >
+                    {loadingMore
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="storefront-outline" size={16} color="#fff" />}
+                    <Text style={searchWidenStyles.btnText} numberOfLines={1}>
+                      {loadingMore ? 'Buscando…' : 'Buscar en más tiendas'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -8026,6 +8100,10 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 const EXPLORAR_CACHE_KEY = 'explorar-feed-v1';
 
 // "Buscar en todas las tiendas" cuando en Mis tiendas no hay (casi) nada
+// Tiendas por búsqueda (el servidor acepta hasta 60); "Buscar en más tiendas"
+// sigue con las próximas
+const SEARCH_BATCH = 60;
+
 const searchWidenStyles = StyleSheet.create({
   btn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
