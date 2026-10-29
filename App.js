@@ -2959,19 +2959,10 @@ function AppContent() {
         )}
       </Modal>
       {tipStep === 'explorar' && activeTab === 'explorar' && !browserUrl && (
-        <SaveTipCard
-          title="Así se guarda un pick"
-          text="Apretá la estrella y queda guardado. O mantené apretado el producto un segundito."
-          onClose={() => { setActiveTab('picks'); setTipStep('picks'); }}
-        />
+        <ExplorarTip onClose={() => { setActiveTab('picks'); setTipStep('picks'); }} />
       )}
       {tipStep === 'picks' && activeTab === 'picks' && !browserUrl && (
-        <SaveTipCard
-          eyebrow="TU PERFIL"
-          title="Acá van a quedar todos tus picks"
-          text="Cada producto que guardes aparece en tu perfil, ordenado por tienda. Después podés juntarlos en colecciones y compartirlas."
-          onClose={finishOnboarding}
-        />
+        <ProfileTip onClose={finishOnboarding} />
       )}
       {showIntro && <IntroSplash onDone={() => setShowIntro(false)} />}
     </TourContext.Provider>
@@ -3039,148 +3030,133 @@ function personDisplayLabel(person) {
 // tiendas de Mis tiendas. Se muestra una sola vez por usuario.
 // ── Bienvenida (primera vez) ─────────────────────────────────────────────────
 // Los 3 pasos que van rotando: qué hacés, cómo se guarda, dónde queda
-const WELCOME_SLIDES = [
-  { title: 'Encontrá algo que te guste', text: 'Entrá a cualquier tienda y mantené presionada una imagen.' },
-  { title: 'Mantené y se guarda', text: 'Picks guarda el producto con su tienda y su precio.' },
-  { title: 'Todo en un solo lugar', text: 'Tus guardados, ordenados por tienda y listos para compartir.' },
-];
-
-// Tarjeta de producto dibujada (la primera vez todavía no hay fotos reales)
-function MockProduct({ icon, tint, store, name, price, width = 200, imgH = 170, star, style }) {
-  return (
-    <View style={[bienvenidaStyles.card, { width }, style]}>
-      <View style={[bienvenidaStyles.cardImg, { height: imgH, backgroundColor: tint }]}>
-        <Ionicons name={icon} size={imgH * 0.42} color="rgba(30,26,23,0.78)" />
-        {!!store && <View style={bienvenidaStyles.cardStore}><Text style={bienvenidaStyles.cardStoreText}>{store}</Text></View>}
-        {star !== undefined && (
-          <View style={bienvenidaStyles.cardStar}>
-            <Ionicons name={star ? 'star' : 'star-outline'} size={18} color={PK.accent} />
-          </View>
-        )}
-      </View>
-      {!!name && (
-        <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 2 }}>
-          <Text style={bienvenidaStyles.cardName} numberOfLines={1}>{name}</Text>
-          <Text style={bienvenidaStyles.cardPrice}>{price}</Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
-// Anillo que late sobre la foto: "mantené apretado acá"
-function PressRing() {
+// Animaciones de la Bienvenida, copiadas del lienzo de Agus: un reloj que va de
+// 0 a 1 en bucle y cada pieza sigue sus "keyframes" (los % del diseño).
+function useLoopClock(ms) {
   const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(Animated.timing(v, { toValue: 1, duration: 1400, easing: Easing.out(Easing.quad), useNativeDriver: true }));
-    loop.start();
-    return () => loop.stop();
-  }, [v]);
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[bienvenidaStyles.ring, {
-        opacity: v.interpolate({ inputRange: [0, 0.7, 1], outputRange: [0.9, 0.4, 0] }),
-        transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.5] }) }],
-      }]}
-    />
-  );
+  const ctl = useRef(null);
+  const playFrom = useCallback((p) => {
+    ctl.current?.stop();
+    v.setValue(p);
+    ctl.current = Animated.timing(v, { toValue: 1, duration: (1 - p) * ms, easing: Easing.linear, useNativeDriver: false });
+    ctl.current.start(({ finished }) => { if (finished) playFrom(0); });
+  }, [v, ms]);
+  useEffect(() => { playFrom(0); return () => ctl.current?.stop(); }, [playFrom]);
+  return [v, playFrom];
 }
+// kf(v, [[0, 0], [0.04, 1], ...]): como @keyframes, con los % en 0..1
+const kf = (v, pts) => v.interpolate({ inputRange: pts.map(p => p[0]), outputRange: pts.map(p => p[1]), extrapolate: 'clamp' });
 
-function WelcomeVisual({ index }) {
-  if (index === 0) {
-    return (
-      <View>
-        <MockProduct icon="shirt-outline" tint="#F3E3D8" store="Zara" name="Camisa de lino arena" price="$ 1.890" width={220} imgH={200} />
-        <View style={bienvenidaStyles.ringSpot}><PressRing /><View style={bienvenidaStyles.ringDot} /></View>
-      </View>
-    );
-  }
-  if (index === 1) {
-    return (
-      <View style={{ width: 260, height: 270, alignItems: 'center' }}>
-        <MockProduct icon="bulb-outline" tint="#E3E0EC" width={120} imgH={160} style={{ position: 'absolute', left: 0, top: 34, transform: [{ rotate: '-9deg' }] }} />
-        <MockProduct icon="footsteps-outline" tint="#DDE5DE" width={120} imgH={160} style={{ position: 'absolute', right: 0, top: 34, transform: [{ rotate: '9deg' }] }} />
-        <MockProduct icon="shirt-outline" tint="#F3E3D8" store="Zara" width={160} imgH={208} star style={{ position: 'absolute', top: 0 }} />
-        <View style={bienvenidaStyles.picksPill}><Ionicons name="bookmark" size={13} color="#fff" /><Text style={bienvenidaStyles.picksPillText}>Mis Picks · 3</Text></View>
-      </View>
-    );
-  }
-  const minis = [
-    ['shirt-outline', '#F3E3D8', 'ZARA', '$ 1.890'],
-    ['bulb-outline', '#E3E0EC', 'KAVEHOME', '$ 1.490'],
-    ['footsteps-outline', '#DDE5DE', 'NIKE', '$ 4.590'],
-    ['flower-outline', '#F0DCDC', 'MIBELLEZA', '$ 3.200'],
-  ];
+const WELCOME_TITLES = ['Encontrá algo que te guste', 'Mantené y se guarda', 'Todo en un solo lugar'];
+const WELCOME_TEXTS = [
+  'Entrá a cualquier tienda y mantené presionada una imagen.',
+  'Picks guarda el producto con su tienda y su precio.',
+  'Tus guardados, ordenados por tienda y listos para compartir.',
+];
+const WELCOME_STARTS = [0, 0.335, 0.68]; // dónde arranca cada paso del bucle de 12 s
+
+// Producto dibujado (la primera vez todavía no hay fotos reales)
+function ProductArt({ icon, tint, size }) {
   return (
-    <View style={bienvenidaStyles.panel}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <Text style={bienvenidaStyles.panelTitle}>Mis Picks</Text>
-        <View style={bienvenidaStyles.panelChip}><Text style={bienvenidaStyles.panelChipText}>Mudanza · 4</Text></View>
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        {minis.map(([icon, tint, store, price]) => (
-          <View key={store} style={{ width: 103, gap: 3 }}>
-            <View style={[bienvenidaStyles.mini, { backgroundColor: tint }]}><Ionicons name={icon} size={36} color="rgba(30,26,23,0.78)" /></View>
-            <Text style={[explorarCardStyles.gridStore, { fontSize: 9 }]}>{store}</Text>
-            <Text style={[explorarCardStyles.gridPrice, { fontSize: 12 }]}>{price}</Text>
-          </View>
-        ))}
-      </View>
+    <View style={{ flex: 1, backgroundColor: tint, alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name={icon} size={size} color="rgba(30,26,23,0.78)" />
     </View>
   );
 }
 
 function WelcomeIntro({ onNext }) {
   Font.useFonts(DM_FONTS);
-  const [i, setI] = useState(0);
-  const pagerRef = useRef(null);
-  const touchedRef = useRef(false); // si deslizó con el dedo, deja de pasar sola
-  const W = SCREEN.width;
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (touchedRef.current) return;
-      setI(n => {
-        const next = (n + 1) % WELCOME_SLIDES.length;
-        pagerRef.current?.scrollTo({ x: next * W, animated: true });
-        return next;
-      });
-    }, 4200);
-    return () => clearInterval(t);
-  }, [W]);
+  const [t, playFrom] = useLoopClock(12000);
+  // Deslizar con el dedo salta al paso siguiente/anterior del bucle
+  const pan = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderRelease: (_, g) => {
+      if (Math.abs(g.dx) < 40) return;
+      const now = t.__getValue();
+      const cur = now >= WELCOME_STARTS[2] ? 2 : now >= WELCOME_STARTS[1] ? 1 : 0;
+      const next = g.dx < 0 ? (cur + 1) % 3 : (cur + 2) % 3;
+      playFrom(WELCOME_STARTS[next]);
+    },
+  })).current;
+
+  // .tr-a: la tarjeta aparece, se mantiene y "cae" achicándose a Mis Picks
+  const aOp = kf(t, [[0, 0], [0.04, 1], [0.28, 1], [0.36, 0], [1, 0]]);
+  const aY = kf(t, [[0, 14], [0.04, 0], [0.28, 0], [0.36, 110], [1, 110]]);
+  const aS = kf(t, [[0, 0.94], [0.04, 1], [0.28, 1], [0.36, 0.3], [1, 0.3]]);
+  // .tr-ring: el dedo mantiene apretado
+  const rOp = kf(t, [[0, 0], [0.13, 0], [0.15, 0.6], [0.27, 0], [1, 0]]);
+  const rS = kf(t, [[0, 0.3], [0.13, 0.3], [0.15, 0.5], [0.27, 1.7], [1, 1.7]]);
+  // .tr-b: el abanico de guardados entra con rebote
+  const bOp = kf(t, [[0, 0], [0.35, 0], [0.44, 1], [0.92, 1], [0.98, 0], [1, 0]]);
+  const bS = kf(t, [[0, 0.7], [0.35, 0.7], [0.44, 1], [0.92, 1], [0.98, 0.96], [1, 0.96]]);
+  const bY = kf(t, [[0, 20], [0.35, 20], [0.44, 0], [1, 0]]);
+  // .tr-heart: la estrella late al guardarse
+  const hS = kf(t, [[0, 1], [0.44, 1], [0.48, 1.4], [0.53, 1], [1, 1]]);
+  // .tr-txt: títulos y textos suben de a uno
+  const roll = (h) => kf(t, [[0, 0], [0.31, 0], [0.36, -h], [0.65, -h], [0.70, -2 * h], [0.96, -2 * h], [1, -3 * h]]);
+  const titleY = roll(32), textY = roll(44);
+  // .tr-dot
+  const dotW = (k) => kf(t, k === 0
+    ? [[0, 22], [0.32, 22], [0.35, 8], [1, 8]]
+    : [[0, 8], [WELCOME_STARTS[k], 8], [WELCOME_STARTS[k] + 0.015, 22], [WELCOME_STARTS[k] + 0.32, 22], [WELCOME_STARTS[k] + 0.35, 8], [1, 8]]);
+  const dotC = (k) => dotW(k).interpolate({ inputRange: [8, 22], outputRange: ['#DCD2CA', PK.accent] });
+
   return (
     <View style={bienvenidaStyles.screen}>
-      <View style={[explorarExtraStyles.topBar, { paddingRight: 8 }]}>
+      <View style={explorarExtraStyles.topBar}>
         <Text style={explorarExtraStyles.logo}>Picks</Text>
       </View>
-      <Text style={[bienvenidaStyles.eyebrow, { marginTop: 8 }]}>¡Bienvenido/a a la comunidad Picks!</Text>
-      <ScrollView
-        ref={pagerRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScrollBeginDrag={() => { touchedRef.current = true; }}
-        onMomentumScrollEnd={(e) => setI(Math.round(e.nativeEvent.contentOffset.x / W))}
-        style={{ flex: 1 }}
-      >
-        {WELCOME_SLIDES.map((s, k) => (
-          <View key={k} style={{ width: W, justifyContent: 'center', alignItems: 'center', gap: 22 }}>
-            <View style={bienvenidaStyles.visual}><WelcomeVisual index={k} /></View>
-            <View style={{ paddingHorizontal: 32, gap: 8 }}>
-              <Text style={bienvenidaStyles.title}>{s.title}</Text>
-              <Text style={bienvenidaStyles.text}>{s.text}</Text>
+      <View style={{ flex: 1, justifyContent: 'center', gap: 10 }} {...pan.panHandlers}>
+        <Text style={bienvenidaStyles.eyebrow}>¡Bienvenido/a a la comunidad Picks!</Text>
+        <View style={{ height: 330, marginTop: 6 }}>
+          {/* Escena A: un producto y el dedo que lo mantiene apretado */}
+          <Animated.View style={[bienvenidaStyles.sceneA, { opacity: aOp, transform: [{ translateY: aY }, { scale: aS }] }]}>
+            <View style={{ height: 200 }}>
+              <ProductArt icon="shirt-outline" tint="#FFFFFF" size={96} />
+              <View style={bienvenidaStyles.cardStore}><Text style={bienvenidaStyles.cardStoreText}>Zara</Text></View>
+              <Animated.View style={[bienvenidaStyles.ringA, { opacity: rOp, transform: [{ scale: rS }] }]} />
             </View>
+            <View style={{ paddingHorizontal: 14, paddingVertical: 12, gap: 3 }}>
+              <Text style={bienvenidaStyles.cardName}>Camisa de lino arena</Text>
+              <Text style={bienvenidaStyles.cardPrice}>$ 1.890</Text>
+            </View>
+          </Animated.View>
+          {/* Escena B: queda guardado junto a los demás */}
+          <Animated.View style={[bienvenidaStyles.sceneB, { opacity: bOp, transform: [{ translateY: bY }, { scale: bS }] }]}>
+            <View style={{ width: 190, height: 260 }}>
+              <View style={[bienvenidaStyles.fan, { left: -28, transform: [{ rotate: '-9deg' }], backgroundColor: '#F3E3D8' }]}><ProductArt icon="bulb-outline" tint="#F3E3D8" size={52} /></View>
+              <View style={[bienvenidaStyles.fan, { right: -28, transform: [{ rotate: '9deg' }], backgroundColor: '#E3E0EC' }]}><ProductArt icon="footsteps-outline" tint="#E3E0EC" size={52} /></View>
+              <View style={bienvenidaStyles.fanFront}>
+                <ProductArt icon="shirt-outline" tint="#FFFFFF" size={80} />
+                <Animated.View style={[bienvenidaStyles.cardStar, { transform: [{ scale: hS }] }]}>
+                  <Ionicons name="star" size={20} color={PK.accent} />
+                </Animated.View>
+              </View>
+              <View style={bienvenidaStyles.picksPill}><Text style={bienvenidaStyles.picksPillText}>Mis Picks · 3</Text></View>
+            </View>
+          </Animated.View>
+        </View>
+        <View style={{ paddingHorizontal: 32, alignItems: 'center', gap: 8 }}>
+          <View style={{ height: 32, overflow: 'hidden', alignSelf: 'stretch' }}>
+            <Animated.View style={{ transform: [{ translateY: titleY }] }}>
+              {[...WELCOME_TITLES, WELCOME_TITLES[0]].map((s, k) => <Text key={k} style={[bienvenidaStyles.title, { height: 32 }]}>{s}</Text>)}
+            </Animated.View>
           </View>
-        ))}
-      </ScrollView>
-      <View style={bienvenidaStyles.dots}>
-        {WELCOME_SLIDES.map((_, k) => (
-          <TouchableOpacity key={k} hitSlop={8} onPress={() => { touchedRef.current = true; setI(k); pagerRef.current?.scrollTo({ x: k * W, animated: true }); }}>
-            <View style={[bienvenidaStyles.dot, k === i && bienvenidaStyles.dotOn]} />
-          </TouchableOpacity>
-        ))}
+          <View style={{ height: 44, overflow: 'hidden', alignSelf: 'stretch' }}>
+            <Animated.View style={{ transform: [{ translateY: textY }] }}>
+              {[...WELCOME_TEXTS, WELCOME_TEXTS[0]].map((s, k) => <Text key={k} style={[bienvenidaStyles.text, { height: 44 }]}>{s}</Text>)}
+            </Animated.View>
+          </View>
+          <View style={[bienvenidaStyles.dots, { height: 12 }]}>
+            {[0, 1, 2].map(k => (
+              <TouchableOpacity key={k} hitSlop={8} onPress={() => playFrom(WELCOME_STARTS[k])}>
+                <Animated.View style={[bienvenidaStyles.dot, { width: dotW(k), backgroundColor: dotC(k) }]} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       </View>
-      <View style={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 18, alignItems: 'center' }}>
+      <View style={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 14 }}>
         {/* Recorrido guiado: no se saltea, sigue con elegir tiendas */}
         <TouchableOpacity style={bienvenidaStyles.cta} onPress={onNext} activeOpacity={0.85}>
           <Text style={bienvenidaStyles.ctaText}>Empezar</Text>
@@ -3237,20 +3213,91 @@ function ChooseStores({ stores, onDone }) {
   );
 }
 
-// Tarjetita que aparece en Explorar la primera vez: cómo se guarda un pick
-function SaveTipCard({ eyebrow, title, text, onClose }) {
+// Tip de Explorar (bucle de 8 s del diseño): el dedo toca la estrella, se
+// llena, sale "Guardado"; después mantiene apretada la foto y vuelve a guardar
+function ExplorarTip({ onClose }) {
+  const [t] = useLoopClock(8000);
+  const finOp = kf(t, [[0, 0], [0.08, 1], [0.20, 1], [0.26, 0], [0.54, 0], [0.60, 1], [0.84, 1], [0.90, 0], [1, 0]]);
+  const finX = kf(t, [[0, 30], [0.08, 73], [0.50, 73], [0.54, 40], [0.60, 41], [1, 41]]);
+  const finY = kf(t, [[0, 90], [0.08, 9], [0.50, 9], [0.54, 92], [0.60, 41], [1, 41]]);
+  const finS = kf(t, [[0, 1], [0.08, 1], [0.13, 0.78], [0.20, 1], [0.60, 1], [0.62, 0.8], [0.78, 0.8], [0.84, 1], [1, 1]]);
+  const ringOp = kf(t, [[0, 0], [0.60, 0], [0.62, 0.9], [0.78, 0.5], [0.84, 0], [1, 0]]);
+  const ringS = kf(t, [[0, 0.3], [0.60, 0.3], [0.62, 0.4], [0.78, 1.15], [0.84, 1.4], [1, 1.4]]);
+  const fillOp = kf(t, [[0, 0], [0.13, 0], [0.17, 1], [0.44, 1], [0.48, 0], [0.78, 0], [0.81, 1], [0.96, 1], [1, 0]]);
+  const fillS = kf(t, [[0, 0.4], [0.13, 0.4], [0.17, 1.35], [0.21, 1], [0.44, 1], [0.48, 0.4], [0.78, 0.4], [0.81, 1.35], [0.85, 1], [0.96, 1], [1, 0.4]]);
+  const starS = kf(t, [[0, 1], [0.13, 1], [0.17, 1.18], [0.21, 1], [0.78, 1], [0.81, 1.18], [0.85, 1], [1, 1]]);
+  const toastOp = kf(t, [[0, 0], [0.16, 0], [0.22, 1], [0.40, 1], [0.46, 0], [0.80, 0], [0.86, 1], [0.94, 1], [1, 0]]);
+  const toastY = kf(t, [[0, 8], [0.16, 8], [0.22, 0], [0.40, 0], [0.46, 8], [0.80, 8], [0.86, 0], [0.94, 0], [1, 8]]);
+  const txtY = kf(t, [[0, 0], [0.46, 0], [0.52, -42], [0.96, -42], [1, 0]]);
   return (
     <View style={bienvenidaStyles.tipBackdrop}>
-      <View style={bienvenidaStyles.tip}>
-        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-          <View style={bienvenidaStyles.tipIcon}><Ionicons name="star" size={24} color={PK.accent} /></View>
-          <View style={{ flex: 1, gap: 2 }}>
-            {!!eyebrow && <Text style={[tileStyles.eyebrow, { marginTop: 0 }]}>{eyebrow}</Text>}
-            <Text style={bienvenidaStyles.tipTitle}>{title}</Text>
-            <Text style={bienvenidaStyles.tipText}>{text}</Text>
+      <View style={bienvenidaStyles.darkTip}>
+        <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+          <View style={bienvenidaStyles.tipArt}>
+            <View style={{ ...StyleSheet.absoluteFillObject, borderRadius: 18, overflow: 'hidden' }}><ProductArt icon="shirt-outline" tint="#FFFFFF" size={56} /></View>
+            <Animated.View style={[bienvenidaStyles.tipRing, { opacity: ringOp, transform: [{ scale: ringS }] }]} />
+            <Animated.View style={[bienvenidaStyles.tipStar, { transform: [{ scale: starS }] }]}>
+              <Ionicons name="star-outline" size={20} color={PK.accent} style={{ position: 'absolute' }} />
+              <Animated.View style={{ position: 'absolute', opacity: fillOp, transform: [{ scale: fillS }] }}>
+                <Ionicons name="star" size={20} color={PK.accent} />
+              </Animated.View>
+            </Animated.View>
+            <Animated.View style={[bienvenidaStyles.finger, { opacity: finOp, transform: [{ translateX: finX }, { translateY: finY }, { scale: finS }] }]} />
+            <Animated.View style={[bienvenidaStyles.toast2, { opacity: toastOp, transform: [{ translateY: toastY }] }]}>
+              <Text style={bienvenidaStyles.toast2Text}>Guardado</Text>
+            </Animated.View>
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+            <Text style={bienvenidaStyles.darkTitle}>Así se guarda un pick</Text>
+            <View style={{ height: 42, overflow: 'hidden' }}>
+              <Animated.View style={{ transform: [{ translateY: txtY }] }}>
+                <Text style={bienvenidaStyles.darkText}>Apretá la estrella y queda guardado.</Text>
+                <Text style={bienvenidaStyles.darkText}>O mantené apretado el producto un segundito.</Text>
+              </Animated.View>
+            </View>
           </View>
         </View>
-        <TouchableOpacity style={[bienvenidaStyles.cta, { height: 46, marginTop: 12, backgroundColor: PK.ink }]} onPress={onClose} activeOpacity={0.85}>
+        <TouchableOpacity style={[bienvenidaStyles.cta, { height: 44, backgroundColor: PK.logo }]} onPress={onClose} activeOpacity={0.85}>
+          <Text style={[bienvenidaStyles.ctaText, { fontSize: 15 }]}>Entendido</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// Dibujo de Mis Picks vacío (bucle de 3,6 s): las tarjetas se mecen y cae una estrella
+function EmptyPicksArt() {
+  const [t] = useLoopClock(3600);
+  const sway = (a, b) => kf(t, [[0, a], [0.5, b], [1, a]]);
+  const lR = sway(-8, -12).interpolate({ inputRange: [-12, -8], outputRange: ['-12deg', '-8deg'] });
+  const rR = sway(8, 12).interpolate({ inputRange: [8, 12], outputRange: ['8deg', '12deg'] });
+  const dip = sway(0, 3), lift = sway(0, -4);
+  const sOp = kf(t, [[0, 0], [0.25, 1], [0.55, 1], [0.65, 0], [1, 0]]);
+  const sY = kf(t, [[0, -70], [0.25, -34], [0.55, 0], [0.65, 4], [1, 4]]);
+  const sS = kf(t, [[0, 0.6], [0.25, 1], [0.55, 0.7], [0.65, 0.3], [1, 0.3]]);
+  return (
+    <View style={{ width: 150, height: 100 }}>
+      <Animated.View style={[bienvenidaStyles.bpSide, { left: 0, backgroundColor: '#F3E3D8', transform: [{ rotate: lR }, { translateY: dip }] }]} />
+      <Animated.View style={[bienvenidaStyles.bpSide, { right: 0, backgroundColor: '#E3E0EC', transform: [{ rotate: rR }, { translateY: dip }] }]} />
+      <Animated.View style={[bienvenidaStyles.bpCenter, { transform: [{ translateY: lift }] }]}>
+        <Ionicons name="bookmark" size={30} color={PK.accent} />
+      </Animated.View>
+      <Animated.View style={{ position: 'absolute', left: 62, top: 22, zIndex: 2, opacity: sOp, transform: [{ translateY: sY }, { scale: sS }] }}>
+        <Ionicons name="star" size={26} color={PK.accent} />
+      </Animated.View>
+    </View>
+  );
+}
+
+// Tip de tu perfil (Mis Picks): tarjeta blanca al centro sobre la app oscurecida
+function ProfileTip({ onClose }) {
+  return (
+    <View style={[bienvenidaStyles.tipBackdrop, { backgroundColor: 'rgba(30,26,23,0.62)', justifyContent: 'center', paddingBottom: 0, paddingHorizontal: 24 }]}>
+      <View style={bienvenidaStyles.profileTip}>
+        <View style={bienvenidaStyles.panelChip}><Text style={bienvenidaStyles.panelChipText}>TU PERFIL</Text></View>
+        <Text style={[bienvenidaStyles.title, { fontSize: 22 }]}>Acá van a quedar todos tus picks</Text>
+        <Text style={bienvenidaStyles.text}>Cada producto que guardes aparece en tu perfil, ordenado por tienda. Después podés juntarlos en colecciones y compartirlas.</Text>
+        <TouchableOpacity style={[bienvenidaStyles.cta, { height: 48, marginTop: 6 }]} onPress={onClose} activeOpacity={0.85}>
           <Text style={bienvenidaStyles.ctaText}>Entendido</Text>
         </TouchableOpacity>
       </View>
@@ -3300,6 +3347,44 @@ const bienvenidaStyles = StyleSheet.create({
   panelChip: { height: 24, paddingHorizontal: 10, borderRadius: 99, backgroundColor: PK.savedBg, justifyContent: 'center' },
   panelChipText: { fontSize: 11, fontFamily: DM[700], color: PK.accentDark },
   mini: { width: 103, height: 82, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  sceneA: {
+    position: 'absolute', top: 14, alignSelf: 'center', width: 220, height: 290, borderRadius: 24, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: PK.line, overflow: 'hidden',
+    shadowColor: PK.ink, shadowOpacity: 0.12, shadowRadius: 17, shadowOffset: { width: 0, height: 14 }, elevation: 6,
+  },
+  ringA: { position: 'absolute', left: 78, top: 68, width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(224,89,42,0.35)', borderWidth: 2, borderColor: PK.logo },
+  sceneB: { position: 'absolute', top: 14, left: 0, right: 0, alignItems: 'center' },
+  fan: { position: 'absolute', top: 34, width: 120, height: 160, borderRadius: 18, overflow: 'hidden' },
+  fanFront: {
+    position: 'absolute', left: 15, top: 0, width: 160, height: 208, borderRadius: 22, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: PK.line, overflow: 'hidden',
+    shadowColor: PK.ink, shadowOpacity: 0.14, shadowRadius: 15, shadowOffset: { width: 0, height: 14 }, elevation: 6,
+  },
+  darkTip: {
+    padding: 16, gap: 12, borderRadius: 24, backgroundColor: PK.ink,
+    shadowColor: PK.ink, shadowOpacity: 0.32, shadowRadius: 16, shadowOffset: { width: 0, height: 12 }, elevation: 8,
+  },
+  tipArt: { width: 112, height: 112, borderRadius: 18, backgroundColor: '#fff' },
+  tipRing: { position: 'absolute', left: 24, top: 24, width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(224,89,42,0.28)', borderWidth: 2, borderColor: PK.logo },
+  tipStar: {
+    position: 'absolute', top: 6, right: 6, width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: PK.ink, shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+  },
+  finger: {
+    position: 'absolute', left: 0, top: 0, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(30,26,23,0.55)', borderWidth: 2, borderColor: '#fff',
+  },
+  toast2: { position: 'absolute', left: 8, bottom: -12, width: 96, height: 26, borderRadius: 99, backgroundColor: PK.logo, alignItems: 'center', justifyContent: 'center' },
+  toast2Text: { color: '#fff', fontSize: 12, fontFamily: DM[700] },
+  darkTitle: { fontSize: 17, fontFamily: DM[800], letterSpacing: -0.3, color: '#fff' },
+  darkText: { height: 42, fontSize: 14, lineHeight: 21, fontFamily: DM[400], color: '#E8DCD2' },
+  bpSide: { position: 'absolute', top: 14, width: 62, height: 80, borderRadius: 14 },
+  bpCenter: {
+    position: 'absolute', left: 39, top: 0, width: 72, height: 92, borderRadius: 16, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: PK.line, alignItems: 'center', justifyContent: 'center',
+  },
+  profileTip: { padding: 22, paddingBottom: 20, borderRadius: 28, backgroundColor: '#fff', alignItems: 'center', gap: 10 },
   title: { fontSize: 24, lineHeight: 32, fontFamily: DM[800], letterSpacing: -0.5, color: PK.ink, textAlign: 'center' },
   text: { fontSize: 15, lineHeight: 22, fontFamily: DM[400], color: PK.muted, textAlign: 'center' },
   dots: { flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 4 },
@@ -3316,7 +3401,7 @@ const bienvenidaStyles = StyleSheet.create({
   },
   bottomBar: { position: 'absolute', left: 20, right: 20, bottom: 28 },
   // Oscurece la app y no deja tocar nada hasta "Entendido": el tutorial guía
-  tipBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(30,26,23,0.45)', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 110 },
+  tipBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(30,26,23,0.45)', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 96 },
   tip: {
     padding: 16, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line,
     shadowColor: PK.ink, shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8,
@@ -7552,7 +7637,7 @@ function PicksView({
 
       picks.length === 0 ? (
         <View style={[styles.emptyState, { paddingHorizontal: 12 }]}>
-          <View style={bienvenidaStyles.tipIcon}><Ionicons name="star" size={26} color={PK.accent} /></View>
+          <EmptyPicksArt />
           <Text style={[bienvenidaStyles.title, { fontSize: 22, marginTop: 14 }]}>Acá van a quedar tus Picks</Text>
           <Text style={[bienvenidaStyles.text, { marginTop: 6 }]}>
             Apretá la estrella o mantené apretado un producto y aparece acá, ordenado por tienda.
