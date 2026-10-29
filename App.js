@@ -283,16 +283,17 @@ function track(event, props) {
 }
  
 const COLORS = {
-  background: '#FAF7F2',
+  // Paleta del diseño nuevo (la de antes: fondo #FAF7F2, texto #2A2826, naranja #E8512A)
+  background: '#FBF6F2',
   surface: '#FFFFFF',
-  card: '#F1ECE3',
-  border: '#E8E2DA',
-  borderSoft: '#EFEAE1',
-  textPrimary: '#2A2826',
-  textSecondary: '#8A8580',
-  textTertiary: '#A8A29A',
-  accent: '#E8512A',
-  accentLight: '#FCE5DC',
+  card: '#F1E9E2',
+  border: '#EDE4DD',
+  borderSoft: '#F3ECE6',
+  textPrimary: '#1E1A17',
+  textSecondary: '#6B625C',
+  textTertiary: '#9A9089',
+  accent: '#C2410C',
+  accentLight: '#FDEBE2',
 };
  
 const STORES = [
@@ -6097,8 +6098,8 @@ const colStyles = StyleSheet.create({
   skipText:     { fontSize: 14, color: 'rgba(255,255,255,0.4)' },
   colListRow:   { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#F5F1EB', borderRadius: 16, padding: 12 },
   colListThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: COLORS.accent + '18', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  colListName:  { fontSize: 15, fontWeight: '600', color: '#2A2826' },
-  colListCount: { fontSize: 12, color: '#8A8580', marginTop: 1 },
+  colListName:  { fontSize: 15, fontWeight: '600', color: COLORS.textPrimary },
+  colListCount: { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
 });
 
 // Header de perfil fusionado en la pestaña "Mis Picks" (antes vivía en "Perfil").
@@ -8191,7 +8192,8 @@ function RollingPlaceholder() {
 
 const explorarExtraStyles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 6, paddingLeft: 20, paddingRight: 16 },
-  logo: { fontSize: 30, fontFamily: DM['800i'], letterSpacing: -1.5, color: PK.logo },
+  // lineHeight y paddingRight: la itálica se sale de su caja y el celular la recortaba
+  logo: { fontSize: 30, lineHeight: 40, paddingRight: 6, fontFamily: DM['800i'], letterSpacing: -1.5, color: PK.logo },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 10, height: 48,
     backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: PK.line,
