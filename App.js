@@ -4857,7 +4857,9 @@ function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
 
 // ── Mis tiendas (diseño nuevo) ───────────────────────────────────────────────
 // Cuadrado con el color de la marca, el logo al medio, la promo arriba y el nombre abajo
-const STORE_TILE_W = (SCREEN.width - 40 - 32) / 3; // 3 por fila, 20 de margen y 16 entre cada una
+// 3 por fila, 20 de margen y 16 entre cada una. Redondeado para abajo y con
+// 2 de aire: si sumaban justo el ancho, por decimales la 3ª bajaba de fila
+const STORE_TILE_W = Math.floor((SCREEN.width - 40 - 32) / 3) - 2;
 
 function StoreTile({ store, onPress, onLongPress }) {
   const logoUrls = useStoreLogoUrls(store);
