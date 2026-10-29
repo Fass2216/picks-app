@@ -4842,17 +4842,23 @@ function StoreTile({ store, onPress, onLongPress }) {
   const promo = bestPromoFor(useContext(PromosContext), store.domain);
   return (
     <TouchableOpacity style={tileStyles.tile} onPress={onPress} onLongPress={onLongPress} activeOpacity={0.85}>
-      <View style={[tileStyles.box, { backgroundColor: store.bg || COLORS.card }]}>
+      <View>
+        {/* El logo ocupa todo el cuadrado (sin un cuadrado de color alrededor);
+            si no hay logo, las iniciales sobre el color de la marca */}
         {logoIdx < logoUrls.length ? (
-          <Image
-            source={{ uri: logoUrls[logoIdx] }}
-            style={tileStyles.logo}
-            resizeMode="contain"
-            onLoad={() => rememberLogoSrc(store.domain, logoUrls[logoIdx])}
-            onError={() => setLogoIdx(prev => prev + 1)}
-          />
+          <View style={[tileStyles.box, { backgroundColor: '#fff' }]}>
+            <Image
+              source={{ uri: logoUrls[logoIdx] }}
+              style={tileStyles.logo}
+              resizeMode="cover"
+              onLoad={() => rememberLogoSrc(store.domain, logoUrls[logoIdx])}
+              onError={() => setLogoIdx(prev => prev + 1)}
+            />
+          </View>
         ) : (
-          <Text style={[tileStyles.initials, { color: store.fg || '#fff' }]} numberOfLines={1}>{store.short || store.name?.slice(0, 2)}</Text>
+          <View style={[tileStyles.box, { backgroundColor: store.bg || COLORS.card }]}>
+            <Text style={[tileStyles.initials, { color: store.fg || '#fff' }]} numberOfLines={1}>{store.short || store.name?.slice(0, 2)}</Text>
+          </View>
         )}
         {!!promo && (
           <View style={tileStyles.promo} pointerEvents="none">
@@ -4961,7 +4967,7 @@ function PageBack({ label, onPress }) {
 // Producto en grilla de 2 (categoría): foto con la estrella para guardar, tienda, nombre y precio
 function ProductGridCard({ p, index, saved, onOpen, onSave }) {
   return (
-    <TouchableOpacity style={[explorarCardStyles.gridCard, { maxWidth: '48%' }]} onPress={onOpen} activeOpacity={0.88}>
+    <TouchableOpacity style={[explorarCardStyles.gridCard, { flex: 0, width: '48%' }]} onPress={onOpen} activeOpacity={0.88}>
       <View style={[explorarCardStyles.gridImgBox, { backgroundColor: PK_TINTS[index % PK_TINTS.length] }]}>
         {p.img ? <SmartCropImage uri={p.img} /> : <Ionicons name="image-outline" size={28} color={PK.muted} />}
         <TouchableOpacity
@@ -5029,9 +5035,9 @@ function CategoryPage({ catId, label, stores, myStores, savedUrls, bottomInset, 
           <Text style={tileStyles.sumarText}>Sumar</Text>
         </TouchableOpacity>
       </View>
-      <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ gap: 16, paddingHorizontal: 20 }}>
+      <View style={tileStyles.grid}>
         {shownStores.map(s => <StoreTile key={s.domain} store={s} onPress={() => onOpenUrl(s.url)} />)}
-      </PagerSafeScrollView>
+      </View>
 
       <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginTop: 20 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}>
         {chips.map(c => (
@@ -6196,10 +6202,10 @@ const tileStyles = StyleSheet.create({
   box: {
     width: STORE_TILE_W, height: STORE_TILE_W, borderRadius: 18,
     borderWidth: 1, borderColor: 'rgba(30,26,23,0.08)',
-    alignItems: 'center', justifyContent: 'center', padding: 6,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   addBox: { borderWidth: 2, borderStyle: 'dashed', borderColor: '#CFC3B9' },
-  logo: { width: '62%', height: '62%', borderRadius: 12 },
+  logo: { width: '100%', height: '100%' },
   initials: { fontSize: 22, fontFamily: DM[800] },
   promo: {
     position: 'absolute', top: -7, right: -7, borderRadius: 99, paddingHorizontal: 7, paddingVertical: 3,
