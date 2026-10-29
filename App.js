@@ -4536,44 +4536,38 @@ const profileStyles = StyleSheet.create({
   },
   nameEditBtn:   { padding: 6 },
   emailText:     { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500', marginBottom: 16 },
-  logoutBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: COLORS.card, borderRadius: 20 },
-  logoutText:    { fontSize: 13, color: COLORS.textSecondary },
+  logoutBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 50, paddingHorizontal: 20, borderRadius: 99, borderWidth: 1.5, borderColor: '#E5DBD3' },
+  logoutText:    { fontSize: 15, fontFamily: DM[700], color: PK.ink },
   section:       { paddingHorizontal: 20, paddingTop: 8 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionDivider: { height: 0.5, backgroundColor: COLORS.border, marginBottom: 20 },
-  sectionEyebrow: { fontSize: 11, fontWeight: '700', color: COLORS.textTertiary, letterSpacing: 1, marginBottom: 4 },
-  sectionTitle:  { fontSize: 18, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 6 },
-  sectionSub:    { fontSize: 13, color: COLORS.textSecondary, marginBottom: 18, lineHeight: 18 },
+  sectionEyebrow: { fontSize: 12, fontFamily: DM[700], color: '#8A7F77', letterSpacing: 1.6, textTransform: 'uppercase', marginBottom: 6 },
+  sectionTitle:  { fontSize: 16, fontFamily: DM[700], color: PK.ink, marginBottom: 4 },
+  sectionSub:    { fontSize: 13, fontFamily: DM[400], color: PK.muted, marginBottom: 16, lineHeight: 18 },
   interestsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   // 4 por fila y más bajos: entran las 13 categorías sin "Ver todas"
   interestTile: {
-    height: 66,
+    height: 70,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
     paddingVertical: 6,
     paddingHorizontal: 4,
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: PK.line,
   },
   interestTileActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  interestLabel:       { fontSize: 10.5, lineHeight: 13, color: COLORS.textSecondary, fontWeight: '500', textAlign: 'center' },
-  interestLabelActive: { color: '#fff', fontWeight: '600' },
+  interestLabel:       { fontSize: 12, lineHeight: 14, color: PK.soft, fontFamily: DM[600], textAlign: 'center' },
+  interestLabelActive: { color: '#fff' },
   notifRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: PK.line,
+    paddingHorizontal: 16, paddingVertical: 14,
   },
-  notifRowLabel: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
-  notifRowSub:   { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  notifRowLabel: { fontSize: 16, fontFamily: DM[700], color: PK.ink },
+  notifRowSub:   { fontSize: 13, fontFamily: DM[400], color: PK.muted, marginTop: 2, lineHeight: 17 },
   personRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
@@ -4598,7 +4592,7 @@ const profileStyles = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
     borderBottomWidth: 0.5, borderBottomColor: COLORS.border,
   },
-  viewingTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
+  viewingTitle: { fontSize: 22, fontFamily: DM[800], letterSpacing: -0.4, color: PK.ink },
   viewingSub:   { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
   viewingPickRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -4621,10 +4615,10 @@ const profileStyles = StyleSheet.create({
   bgSwatchSelected: { borderColor: COLORS.accent, borderWidth: 3 },
   bgSwatchLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 6, textAlign: 'center' },
   // Segmentado chico (ej. "Lista"/"Reel" en Configuración)
-  segmentedRow: { flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: 10, padding: 3 },
-  segmentedBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
-  segmentedBtnActive: { backgroundColor: COLORS.textPrimary },
-  segmentedText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
+  segmentedRow: { flexDirection: 'row', backgroundColor: PK.pill, borderRadius: 99, padding: 4 },
+  segmentedBtn: { height: 36, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 99 },
+  segmentedBtnActive: { backgroundColor: PK.ink },
+  segmentedText: { fontSize: 13, fontFamily: DM[700], color: PK.soft },
   segmentedTextActive: { color: '#fff' },
   // Segmentado ancho (tabs Seguidores/Siguiendo en Comunidad)
   segmentedRow2: { flexDirection: 'row', marginHorizontal: 20, marginTop: 16, backgroundColor: COLORS.card, borderRadius: 12, padding: 4 },
@@ -4646,12 +4640,12 @@ const profileStyles = StyleSheet.create({
   toggleText:        { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500' },
   toggleTextActive:  { color: COLORS.textPrimary, fontWeight: '700' },
   form:          { gap: 4 },
-  inputLabel:    { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 6, marginTop: 12 },
-  input:         { backgroundColor: COLORS.card, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: COLORS.textPrimary },
+  inputLabel:    { fontSize: 12, fontFamily: DM[700], color: '#8A7F77', letterSpacing: 1.6, textTransform: 'uppercase', marginBottom: 8, marginTop: 16 },
+  input:         { backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line, borderRadius: 14, paddingHorizontal: 16, height: 50, fontSize: 16, fontFamily: DM[400], color: PK.ink },
   errorText:     { color: '#ef4444', fontSize: 13, marginTop: 8 },
   successText:   { color: '#22c55e', fontSize: 13, marginTop: 8 },
-  authBtn:       { backgroundColor: COLORS.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
-  authBtnText:   { fontSize: 16, fontWeight: '700', color: '#fff' },
+  authBtn:       { backgroundColor: PK.logo, borderRadius: 99, height: 54, justifyContent: 'center', alignItems: 'center', marginTop: 24 },
+  authBtnText:   { fontSize: 17, fontFamily: DM[700], color: '#fff' },
 });
 
 
@@ -4965,8 +4959,8 @@ function CategoryCard({ label, stores, tint, active, width, onPress }) {
       </View>
       <View style={{ flexDirection: 'row', alignSelf: 'flex-end' }}>
         {shown.map((s, i) => (
-          <View key={s.domain} style={[tileStyles.catLogo, { backgroundColor: s.bg || '#fff', borderColor: tint, marginLeft: i ? -8 : 0 }]}>
-            <Text style={[tileStyles.catLogoText, { color: s.fg || PK.ink }]}>{(s.name || '?').charAt(0).toUpperCase()}</Text>
+          <View key={s.domain} style={[tileStyles.catLogo, { backgroundColor: '#fff', borderColor: tint, marginLeft: i ? -8 : 0 }]}>
+            <Text style={[tileStyles.catLogoText, { color: PK.ink }]}>{(s.name || '?').charAt(0).toUpperCase()}</Text>
           </View>
         ))}
         {extra > 0 && (
@@ -6884,6 +6878,7 @@ function PicksView({
   const [activeStore, setActiveStore] = useState(null);
   const [activeCountry, setActiveCountry] = useState(null);
   const [shareCardPick, setShareCardPick] = useState(null);
+  const [shareColId, setShareColId] = useState(null); // hoja "Compartir «colección»" (5d)
   const shareCardRef = useRef(null);
   const shareImageReady = useRef(null);
 
@@ -7134,8 +7129,54 @@ function PicksView({
     );
   }
 
+  const shareCol = collections.find(c => c.id === shareColId);
+  const shareColList = shareCol ? picks.filter(p => shareCol.pickIds.includes(p.id)) : [];
+
   return (
     <View style={styles.viewContent}>
+      {/* 5d · Compartir una colección: link, hacerla pública y compartir */}
+      <Modal visible={!!shareCol} transparent animationType="slide" onRequestClose={() => setShareColId(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <TouchableOpacity style={tileStyles.sheetBackdrop} onPress={() => setShareColId(null)} activeOpacity={1} accessibilityLabel="Cerrar" />
+          {!!shareCol && (
+            <View style={[tileStyles.sheet, { paddingHorizontal: 20 }]}>
+              <View style={[tileStyles.sheetHead, { paddingLeft: 0, paddingRight: 0 }]}>
+                <Text style={[tileStyles.sheetTitle, { flex: 1 }]} numberOfLines={1}>Compartir «{shareCol.name}»</Text>
+                <TouchableOpacity onPress={() => setShareColId(null)} style={tileStyles.sheetClose} accessibilityLabel="Cerrar">
+                  <Ionicons name="close" size={22} color={PK.ink} />
+                </TouchableOpacity>
+              </View>
+              <Text style={profileStyles.sectionSub}>Quien abra el link ve la colección, aunque no tenga cuenta.</Text>
+              <View style={profileStyles.notifRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={profileStyles.notifRowLabel}>Colección pública</Text>
+                  <Text style={profileStyles.notifRowSub}>{shareCol.isPublic ? 'Cualquiera con el link la puede ver.' : 'Activala para poder compartir el link.'}</Text>
+                </View>
+                <Switch
+                  value={!!shareCol.isPublic}
+                  onValueChange={(val) => onToggleCollectionPublic?.(shareCol.id, val)}
+                  trackColor={{ false: COLORS.border, true: COLORS.accent }}
+                  thumbColor="#fff"
+                />
+              </View>
+              {shareCol.isPublic && (
+                <View style={[profileStyles.input, { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 }]}>
+                  <Ionicons name="link-outline" size={18} color={PK.muted} />
+                  <Text style={{ flex: 1, fontSize: 14, fontFamily: DM[500], color: PK.ink }} numberOfLines={1}>{`${BACKEND_URL}/c/${shareCol.id}`.replace(/^https?:\/\//, '')}</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[profileStyles.authBtn, !shareCol.isPublic && { opacity: 0.4 }]}
+                disabled={!shareCol.isPublic || !shareColList.length}
+                onPress={() => shareCollectionLink(shareCol, shareColList)}
+                activeOpacity={0.85}
+              >
+                <Text style={profileStyles.authBtnText}>Compartir…</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
       {shareCardPick && (
         <View style={styles.shareCardOffscreen} pointerEvents="none">
           <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 0.92, result: 'tmpfile' }}>
@@ -7236,7 +7277,7 @@ function PicksView({
                   {list.length > 0 && (
                     <TouchableOpacity
                       style={profStyles.colShare}
-                      onPress={() => (col.all ? shareCollection() : shareCollectionLink(col, list))}
+                      onPress={() => (col.all ? shareCollection() : setShareColId(col.id))}
                       accessibilityLabel={`Compartir ${col.name}`}
                     >
                       <Ionicons name="share-outline" size={17} color={PK.ink} />
