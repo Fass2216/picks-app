@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
+import * as Font from 'expo-font';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
 import { useShareIntent } from 'expo-share-intent';
@@ -33,6 +34,7 @@ import {
   UIManager,
   Modal,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider, initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -2481,6 +2483,17 @@ function AppContent() {
                   onOpenUrl={openUrl}
                   onAddPick={(item) => {
                     addPick({ title: item.title, img: item.img, link: item.url, price: item.priceText || (item.price ? String(item.price) : '') });
+                  }}
+                  collections={collections}
+                  onRemovePick={(url) => {
+                    const ids = picks.filter(p => p.url === url).map(p => p.id);
+                    ids.forEach(id => {
+                      const removed = picks.find(p => p.id === id);
+                      track('pick_removed', { store: getStoreDisplayName(removed.domain), domain: removed.domain });
+                      removePickFromBackend(id);
+                    });
+                    setPicks(prev => prev.filter(p => !ids.includes(p.id)));
+                    setCollections(prev => prev.map(c => ({ ...c, pickIds: c.pickIds.filter(pid => !ids.includes(pid)) })));
                   }}
                   unreadNotifCount={unreadNotifCount}
                   onOpenNotifications={() => setActiveTab('notifications')}
@@ -7562,7 +7575,12 @@ function getStoreBgColor(storeName) {
   return found ? found.bg : '#555555';
 }
 
-function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUrl, onAddPick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
+function ExplorarScreen({ picks, collections = [], customStores = [], userInterests = [], onOpenUrl, onAddPick, onRemovePick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
+  Font.useFonts(DM_FONTS); // al terminar de cargar la letra, se vuelve a dibujar con DM Sans
+  const [newCount, setNewCount] = useState(0); // "NUEVO · N productos para vos" después de actualizar
+  // Pastilla oscura que se desliza entre Para vos / Comunidad / Tendencias
+  const [segW, setSegW] = useState(0);
+  const segX = useRef(new Animated.Value(0)).current;
   const menuInset = useContext(TabBarInsetContext);
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -7688,6 +7706,8 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
         setFeed(prev => [...prev, ...fresh]);
         return;
       }
+      const prevUrls = new Set(feedRef.current.map(i => i.url));
+      setNewCount(feedRef.current.length ? first.filter(i => i.url && !prevUrls.has(i.url) && i.type !== 'trending').length : 0);
       seenUrlsRef.current = new Set(first.map(i => i.url).filter(Boolean));
       morePageRef.current = { para_vos: 0, tendencias: 0 };
       setFeed(first);
@@ -7802,27 +7822,33 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   // Quién lo trae: la tienda, o la persona si es un Pick de la comunidad
   const sourceOf = (item) => item.type === 'friend_pick' ? `${item.actorName} guardó un Pick` : item.store;
   const shareItem = (item) => { if (item.url) Share.share({ message: `${item.title}\n${item.url}` }).catch(() => {}); };
+  const toggleSave = (item, picked) => (picked ? onRemovePick?.(item.url) : onAddPick(item));
+  // En qué colección quedó guardado: "Ya lo tenés · Mudanza"
+  const collectionOf = (url) => {
+    const ids = picks.filter(p => p.url === url).map(p => p.id);
+    return collections.find(c => c.pickIds?.some(id => ids.includes(id)))?.name || '';
+  };
 
   // ── Grilla: 2 columnas, foto cuadrada con la estrella para guardar ─────────
-  function renderListCard({ item }) {
+  function renderListCard({ item, index }) {
     const picked = isAlreadyPicked(item.url);
     return (
       <TouchableOpacity style={explorarCardStyles.gridCard} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.88}>
-        <View style={explorarCardStyles.gridImgBox}>
+        <View style={[explorarCardStyles.gridImgBox, { backgroundColor: PK_TINTS[index % PK_TINTS.length] }]}>
           {item.img ? (
             <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           ) : (
-            <Ionicons name="image-outline" size={28} color={COLORS.textTertiary} />
+            <Ionicons name="image-outline" size={28} color={PK.muted} />
           )}
           <TouchableOpacity
             style={explorarCardStyles.gridSaveBtn}
-            onPress={() => !picked && onAddPick(item)}
+            onPress={() => toggleSave(item, picked)}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={picked ? 'Guardado' : 'Guardar'}
+            accessibilityLabel={picked ? 'Guardado. Tocar para quitar' : 'Guardar'}
             accessibilityState={{ selected: picked }}
           >
-            <Ionicons name={picked ? 'star' : 'star-outline'} size={20} color={COLORS.accent} />
+            <Ionicons name={picked ? 'star' : 'star-outline'} size={20} color={PK.accent} />
           </TouchableOpacity>
         </View>
         <View style={{ paddingHorizontal: 4, gap: 1 }}>
@@ -7837,22 +7863,26 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   }
 
   // ── Feed: una tarjeta grande por producto, con Guardar / abrir / compartir ─
-  function renderReelCard({ item }) {
+  function renderReelCard({ item, index }) {
     const picked = isAlreadyPicked(item.url);
-    const source = sourceOf(item) || '';
+    const where = picked ? collectionOf(item.url) : '';
     return (
-      <View style={[explorarCardStyles.feedCard, picked && { borderColor: '#E8C9B8' }]}>
-        <TouchableOpacity style={explorarCardStyles.feedImgBox} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.9}>
+      <View style={[explorarCardStyles.feedCard, picked && { borderColor: PK.savedLine }]}>
+        <TouchableOpacity
+          style={[explorarCardStyles.feedImgBox, { backgroundColor: PK_TINTS[index % PK_TINTS.length] }]}
+          onPress={() => item.url && onOpenUrl(item.url)}
+          activeOpacity={0.9}
+        >
           {item.img ? (
             <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           ) : (
-            <Ionicons name="image-outline" size={36} color={COLORS.textTertiary} />
+            <Ionicons name="image-outline" size={36} color={PK.muted} />
           )}
           <View style={explorarCardStyles.feedStorePill}>
-            <View style={[explorarCardStyles.feedStoreMark, { backgroundColor: item.type === 'friend_pick' ? COLORS.accent : getStoreBgColor(item.store) }]}>
-              <Text style={explorarCardStyles.feedStoreMarkText}>{(item.type === 'friend_pick' ? item.actorName : item.store || '?').charAt(0).toUpperCase()}</Text>
+            <View style={[explorarCardStyles.feedStoreMark, { backgroundColor: item.type === 'friend_pick' ? PK.accent : getStoreBgColor(item.store) }]}>
+              <Text style={explorarCardStyles.feedStoreMarkText}>{((item.type === 'friend_pick' ? item.actorName : item.store) || '?').charAt(0).toUpperCase()}</Text>
             </View>
-            <Text style={explorarCardStyles.feedStoreName} numberOfLines={1}>{source}</Text>
+            <Text style={explorarCardStyles.feedStoreName} numberOfLines={1}>{sourceOf(item) || ''}</Text>
           </View>
           {item.type === 'trending' && (
             <View style={[styles.explorarTrendingBadge, { position: 'absolute', top: 14, right: 14 }]}>
@@ -7862,7 +7892,7 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           {picked && (
             <View style={explorarCardStyles.feedHaveIt}>
               <Ionicons name="checkmark" size={14} color="#F4A27F" />
-              <Text style={explorarCardStyles.feedHaveItText}>Ya lo tenés</Text>
+              <Text style={explorarCardStyles.feedHaveItText} numberOfLines={1}>{where ? `Ya lo tenés · ${where}` : 'Ya lo tenés'}</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -7872,19 +7902,20 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
         </View>
         <View style={explorarCardStyles.feedActions}>
           <TouchableOpacity
-            style={[explorarCardStyles.feedSaveBtn, picked && { backgroundColor: '#FDEBE2' }]}
-            onPress={() => !picked && onAddPick(item)}
+            style={[explorarCardStyles.feedSaveBtn, picked && { backgroundColor: PK.savedBg }]}
+            onPress={() => toggleSave(item, picked)}
             activeOpacity={0.8}
+            accessibilityRole="button"
             accessibilityState={{ selected: picked }}
           >
-            <Ionicons name={picked ? 'star' : 'star-outline'} size={20} color={picked ? '#9A3412' : '#fff'} />
-            <Text style={[explorarCardStyles.feedSaveText, picked && { color: '#9A3412' }]}>{picked ? 'Guardado' : 'Guardar'}</Text>
+            <Ionicons name={picked ? 'star' : 'star-outline'} size={20} color={picked ? PK.accentDark : '#fff'} />
+            <Text style={[explorarCardStyles.feedSaveText, picked && { color: PK.accentDark }]}>{picked ? 'Guardado' : 'Guardar'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={explorarCardStyles.feedRoundBtn} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.7} accessibilityLabel="Abrir en la tienda">
-            <Ionicons name="open-outline" size={20} color={COLORS.textPrimary} />
+            <Ionicons name="open-outline" size={20} color={PK.ink} />
           </TouchableOpacity>
           <TouchableOpacity style={explorarCardStyles.feedRoundBtn} onPress={() => shareItem(item)} activeOpacity={0.7} accessibilityLabel="Compartir">
-            <Ionicons name="share-outline" size={20} color={COLORS.textPrimary} />
+            <Ionicons name="share-outline" size={20} color={PK.ink} />
           </TouchableOpacity>
         </View>
       </View>
@@ -7900,12 +7931,23 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       ? 'No encontramos nada con esa búsqueda.'
       : 'No hay novedades por acá todavía.';
 
+  const isGrid = viewMode === 'lista';
+  const chipIdx = Math.max(0, EXPLORAR_CHIPS.findIndex(c => c.id === chip));
+  useEffect(() => {
+    Animated.timing(segX, { toValue: chipIdx, duration: 380, easing: Easing.bezier(0.3, 0.8, 0.3, 1), useNativeDriver: true }).start();
+  }, [chipIdx, segX]);
+  const newBanner = newCount > 0 && chip === 'para_vos' && !exploreQuery.trim() ? (
+    <View style={[explorarCardStyles.newRow, !isGrid && { paddingHorizontal: 22 }]}>
+      <View style={explorarCardStyles.newPill}><Text style={explorarCardStyles.newPillText}>NUEVO</Text></View>
+      <Text style={explorarCardStyles.newText}>{newCount === 1 ? '1 producto para vos' : `${newCount} productos para vos`}</Text>
+    </View>
+  ) : null;
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: PK.bg }}>
       {/* Header — igual en los dos modos: marca, buscador, filtros y cambio de vista */}
-      <View style={styles.explorarToggleBar}>
-        <Animated.Text style={[styles.brandName, {
-          fontSize: 24,
+      <View style={explorarExtraStyles.topBar}>
+        <Animated.Text style={[explorarExtraStyles.logo, {
           opacity: titleOpacity,
           transform: [
             { scale: titleScale },
@@ -7915,12 +7957,12 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           Picks
         </Animated.Text>
         {!!onOpenNotifications && (
-          <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
+          <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={PK.ink} />
         )}
       </View>
 
       <View style={explorarExtraStyles.searchWrap}>
-        <Ionicons name="search-outline" size={20} color={COLORS.textSecondary} />
+        <Ionicons name="search-outline" size={20} color={PK.muted} />
         <View style={{ flex: 1, justifyContent: 'center' }}>
           {!exploreQuery && <RollingPlaceholder />}
           <TextInput
@@ -7932,21 +7974,30 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           />
         </View>
         {exploreQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setExploreQuery('')} hitSlop={10}>
-            <Ionicons name="close-circle" size={18} color={COLORS.textTertiary} />
+          <TouchableOpacity onPress={() => setExploreQuery('')} hitSlop={10} style={{ paddingRight: 10 }}>
+            <Ionicons name="close-circle" size={18} color={PK.muted} />
           </TouchableOpacity>
         )}
       </View>
 
       <View style={explorarExtraStyles.controlsRow}>
         <TourTarget id="explorar-chips" style={{ flex: 1 }}>
-          <View style={explorarExtraStyles.segment}>
+          <View style={explorarExtraStyles.segment} onLayout={(e) => setSegW(e.nativeEvent.layout.width)}>
+            {segW > 0 && (
+              <Animated.View
+                pointerEvents="none"
+                style={[explorarExtraStyles.segIndicator, {
+                  width: (segW - 12) / 3,
+                  transform: [{ translateX: segX.interpolate({ inputRange: [0, 2], outputRange: [0, 2 * ((segW - 12) / 3 + 2)] }) }],
+                }]}
+              />
+            )}
             {EXPLORAR_CHIPS.map(c => {
               const on = chip === c.id;
               return (
                 <TouchableOpacity
                   key={c.id}
-                  style={[explorarExtraStyles.segBtn, on && explorarExtraStyles.segBtnActive]}
+                  style={explorarExtraStyles.segBtn}
                   onPress={() => setChip(c.id)}
                   activeOpacity={0.75}
                   accessibilityRole="button"
@@ -7959,19 +8010,22 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           </View>
         </TourTarget>
         <View style={explorarExtraStyles.segment}>
-          {[['reel', 'tablet-portrait-outline', 'Ver como reel'], ['lista', 'grid-outline', 'Ver como grilla']].map(([mode, icon, label]) => {
+          {[['reel', 'Ver como reel'], ['lista', 'Ver como lista']].map(([mode, label]) => {
             const on = viewMode === mode;
+            const color = on ? '#fff' : PK.soft;
             return (
               <TouchableOpacity
                 key={mode}
-                style={[explorarExtraStyles.viewBtn, on && explorarExtraStyles.segBtnActive]}
+                style={[explorarExtraStyles.viewBtn, on && { backgroundColor: PK.ink }]}
                 onPress={() => setViewMode(mode)}
                 activeOpacity={0.75}
                 accessibilityRole="button"
                 accessibilityLabel={label}
                 accessibilityState={{ selected: on }}
               >
-                <Ionicons name={icon} size={19} color={on ? '#fff' : explorarExtraStyles.segText.color} />
+                {mode === 'reel'
+                  ? <View style={[explorarExtraStyles.reelIcon, { borderColor: color }]} />
+                  : <Ionicons name="grid-outline" size={19} color={color} />}
               </TouchableOpacity>
             );
           })}
@@ -7980,16 +8034,16 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
 
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={COLORS.accent} />
-          <Text style={{ color: COLORS.textSecondary, marginTop: 12, fontSize: 14 }}>Cargando novedades...</Text>
+          <ActivityIndicator size="large" color={PK.accent} />
+          <Text style={{ color: PK.muted, marginTop: 12, fontSize: 14, fontFamily: DM[400] }}>Cargando novedades...</Text>
         </View>
       ) : displayFeed.length === 0 ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
-          <Ionicons name="compass-outline" size={40} color={COLORS.border} />
-          <Text style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: 15, marginTop: 12, textAlign: 'center' }}>{emptyMessage}</Text>
+          <Ionicons name="compass-outline" size={40} color={PK.line} />
+          <Text style={{ color: PK.ink, fontFamily: DM[500], fontSize: 15, marginTop: 12, textAlign: 'center' }}>{emptyMessage}</Text>
           {chip !== 'amigos' && (
             <TouchableOpacity onPress={() => loadFeed()} style={{ marginTop: 20 }}>
-              <Text style={{ color: COLORS.accent, fontWeight: '500' }}>Reintentar</Text>
+              <Text style={{ color: PK.accent, fontFamily: DM[700] }}>Reintentar</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -7998,13 +8052,15 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
         <FlatList
           key={viewMode}
           data={displayFeed}
-          renderItem={viewMode === 'lista' ? renderListCard : renderReelCard}
-          numColumns={viewMode === 'lista' ? 2 : 1}
-          columnWrapperStyle={viewMode === 'lista' ? { gap: 12 } : undefined}
+          renderItem={isGrid ? renderListCard : renderReelCard}
+          numColumns={isGrid ? 2 : 1}
+          columnWrapperStyle={isGrid ? { gap: 12 } : undefined}
           keyExtractor={(item, i) => `${viewMode}-${i}-${item.url || ''}`}
-          contentContainerStyle={[viewMode === 'lista' ? explorarCardStyles.gridList : explorarCardStyles.feedList, { paddingBottom: 30 + menuInset }]}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
+          contentContainerStyle={[isGrid ? explorarCardStyles.gridList : explorarCardStyles.feedList, { paddingBottom: 30 + menuInset }]}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PK.accent} colors={[PK.accent]} title="Buscando productos nuevos…" titleColor={PK.muted} />
+          }
+          ListHeaderComponent={newBanner}
           showsVerticalScrollIndicator={false}
           onEndReached={loadMore}
           onEndReachedThreshold={1.5}
@@ -8016,50 +8072,63 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
   );
 }
 
+// Letra y colores del diseño nuevo (lienzo de Agus). Por ahora solo en Explorar.
+const DM_FONTS = {
+  DMSans_400Regular: require('@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf'),
+  DMSans_500Medium: require('@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf'),
+  DMSans_600SemiBold: require('@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf'),
+  DMSans_700Bold: require('@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf'),
+  DMSans_800ExtraBold: require('@expo-google-fonts/dm-sans/800ExtraBold/DMSans_800ExtraBold.ttf'),
+  DMSans_800ExtraBold_Italic: require('@expo-google-fonts/dm-sans/800ExtraBold_Italic/DMSans_800ExtraBold_Italic.ttf'),
+};
+const DM = { 400: 'DMSans_400Regular', 500: 'DMSans_500Medium', 600: 'DMSans_600SemiBold', 700: 'DMSans_700Bold', 800: 'DMSans_800ExtraBold', '800i': 'DMSans_800ExtraBold_Italic' };
+const PK = {
+  bg: '#FBF6F2', ink: '#1E1A17', muted: '#6B625C', soft: '#5A5049', line: '#EDE4DD', pill: '#F1E9E2',
+  accent: '#C2410C', accentDark: '#9A3412', logo: '#E0592A', savedBg: '#FDEBE2', savedLine: '#E8C9B8',
+};
+// Fondos suaves detrás de cada foto, van rotando
+const PK_TINTS = ['#F3E3D8', '#E3E0EC', '#DDE5DE', '#F0DCDC', '#DCE4EC', '#EDE6D3'];
+
 const explorarCardStyles = StyleSheet.create({
-  gridList: { paddingHorizontal: 16, paddingTop: 6, gap: 16 },
+  gridList: { paddingHorizontal: 16, paddingTop: 14, gap: 16 },
   gridCard: { flex: 1, gap: 6 },
-  gridImgBox: {
-    aspectRatio: 1, borderRadius: 18, overflow: 'hidden',
-    backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center',
-  },
+  gridImgBox: { aspectRatio: 1, borderRadius: 18, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   gridSaveBtn: {
     position: 'absolute', top: 8, right: 8, width: 40, height: 40, borderRadius: 20,
     backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#1E1A17', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+    shadowColor: PK.ink, shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
-  gridStore: { fontSize: 11, fontWeight: '700', color: '#6B625C', textTransform: 'uppercase', letterSpacing: 0.5 },
-  gridTitle: { fontSize: 13, fontWeight: '600', color: COLORS.textPrimary },
-  gridPrice: { fontSize: 14, fontWeight: '800', color: COLORS.accent },
-  feedList: { paddingHorizontal: 20, paddingTop: 6, gap: 16 },
-  feedCard: { backgroundColor: COLORS.surface, borderWidth: 1.5, borderColor: '#EDE4DD', borderRadius: 28, overflow: 'hidden' },
-  feedImgBox: { height: 290, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center' },
+  gridStore: { fontSize: 11, fontFamily: DM[700], color: PK.muted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  gridTitle: { fontSize: 13, fontFamily: DM[600], lineHeight: 17, color: PK.ink },
+  gridPrice: { fontSize: 14, fontFamily: DM[800], color: PK.accent },
+  feedList: { paddingTop: 16, gap: 16 },
+  feedCard: { marginHorizontal: 20, backgroundColor: '#fff', borderWidth: 1.5, borderColor: PK.line, borderRadius: 28, overflow: 'hidden' },
+  feedImgBox: { height: 290, alignItems: 'center', justifyContent: 'center' },
   feedStorePill: {
     position: 'absolute', top: 14, left: 14, maxWidth: '75%', height: 32, borderRadius: 99,
-    flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 4, paddingRight: 12,
-    backgroundColor: COLORS.background,
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 4, paddingRight: 12, backgroundColor: PK.bg,
   },
   feedStoreMark: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  feedStoreMarkText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  feedStoreName: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: COLORS.textPrimary },
+  feedStoreMarkText: { color: '#fff', fontSize: 11, fontFamily: DM[700] },
+  feedStoreName: { flexShrink: 1, fontSize: 13, fontFamily: DM[700], color: PK.ink },
   feedHaveIt: {
-    position: 'absolute', left: 14, bottom: 14, height: 30, borderRadius: 99,
-    flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 12,
-    backgroundColor: COLORS.textPrimary,
+    position: 'absolute', left: 14, bottom: 14, maxWidth: '85%', height: 30, borderRadius: 99,
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 12, backgroundColor: PK.ink,
   },
-  feedHaveItText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  feedTitle: { fontSize: 18, fontWeight: '700', lineHeight: 23, color: COLORS.textPrimary },
-  feedPrice: { fontSize: 20, fontWeight: '800', color: COLORS.accent },
+  feedHaveItText: { flexShrink: 1, color: '#fff', fontSize: 12, fontFamily: DM[700] },
+  feedTitle: { fontSize: 18, fontFamily: DM[700], lineHeight: 23, color: PK.ink },
+  feedPrice: { fontSize: 20, fontFamily: DM[800], color: PK.accent },
   feedActions: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 14 },
   feedSaveBtn: {
-    flex: 1, height: 48, borderRadius: 99, backgroundColor: COLORS.accent,
+    flex: 1, height: 48, borderRadius: 99, backgroundColor: PK.accent,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  feedSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  feedRoundBtn: {
-    width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: '#E5DBD3',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  feedSaveText: { color: '#fff', fontSize: 15, fontFamily: DM[700] },
+  feedRoundBtn: { width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: '#E5DBD3', alignItems: 'center', justifyContent: 'center' },
+  newRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 2, paddingBottom: 10 },
+  newPill: { height: 24, paddingHorizontal: 10, borderRadius: 99, backgroundColor: PK.logo, justifyContent: 'center' },
+  newPillText: { color: '#fff', fontSize: 11, fontFamily: DM[800], letterSpacing: 0.5 },
+  newText: { fontSize: 14, fontFamily: DM[700], color: PK.ink },
 });
 
 // Últimos reels de Explorar guardados en el celular (se muestran al abrir)
@@ -8121,24 +8190,26 @@ function RollingPlaceholder() {
 }
 
 const explorarExtraStyles = StyleSheet.create({
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 6, paddingLeft: 20, paddingRight: 16 },
+  logo: { fontSize: 30, fontFamily: DM['800i'], letterSpacing: -1.5, color: PK.logo },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 10, height: 48,
-    backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
-    marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14,
+    backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: PK.line,
+    marginHorizontal: 16, marginBottom: 6, paddingLeft: 14, paddingRight: 4,
   },
-  searchInput: { height: 44, fontSize: 15, color: COLORS.textPrimary },
+  searchInput: { height: 44, fontSize: 15, fontFamily: DM[400], color: PK.ink },
   hintWrap: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center' },
-  hintText: { fontSize: 15, lineHeight: 20, color: COLORS.textSecondary },
-  hintWord: { color: COLORS.accent, fontWeight: '700' },
-  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
-  segment: { flexDirection: 'row', gap: 2, padding: 4, backgroundColor: COLORS.card, borderRadius: 99 },
+  hintText: { fontSize: 15, lineHeight: 20, fontFamily: DM[400], color: PK.muted },
+  hintWord: { color: PK.accent, fontFamily: DM[700] },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
+  segment: { flexDirection: 'row', gap: 2, padding: 4, backgroundColor: PK.pill, borderRadius: 99 },
+  segIndicator: { position: 'absolute', top: 4, bottom: 4, left: 4, borderRadius: 99, backgroundColor: PK.ink },
   segBtn: { flex: 1, height: 40, borderRadius: 99, alignItems: 'center', justifyContent: 'center' },
-  segBtnActive: { backgroundColor: COLORS.textPrimary },
-  segText: { fontSize: 13, fontWeight: '700', color: '#5A5049' },
+  segText: { fontSize: 13, fontFamily: DM[700], color: PK.soft },
   segTextActive: { color: '#fff' },
   viewBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  reelIcon: { width: 12, height: 18, borderRadius: 2.5, borderWidth: 1.9 },
 });
-
 // Menú inferior: 3 pestañas flotantes estilo Instagram. "Mis tiendas" y
 // "Buscar"/"Perfil" (login, editar perfil, configuración, comunidad) siguen
 // existiendo como pantallas — se llega a ellas desde adentro de estas 3.
