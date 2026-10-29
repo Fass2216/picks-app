@@ -2520,6 +2520,8 @@ function AppContent() {
               ),
               home: (
                 <HomeView
+                  savedPicks={picks}
+                  onAddPick={addPick}
                   bottomInset={tabBarHeight}
                   backgroundSource={getBackgroundSource(appBackground)}
                   onOpenUrl={openUrl}
@@ -4916,12 +4918,12 @@ function FeaturedStoreCard({ store, catLabel, following, onPress, onFollow, full
 }
 
 // Tarjeta de categoría: nombre, cuántas tiendas y logos encimados
-function CategoryCard({ label, stores, tint, active, onPress }) {
+function CategoryCard({ label, stores, tint, active, width, onPress }) {
   const shown = stores.slice(0, stores.length > 3 ? 2 : 3);
   const extra = stores.length - shown.length;
   return (
     <TouchableOpacity
-      style={[tileStyles.cat, { backgroundColor: tint }, active && { borderColor: PK.ink }]}
+      style={[tileStyles.cat, { backgroundColor: tint }, !!width && { width }, active && { borderColor: PK.ink }]}
       onPress={onPress}
       activeOpacity={0.88}
       accessibilityState={{ selected: active }}
@@ -4943,6 +4945,271 @@ function CategoryCard({ label, stores, tint, active, onPress }) {
         )}
       </View>
     </TouchableOpacity>
+  );
+}
+
+// Flecha para volver + texto ("Por categoría", "Belleza")
+function PageBack({ label, onPress }) {
+  return (
+    <TouchableOpacity style={tileStyles.back} onPress={onPress} hitSlop={8} accessibilityLabel={label ? `Volver a ${label}` : 'Volver'}>
+      <Ionicons name="chevron-back" size={24} color={PK.ink} />
+      {!!label && <Text style={tileStyles.backText}>{label}</Text>}
+    </TouchableOpacity>
+  );
+}
+
+// Producto en grilla de 2 (categoría): foto con la estrella para guardar, tienda, nombre y precio
+function ProductGridCard({ p, index, saved, onOpen, onSave }) {
+  return (
+    <TouchableOpacity style={[explorarCardStyles.gridCard, { maxWidth: '48%' }]} onPress={onOpen} activeOpacity={0.88}>
+      <View style={[explorarCardStyles.gridImgBox, { backgroundColor: PK_TINTS[index % PK_TINTS.length] }]}>
+        {p.img ? <SmartCropImage uri={p.img} /> : <Ionicons name="image-outline" size={28} color={PK.muted} />}
+        <TouchableOpacity
+          style={explorarCardStyles.gridSaveBtn}
+          onPress={saved ? undefined : onSave}
+          activeOpacity={0.7}
+          accessibilityLabel={saved ? 'Guardado' : 'Guardar como pick'}
+        >
+          <Ionicons name={saved ? 'star' : 'star-outline'} size={20} color={PK.accent} />
+        </TouchableOpacity>
+      </View>
+      <View style={{ paddingHorizontal: 4, gap: 1 }}>
+        <Text style={explorarCardStyles.gridStore} numberOfLines={1}>{p.store || p.domain}</Text>
+        <Text style={explorarCardStyles.gridTitle} numberOfLines={1}>{p.title}</Text>
+        {!!p.priceText && <Text style={explorarCardStyles.gridPrice}>{p.priceText}</Text>}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const savePickData = (p) => ({ title: p.title, img: p.img, link: p.url, price: p.priceText || '' });
+
+// Busca productos con una palabra en un grupo de tiendas (mismo pedido que Buscar)
+function searchProductsIn(q, stores) {
+  if (!stores.length) return Promise.resolve([]);
+  return fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q, stores: stores.slice(0, 20).map(s => ({ domain: s.domain, name: s.name })) }),
+  }).then(r => r.json()).then(d => (Array.isArray(d.results) ? d.results : [])).catch(() => []);
+}
+
+// ── 3d · Una categoría: tus tiendas, filtros, productos y sugeridos de otras tiendas
+function CategoryPage({ catId, label, stores, myStores, savedUrls, bottomInset, onBack, onOpenUrl, onAddPick, onAddStore, onOpenSug }) {
+  const keywords = INTEREST_KEYWORDS[catId] || [];
+  const chips = ['Todo', ...keywords.slice(0, 5)];
+  const [chip, setChip] = useState('Todo');
+  const [products, setProducts] = useState(null); // null = cargando
+  const [others, setOthers] = useState(null);
+  const myDomains = new Set(myStores.map(s => s.domain));
+  const otherStores = stores.filter(s => !myDomains.has(s.domain));
+  const shownStores = myStores.length ? myStores : stores;
+  const q = chip === 'Todo' ? (keywords[0] || label) : chip;
+  useEffect(() => {
+    let alive = true;
+    setProducts(null); setOthers(null);
+    searchProductsIn(q, shownStores).then(r => alive && setProducts(r));
+    searchProductsIn(q, otherStores).then(r => alive && setOthers(r));
+    return () => { alive = false; };
+  }, [q, catId, shownStores.length, otherStores.length]);
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: PK.bg }} contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 40 + bottomInset }} showsVerticalScrollIndicator={false}>
+      <PageBack label="Por categoría" onPress={onBack} />
+      <Text style={tileStyles.eyebrow}>CATEGORÍA</Text>
+      <Text style={tileStyles.h1}>{label}</Text>
+      <Text style={tileStyles.meta}>
+        {stores.length === 1 ? '1 tienda' : `${stores.length} tiendas`}{products ? ` · ${products.length} productos` : ''}
+      </Text>
+
+      <View style={tileStyles.sectionRow}>
+        <Text style={[tileStyles.sectionTitle, { flex: 1 }]}>{myStores.length ? `Tus tiendas de ${label.toLowerCase()}` : `Tiendas de ${label.toLowerCase()}`}</Text>
+        <TouchableOpacity style={tileStyles.sumarBtn} onPress={onAddStore} activeOpacity={0.8}>
+          <Ionicons name="add" size={16} color={PK.accent} />
+          <Text style={tileStyles.sumarText}>Sumar</Text>
+        </TouchableOpacity>
+      </View>
+      <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ gap: 16, paddingHorizontal: 20 }}>
+        {shownStores.map(s => <StoreTile key={s.domain} store={s} onPress={() => onOpenUrl(s.url)} />)}
+      </PagerSafeScrollView>
+
+      <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginTop: 20 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}>
+        {chips.map(c => (
+          <TouchableOpacity key={c} style={[tileStyles.chip, chip === c && tileStyles.chipOn]} onPress={() => setChip(c)} activeOpacity={0.8}>
+            <Text style={[tileStyles.chipText, chip === c && { color: '#fff' }]}>{cap(c)}</Text>
+          </TouchableOpacity>
+        ))}
+      </PagerSafeScrollView>
+
+      <SectionTitle title="Productos" />
+      {products === null ? (
+        <ActivityIndicator color={PK.accent} style={{ marginVertical: 30 }} />
+      ) : products.length === 0 ? (
+        <Text style={tileStyles.empty}>No encontramos "{q}" en estas tiendas.</Text>
+      ) : (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 16 }}>
+          {products.slice(0, 12).map((p, i) => (
+            <ProductGridCard key={p.url} p={p} index={i} saved={savedUrls.has(p.url)} onOpen={() => onOpenUrl(p.url)} onSave={() => onAddPick?.(savePickData(p))} />
+          ))}
+        </View>
+      )}
+
+      {!!others?.length && (
+        <View style={tileStyles.sugBox}>
+          <Text style={tileStyles.eyebrow}>SUGERIDOS PARA VOS</Text>
+          <Text style={tileStyles.sectionTitle}>Más {label.toLowerCase()} de otras tiendas</Text>
+          <Text style={tileStyles.sectionSub}>Tiendas que todavía no tenés</Text>
+          <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -16, marginTop: 14 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}>
+            {others.slice(0, 3).map((o, i) => (
+              <TouchableOpacity key={o.url} style={tileStyles.sugCard} onPress={() => onOpenSug(others)} activeOpacity={0.88}>
+                <View style={[tileStyles.sugImg, { backgroundColor: PK_TINTS[(i + 2) % PK_TINTS.length] }]}>
+                  {!!o.img && <SmartCropImage uri={o.img} />}
+                </View>
+                <Text style={explorarCardStyles.gridStore} numberOfLines={1}>{o.store || o.domain}</Text>
+                <Text style={explorarCardStyles.gridTitle} numberOfLines={1}>{o.title}</Text>
+                {!!o.priceText && <Text style={explorarCardStyles.gridPrice}>{o.priceText}</Text>}
+              </TouchableOpacity>
+            ))}
+          </PagerSafeScrollView>
+          <TouchableOpacity style={tileStyles.moreLink} onPress={() => onOpenSug(others)} activeOpacity={0.8}>
+            <Text style={tileStyles.sectionLink}>Ver más sugeridos</Text>
+            <Ionicons name="chevron-forward" size={16} color={PK.accent} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+// ── 3d · Sugeridos: productos de tiendas que no tenés, para guardar o sumar la tienda
+function SuggestedPage({ label, items, savedUrls, mineDomains, bottomInset, onBack, onOpenUrl, onAddPick, onFollow }) {
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: PK.bg }} contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 40 + bottomInset, gap: 16 }} showsVerticalScrollIndicator={false}>
+      <PageBack label={label} onPress={onBack} />
+      {items.map((o, i) => {
+        const saved = savedUrls.has(o.url);
+        const following = mineDomains.has(o.domain);
+        return (
+          <View key={o.url} style={explorarCardStyles.feedCard}>
+            <TouchableOpacity style={[explorarCardStyles.feedImgBox, { height: 240, backgroundColor: PK_TINTS[i % PK_TINTS.length] }]} onPress={() => onOpenUrl(o.url)} activeOpacity={0.9}>
+              {!!o.img && <SmartCropImage uri={o.img} />}
+              <TouchableOpacity style={explorarCardStyles.gridSaveBtn} onPress={saved ? undefined : () => onAddPick?.(savePickData(o))} accessibilityLabel={saved ? 'Guardado' : 'Guardar como pick'}>
+                <Ionicons name={saved ? 'star' : 'star-outline'} size={20} color={PK.accent} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+            <View style={{ padding: 14, gap: 2 }}>
+              <Text style={explorarCardStyles.gridStore} numberOfLines={1}>{o.store || o.domain}</Text>
+              <Text style={explorarCardStyles.feedTitle} numberOfLines={2}>{o.title}</Text>
+              {!!o.priceText && <Text style={explorarCardStyles.feedPrice}>{o.priceText}</Text>}
+              <TouchableOpacity
+                style={[tileStyles.sumarBtn, { alignSelf: 'flex-start', marginTop: 10 }, following && { borderColor: PK.savedLine, backgroundColor: PK.savedBg }]}
+                onPress={following ? undefined : () => onFollow(o)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name={following ? 'checkmark' : 'add'} size={16} color={PK.accent} />
+                <Text style={tileStyles.sumarText}>{following ? 'Tienda sumada' : 'Sumar tienda'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+// ── 3e · Popup "Agregar una tienda": buscador + populares; tocar agrega o saca
+function AddStoreSheet({ visible, onClose, popular, known, customStores, countryName, onAdd, onRemove }) {
+  const [q, setQ] = useState('');
+  const [toast, setToast] = useState('');
+  useEffect(() => { if (!visible) { setQ(''); setToast(''); } }, [visible]);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 1800);
+    return () => clearTimeout(t);
+  }, [toast]);
+  const mine = new Set((customStores || []).map(s => s.domain));
+  const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const query = norm(q.trim());
+  let list = popular.slice(0, 8);
+  if (query) {
+    const seen = new Set();
+    list = [...popular, ...known].filter(s => {
+      if (!s.domain || seen.has(s.domain)) return false;
+      seen.add(s.domain);
+      return norm(s.name).includes(query) || s.domain.includes(query);
+    }).slice(0, 12);
+    // Escribió una web que no conocemos ("mitienda.com.uy"): se puede sumar igual
+    const typed = query.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(typed) && !list.some(s => s.domain === typed)) {
+      list.push({ name: typed, domain: typed, url: `https://${typed}` });
+    }
+  }
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1, justifyContent: 'flex-end' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <TouchableOpacity style={tileStyles.sheetBackdrop} onPress={onClose} activeOpacity={1} accessibilityLabel="Cerrar" />
+        <View style={tileStyles.sheet}>
+          <View style={tileStyles.sheetHead}>
+            <Text style={tileStyles.sheetTitle}>Agregar una tienda</Text>
+            <TouchableOpacity onPress={onClose} style={tileStyles.sheetClose} accessibilityLabel="Cerrar">
+              <Ionicons name="close" size={22} color={PK.ink} />
+            </TouchableOpacity>
+          </View>
+          <View style={explorarExtraStyles.searchWrap}>
+            <Ionicons name="search-outline" size={20} color={PK.muted} />
+            <TextInput
+              style={[explorarExtraStyles.searchInput, { flex: 1 }]}
+              value={q}
+              onChangeText={setQ}
+              placeholder="Escribí el nombre de la tienda"
+              placeholderTextColor={PK.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Nombre de la tienda"
+            />
+          </View>
+          <Text style={tileStyles.sheetLabel}>{query ? 'Resultados' : `Populares en ${countryName}`}</Text>
+          <ScrollView style={{ flexGrow: 0, maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+            {list.map(s => {
+              const added = mine.has(s.domain);
+              return (
+                <TouchableOpacity
+                  key={s.domain}
+                  style={tileStyles.sheetRow}
+                  onPress={() => {
+                    if (added) onRemove(s.domain);
+                    else { onAdd(s); setToast(`${s.name} agregada`); }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={[tileStyles.sheetLogo, { backgroundColor: s.bg || PK.pill }]}>
+                    <Text style={{ color: s.fg || PK.ink, fontSize: 13, fontFamily: DM[700] }} numberOfLines={1}>{s.short || s.name.charAt(0).toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={tileStyles.featuredName} numberOfLines={1}>{s.name}</Text>
+                    {!!s.category && <Text style={tileStyles.featuredUrl}>{INTEREST_CATEGORIES.find(c => c.id === s.category)?.label || s.category}</Text>}
+                  </View>
+                  <View style={[tileStyles.sumarBtn, added && { borderColor: PK.savedLine, backgroundColor: PK.savedBg }]}>
+                    {added && <Ionicons name="checkmark" size={15} color={PK.accentDark} />}
+                    <Text style={[tileStyles.sumarText, added && { color: PK.accentDark }]}>{added ? 'Agregada' : 'Agregar'}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+            {!list.length && <Text style={tileStyles.empty}>No la encontramos. Probá escribiendo su web (ej: mitienda.com.uy).</Text>}
+          </ScrollView>
+          {!!toast && (
+            <View style={tileStyles.toast} pointerEvents="none">
+              <Ionicons name="checkmark-circle" size={18} color="#F4A27F" />
+              <Text style={tileStyles.toastText}>{toast}</Text>
+            </View>
+          )}
+          <TouchableOpacity style={tileStyles.doneBtn} onPress={onClose} activeOpacity={0.85}>
+            <Text style={tileStyles.doneText}>Listo</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -4980,15 +5247,19 @@ function InterestCategoryChips({ categories, selected, onSelect }) {
   );
 }
 
-function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
+function HomeView({ savedPicks = [], onAddPick, bottomInset = 0, backgroundSource = null, onOpenSearchWithAction, onOpenUrl, customStores, onRemoveCustom, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, onChangeCountry, storesOrderSwapped = false, onToggleStoresOrder, userInterests = [], onOpenSearchWithQuery, unreadNotifCount = 0, onOpenNotifications }) {
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
   Font.useFonts(DM_FONTS);
-  const [showAllMine, setShowAllMine] = useState(false);       // "Ver todas" de Mis tiendas
   const [showAllFeatured, setShowAllFeatured] = useState(false); // "Ver más" de destacadas
   const [showAllCats, setShowAllCats] = useState(false);       // "Ver todas" de categorías
   const searchInputRef = useRef(null);
+  // Pantallas de adentro de Mis tiendas: null (la principal) | { type: 'mine' }
+  // (todas mis tiendas) | { type: 'cat', id } | { type: 'sug', id } (sugeridos)
+  const [page, setPage] = useState(null);
+  const [addOpen, setAddOpen] = useState(false); // popup "Agregar una tienda"
+  const [knownStores, setKnownStores] = useState([]); // base compartida, con la categoría de cada tienda
   const homeScrollRef = useRef(null);
   const stickyTopRef = useRef(0);           // dónde empieza el buscador fijo
   const [scrolledPast, setScrolledPast] = useState(false); // ¿ya quedó pegado arriba?
@@ -5440,6 +5711,177 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
     else submitMyStoresSearch();
   }
 
+  // ── Pantallas de adentro de Mis tiendas (3b, 3c, 3d y el popup 3e) ──
+  const catLabel = (id) => INTEREST_CATEGORIES.find(c => c.id === id)?.label || id;
+  const savedUrls = new Set(savedPicks.map(p => p.url));
+  const mineDomains = new Set((customStores || []).map(s => s.domain));
+
+  // La base compartida trae la categoría de cada tienda: hace falta para el
+  // popup (buscar por nombre) y para saber cuáles de tus tiendas son de cada categoría
+  useEffect(() => {
+    if (addOpen || page?.type === 'cat') allKnownStores().then(setKnownStores).catch(() => {});
+  }, [addOpen, page]);
+
+  function loadCategory(id) {
+    if (interestStoresByCat[id]) return;
+    fetch(`${BACKEND_URL}/api/stores?country=${country || 'UY'}&category=${id}&limit=10`)
+      .then(r => r.json())
+      .then(list => { if (Array.isArray(list) && list.length) setInterestStoresByCat(prev => ({ ...prev, [id]: list })); })
+      .catch(() => {});
+  }
+  function openCategory(id) {
+    loadCategory(id);
+    track('category_opened', { category: id });
+    setPage({ type: 'cat', id });
+  }
+  function myStoresIn(id) {
+    const catDomains = new Set((interestStoresByCat[id] || []).map(s => s.domain));
+    return (customStores || []).filter(s => catDomains.has(s.domain) || knownStores.find(k => k.domain === s.domain)?.category === id);
+  }
+  const followStore = (s) => onAddCustomStoreByDomain?.(getRegisteredDomain(s.domain), s.url || `https://${s.domain}`);
+
+  function renderMineGrid(limit) {
+    return (
+      <View style={tileStyles.grid}>
+        {(limit ? filteredCustomStores.slice(0, limit) : filteredCustomStores).map(store => (
+          <StoreTile
+            key={store.domain}
+            store={store}
+            onPress={() => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
+            onLongPress={() => confirmRemove(store)}
+          />
+        ))}
+        <AddStoreTile onPress={() => setAddOpen(true)} />
+      </View>
+    );
+  }
+
+  // Tus categorías primero; con "Ver todas" se suman las demás (3c)
+  function renderCats() {
+    const mineFirst = Object.keys(interestStoresByCat);
+    const ids = (showAllCats
+      ? [...mineFirst, ...INTEREST_CATEGORIES.map(c => c.id).filter(id => !mineFirst.includes(id))]
+      : mineFirst
+    ).filter(id => interestStoresByCat[id]?.length); // las demás aparecen a medida que cargan
+    const cats = ids.map((catId, i) => (
+      <CategoryCard
+        key={catId}
+        label={catLabel(catId)}
+        stores={interestStoresByCat[catId] || []}
+        tint={PK_TINTS[i % PK_TINTS.length]}
+        width={showAllCats ? (SCREEN.width - 50) / 2 : undefined}
+        onPress={() => openCategory(catId)}
+      />
+    ));
+    return (
+      <>
+        <SectionTitle
+          title="Descubrí por categoría"
+          subtitle="Tiendas nuevas para guardar productos"
+          linkLabel={showAllCats ? 'Ver menos' : `Ver todas (${INTEREST_CATEGORIES.length})`}
+          onLink={() => {
+            if (!showAllCats) INTEREST_CATEGORIES.forEach(c => loadCategory(c.id));
+            setShowAllCats(v => !v);
+          }}
+        />
+        {interestStoresLoading && Object.keys(interestStoresByCat).length === 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <ActivityIndicator size="small" color={COLORS.accent} />
+            <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Cargando tus categorías…</Text>
+          </View>
+        )}
+        {showAllCats ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 }}>{cats}</View>
+        ) : (
+          <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 20 }}>
+            {cats}
+          </PagerSafeScrollView>
+        )}
+      </>
+    );
+  }
+
+  const addSheet = (
+    <AddStoreSheet
+      visible={addOpen}
+      onClose={() => setAddOpen(false)}
+      popular={countryStores}
+      known={knownStores}
+      customStores={customStores}
+      countryName={COUNTRY_INFO[country]?.name || 'tu país'}
+      onAdd={followStore}
+      onRemove={(domain) => onRemoveCustom(domain)}
+    />
+  );
+
+  // Logo y campana arriba, igual que en la pantalla principal
+  const pageTop = (
+    <View style={[explorarExtraStyles.topBar, { backgroundColor: PK.bg }]}>
+      <Text style={explorarExtraStyles.logo}>Picks</Text>
+      {!!onOpenNotifications && <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={PK.ink} />}
+    </View>
+  );
+
+  if (page?.type === 'mine') {
+    return (
+      <View style={{ flex: 1, backgroundColor: PK.bg }}>
+        {pageTop}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, paddingTop: 0, paddingBottom: 40 + bottomInset }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 }}>
+            <PageBack onPress={() => setPage(null)} />
+            <Text style={[tileStyles.h1, { fontSize: 24 }]}>Mis tiendas ({filteredCustomStores.length})</Text>
+          </View>
+          {renderMineGrid(0)}
+          <TouchableOpacity style={tileStyles.mineLess} onPress={() => setPage(null)} activeOpacity={0.8}>
+            <Text style={tileStyles.sectionLink}>Ver menos</Text>
+            <Ionicons name="chevron-up" size={16} color={PK.accent} />
+          </TouchableOpacity>
+          {renderCats()}
+        </ScrollView>
+        {addSheet}
+      </View>
+    );
+  }
+  if (page?.type === 'cat') {
+    return (
+      <View style={{ flex: 1, backgroundColor: PK.bg }}>
+        {pageTop}
+        <CategoryPage
+          catId={page.id}
+          label={catLabel(page.id)}
+          stores={interestStoresByCat[page.id] || []}
+          myStores={myStoresIn(page.id)}
+          savedUrls={savedUrls}
+          bottomInset={bottomInset}
+          onBack={() => setPage(null)}
+          onOpenUrl={onOpenUrl}
+          onAddPick={onAddPick}
+          onAddStore={() => setAddOpen(true)}
+          onOpenSug={(items) => setPage({ type: 'sug', id: page.id, items })}
+        />
+        {addSheet}
+      </View>
+    );
+  }
+  if (page?.type === 'sug') {
+    return (
+      <View style={{ flex: 1, backgroundColor: PK.bg }}>
+      {pageTop}
+      <SuggestedPage
+        label={catLabel(page.id)}
+        items={page.items || []}
+        savedUrls={savedUrls}
+        mineDomains={mineDomains}
+        bottomInset={bottomInset}
+        onBack={() => setPage({ type: 'cat', id: page.id })}
+        onOpenUrl={onOpenUrl}
+        onAddPick={onAddPick}
+        onFollow={followStore}
+      />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       ref={homeScrollRef}
@@ -5560,21 +6002,10 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       {/* ── Mis tiendas: 5 + Agregar, "Ver todas" muestra el resto ── */}
       <SectionTitle
         title="Mis tiendas"
-        linkLabel={filteredCustomStores.length > 5 ? (showAllMine ? 'Ver menos' : `Ver todas (${filteredCustomStores.length})`) : null}
-        onLink={() => setShowAllMine(v => !v)}
+        linkLabel={filteredCustomStores.length > 5 ? `Ver todas (${filteredCustomStores.length})` : null}
+        onLink={() => setPage({ type: 'mine' })}
       />
-      <View style={tileStyles.grid}>
-        {(showAllMine ? filteredCustomStores : filteredCustomStores.slice(0, 5)).map(store => (
-          <StoreTile
-            key={store.domain}
-            store={store}
-            onPress={() => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
-            onLongPress={() => confirmRemove(store)}
-          />
-        ))}
-        {/* Agregar: escribís el nombre o la web arriba y la app te ofrece sumarla */}
-        <AddStoreTile onPress={() => { setSearchMode('mis'); scrollHomeToTop(); searchInputRef.current?.focus(); }} />
-      </View>
+      {renderMineGrid(5)}
       <Text style={[styles.picksHint, { marginTop: 10 }]}>
         {filteredCustomStores.length > 0
           ? 'Mantené presionada una tienda para eliminarla'
@@ -5615,60 +6046,9 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
         );
       })()}
 
-      {/* ── Descubrí por categoría: al tocar una, se ven sus tiendas abajo ── */}
-      <SectionTitle
-        title="Descubrí por categoría"
-        subtitle="Tiendas nuevas para guardar productos"
-        linkLabel={Object.keys(interestStoresByCat).length > 2 ? (showAllCats ? 'Ver menos' : `Ver todas (${Object.keys(interestStoresByCat).length})`) : null}
-        onLink={() => setShowAllCats(v => !v)}
-      />
-      {interestStoresLoading && Object.keys(interestStoresByCat).length === 0 && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          <ActivityIndicator size="small" color={COLORS.accent} />
-          <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Cargando tus categorías…</Text>
-        </View>
-      )}
-      {(() => {
-        const cats = Object.keys(interestStoresByCat).map((catId, i) => (
-          <CategoryCard
-            key={catId}
-            label={INTEREST_CATEGORIES.find(c => c.id === catId)?.label || catId}
-            stores={interestStoresByCat[catId] || []}
-            tint={PK_TINTS[i % PK_TINTS.length]}
-            active={selectedInterestCat === catId}
-            onPress={() => setSelectedInterestCat(selectedInterestCat === catId ? null : catId)}
-          />
-        ));
-        return showAllCats ? (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{cats}</View>
-        ) : (
-          <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 20 }}>
-            {cats}
-          </PagerSafeScrollView>
-        );
-      })()}
-      {!!selectedInterestCat && (
-        <>
-          <SectionTitle title={INTEREST_CATEGORIES.find(c => c.id === selectedInterestCat)?.label || selectedInterestCat} />
-          {destacadasStores.length > 0 ? (
-            <View style={tileStyles.grid}>
-              {destacadasStores.map(store => (
-                <StoreTile
-                  key={store.domain}
-                  store={store}
-                  onPress={() => { track('store_opened', { store: store.name, type: 'category' }); onOpenUrl(store.url); }}
-                />
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyStores}>
-              <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
-              <Text style={styles.emptyStoresText}>Todavía no hay tiendas cargadas en esta categoría</Text>
-            </View>
-          )}
-        </>
-      )}
+      {renderCats()}
       <View style={{ height: 24 }} />
+      {addSheet}
 
       <View style={styles.infoCard}>
         <Ionicons
@@ -5851,6 +6231,40 @@ const tileStyles = StyleSheet.create({
   catCount: { fontSize: 13, fontFamily: DM[400], color: '#4A423C' },
   catLogo: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   catLogoText: { fontSize: 11, fontFamily: DM[700] },
+  back: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 44, alignSelf: 'flex-start', marginLeft: -6 },
+  backText: { fontSize: 15, fontFamily: DM[600], color: PK.ink },
+  h1: { fontSize: 30, fontFamily: DM[800], color: PK.ink, letterSpacing: -0.5 },
+  eyebrow: { fontSize: 11, fontFamily: DM[700], color: PK.accentDark, letterSpacing: 0.8, marginTop: 8 },
+  meta: { fontSize: 14, fontFamily: DM[400], color: PK.muted, marginTop: 2 },
+  empty: { fontSize: 14, fontFamily: DM[400], color: PK.muted, textAlign: 'center', marginVertical: 24 },
+  sumarBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, height: 36, paddingHorizontal: 12, borderRadius: 99,
+    borderWidth: 1.5, borderColor: PK.accent,
+  },
+  sumarText: { fontSize: 13, fontFamily: DM[700], color: PK.accent },
+  chip: { height: 38, paddingHorizontal: 16, borderRadius: 99, borderWidth: 1, borderColor: PK.line, backgroundColor: '#fff', justifyContent: 'center' },
+  chipOn: { backgroundColor: PK.ink, borderColor: PK.ink },
+  chipText: { fontSize: 13, fontFamily: DM[700], color: PK.soft },
+  sugBox: { marginTop: 28, padding: 16, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line },
+  sugCard: { width: 150, gap: 2 },
+  sugImg: { width: 150, height: 150, borderRadius: 16, overflow: 'hidden', marginBottom: 4 },
+  moreLink: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 2, marginTop: 14 },
+  mineLess: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 4, marginTop: 18 },
+  sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(30,26,23,0.45)' },
+  sheet: { backgroundColor: PK.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 10, paddingBottom: 30 },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 20, paddingRight: 10, marginBottom: 10 },
+  sheetTitle: { fontSize: 20, fontFamily: DM[700], color: PK.ink },
+  sheetClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  sheetLabel: { fontSize: 13, fontFamily: DM[700], color: PK.muted, paddingHorizontal: 20, marginTop: 10, marginBottom: 6 },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 10 },
+  sheetLogo: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  toast: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'center', marginTop: 8,
+    paddingHorizontal: 14, height: 36, borderRadius: 99, backgroundColor: PK.ink,
+  },
+  toastText: { color: '#fff', fontSize: 13, fontFamily: DM[700] },
+  doneBtn: { marginHorizontal: 20, marginTop: 12, height: 52, borderRadius: 99, backgroundColor: PK.ink, alignItems: 'center', justifyContent: 'center' },
+  doneText: { color: '#fff', fontSize: 16, fontFamily: DM[700] },
 });
 
 // Dominios de Facebook/Meta a los que algunas tiendas redirigen por error
