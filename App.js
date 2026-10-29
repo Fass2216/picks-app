@@ -7942,73 +7942,83 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
       ? 'No encontramos nada con esa búsqueda.'
       : 'No hay novedades por acá todavía.';
 
-  const chipsRow = (light) => (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      {EXPLORAR_CHIPS.map(c => (
-        <TouchableOpacity
-          key={c.id}
-          style={[styles.chip, chip === c.id && styles.chipActive, light && chip !== c.id && { backgroundColor: 'rgba(0,0,0,0.35)', borderColor: 'rgba(255,255,255,0.4)' }]}
-          onPress={() => setChip(c.id)}
-          activeOpacity={0.75}
-        >
-          <Text style={[styles.chipText, chip === c.id && styles.chipTextActive, light && chip !== c.id && { color: '#fff' }]}>
-            {c.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-
   return (
     <View style={{ flex: 1 }}>
-      {/* Header — solo visible en modo lista; en reel flota todo encima del video */}
-      {viewMode === 'lista' && (
-        <>
-          <View style={styles.explorarToggleBar}>
-            <Animated.Text style={[styles.brandName, {
-              fontSize: 24,
-              opacity: titleOpacity,
-              transform: [
-                { scale: titleScale },
-                { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
-              ],
-            }]}>
-              Picks
-            </Animated.Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-              <TouchableOpacity onPress={() => setViewMode('reel')} hitSlop={10} activeOpacity={0.7}>
-                <Ionicons name="play-circle-outline" size={22} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-              {!!onOpenNotifications && (
-                <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
-              )}
-            </View>
-          </View>
+      {/* Header — igual en los dos modos: marca, buscador, filtros y cambio de vista */}
+      <View style={styles.explorarToggleBar}>
+        <Animated.Text style={[styles.brandName, {
+          fontSize: 24,
+          opacity: titleOpacity,
+          transform: [
+            { scale: titleScale },
+            { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+          ],
+        }]}>
+          Picks
+        </Animated.Text>
+        {!!onOpenNotifications && (
+          <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
+        )}
+      </View>
 
-          <View style={explorarExtraStyles.searchWrap}>
-            <Ionicons name="search-outline" size={17} color={COLORS.textSecondary} />
-            <TextInput
-              style={explorarExtraStyles.searchInput}
-              placeholder="Buscar productos, marcas, ideas..."
-              placeholderTextColor={COLORS.textTertiary}
-              value={exploreQuery}
-              onChangeText={setExploreQuery}
-              autoCorrect={false}
-            />
-            {exploreQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setExploreQuery('')} hitSlop={10}>
-                <Ionicons name="close-circle" size={17} color={COLORS.textTertiary} />
-              </TouchableOpacity>
-            )}
-          </View>
+      <View style={explorarExtraStyles.searchWrap}>
+        <Ionicons name="search-outline" size={20} color={COLORS.textSecondary} />
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          {!exploreQuery && <RollingPlaceholder />}
+          <TextInput
+            style={explorarExtraStyles.searchInput}
+            value={exploreQuery}
+            onChangeText={setExploreQuery}
+            autoCorrect={false}
+            accessibilityLabel="Buscar marcas o productos"
+          />
+        </View>
+        {exploreQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setExploreQuery('')} hitSlop={10}>
+            <Ionicons name="close-circle" size={18} color={COLORS.textTertiary} />
+          </TouchableOpacity>
+        )}
+      </View>
 
-          <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
-            <TourTarget id="explorar-chips">
-              {chipsRow(false)}
-            </TourTarget>
+      <View style={explorarExtraStyles.controlsRow}>
+        <TourTarget id="explorar-chips" style={{ flex: 1 }}>
+          <View style={explorarExtraStyles.segment}>
+            {EXPLORAR_CHIPS.map(c => {
+              const on = chip === c.id;
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[explorarExtraStyles.segBtn, on && explorarExtraStyles.segBtnActive]}
+                  onPress={() => setChip(c.id)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                >
+                  <Text style={[explorarExtraStyles.segText, on && explorarExtraStyles.segTextActive]}>{c.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        </>
-      )}
+        </TourTarget>
+        <View style={explorarExtraStyles.segment}>
+          {[['reel', 'tablet-portrait-outline', 'Ver como reel'], ['lista', 'grid-outline', 'Ver como grilla']].map(([mode, icon, label]) => {
+            const on = viewMode === mode;
+            return (
+              <TouchableOpacity
+                key={mode}
+                style={[explorarExtraStyles.viewBtn, on && explorarExtraStyles.segBtnActive]}
+                onPress={() => setViewMode(mode)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ selected: on }}
+              >
+                <Ionicons name={icon} size={19} color={on ? '#fff' : explorarExtraStyles.segText.color} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
 
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -8046,36 +8056,6 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           style={{ flex: 1 }}
           onLayout={(e) => setReelHeight(e.nativeEvent.layout.height)}
         >
-          {/* Marca + toggle + campana + chips, flotando arriba del reel sin bloquear el swipe */}
-          <View style={{ position: 'absolute', top: 14, left: 14, right: 14, zIndex: 5 }} pointerEvents="box-none">
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={[styles.brandName, { fontSize: 18 }]}>Picks</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <TouchableOpacity
-                  onPress={() => setViewMode('lista')}
-                  hitSlop={10}
-                  activeOpacity={0.8}
-                  style={{ backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 16, padding: 7 }}
-                >
-                  <Ionicons name="list-outline" size={18} color="#fff" />
-                </TouchableOpacity>
-                {!!onOpenNotifications && (
-                  <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 16, padding: 7 }}>
-                    <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color="#fff" />
-                  </View>
-                )}
-              </View>
-            </View>
-            <View style={{ marginTop: 10 }}>
-              {/* También en modo reels (el que viene por defecto): si no, el
-                  último paso del tutorial no encontraba los chips y la
-                  pantalla quedaba oscura y trancada */}
-              <TourTarget id="explorar-chips">
-                {chipsRow(true)}
-              </TourTarget>
-            </View>
-          </View>
-
           {displayFeed.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, backgroundColor: '#161616' }}>
               <Text style={{ color: '#fff', fontWeight: '500', fontSize: 15, textAlign: 'center' }}>{emptyMessage}</Text>
@@ -8125,19 +8105,58 @@ const searchWidenStyles = StyleSheet.create({
   cardSub: { fontSize: 13, color: COLORS.textSecondary, marginTop: 4, lineHeight: 18 },
 });
 
+// 'amigos' (los Picks públicos de la gente que seguís) se muestra como "Comunidad"
 const EXPLORAR_CHIPS = [
   { id: 'para_vos', label: 'Para vos' },
+  { id: 'amigos', label: 'Comunidad' },
   { id: 'tendencias', label: 'Tendencias' },
-  { id: 'amigos', label: 'Amigos' },
 ];
+
+// Lo que va rotando en el buscador de Explorar: "Buscá ___"
+const SEARCH_HINTS = ['productos', 'zapatillas', 'en tus tiendas favoritas', 'Nike', 'un regalo para mamá', 'en KaveHome', 'una lámpara', 'en MiBelleza'];
+
+function RollingPlaceholder() {
+  const [i, setI] = useState(0);
+  const y = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const t = setInterval(() => {
+      Animated.timing(y, { toValue: -20, duration: 250, useNativeDriver: true }).start(() => {
+        setI(n => (n + 1) % SEARCH_HINTS.length);
+        y.setValue(20);
+        Animated.timing(y, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+      });
+    }, 2200);
+    return () => clearInterval(t);
+  }, [y]);
+  return (
+    <View pointerEvents="none" style={explorarExtraStyles.hintWrap}>
+      <Text style={explorarExtraStyles.hintText}>Buscá </Text>
+      <View style={{ flex: 1, height: 20, overflow: 'hidden' }}>
+        <Animated.Text numberOfLines={1} style={[explorarExtraStyles.hintText, explorarExtraStyles.hintWord, { transform: [{ translateY: y }] }]}>
+          {SEARCH_HINTS[i]}
+        </Animated.Text>
+      </View>
+    </View>
+  );
+}
 
 const explorarExtraStyles = StyleSheet.create({
   searchWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: COLORS.card, borderRadius: 12,
-    marginHorizontal: 16, marginBottom: 10, paddingHorizontal: 14, paddingVertical: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 10, height: 48,
+    backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
+    marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14,
   },
-  searchInput: { flex: 1, fontSize: 14, color: COLORS.textPrimary },
+  searchInput: { height: 44, fontSize: 15, color: COLORS.textPrimary },
+  hintWrap: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center' },
+  hintText: { fontSize: 15, lineHeight: 20, color: COLORS.textSecondary },
+  hintWord: { color: COLORS.accent, fontWeight: '700' },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  segment: { flexDirection: 'row', gap: 2, padding: 4, backgroundColor: COLORS.card, borderRadius: 99 },
+  segBtn: { flex: 1, height: 40, borderRadius: 99, alignItems: 'center', justifyContent: 'center' },
+  segBtnActive: { backgroundColor: COLORS.textPrimary },
+  segText: { fontSize: 13, fontWeight: '700', color: '#5A5049' },
+  segTextActive: { color: '#fff' },
+  viewBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
 });
 
 // Menú inferior: 3 pestañas flotantes estilo Instagram. "Mis tiendas" y
@@ -8602,7 +8621,7 @@ function Tab({ label, iconName, iconActive, isActive, onPress, badge, tourId }) 
  
 // Reels: espacio arriba (logo y chips) y abajo (info + barra de pestañas)
 // alrededor de la tarjeta del producto
-const REEL_TOP_SPACE = 100;
+const REEL_TOP_SPACE = 24; // el header ya no flota encima del reel
 const REEL_BOTTOM_SPACE = 330;
 
 const styles = StyleSheet.create({
