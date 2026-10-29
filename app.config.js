@@ -12,6 +12,9 @@ module.exports = ({ config }) => {
     ...config,
     name: 'Picks Prueba',
     scheme: 'picks-prueba',
+    // Mismo ícono con los colores invertidos (fondo naranja), para no
+    // confundirla con Picks en la pantalla del celular
+    icon: './assets/icon-prueba.png',
     ios: { ...config.ios, bundleIdentifier: 'com.fass216.picksapp.prueba' },
     android: { ...config.android, package: 'com.fass216.picksapp.prueba' },
     extra: { ...config.extra, appVariant: 'prueba' },
