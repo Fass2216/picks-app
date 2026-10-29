@@ -3035,53 +3035,148 @@ function personDisplayLabel(person) {
 // ── Bienvenida (primera vez) ─────────────────────────────────────────────────
 // Los 3 pasos que van rotando: qué hacés, cómo se guarda, dónde queda
 const WELCOME_SLIDES = [
-  { icon: 'bag-handle-outline', tint: '#F3E3D8', title: 'Encontrá algo que te guste', text: 'Entrá a cualquier tienda y mantené presionada una imagen.' },
-  { icon: 'star', tint: '#FDEBE2', title: 'Mantené y se guarda', text: 'Picks guarda el producto con su tienda y su precio.' },
-  { icon: 'bookmark', tint: '#E3E0EC', title: 'Todo en un solo lugar', text: 'Tus guardados, ordenados por tienda y listos para compartir.' },
+  { title: 'Encontrá algo que te guste', text: 'Entrá a cualquier tienda y mantené presionada una imagen.' },
+  { title: 'Mantené y se guarda', text: 'Picks guarda el producto con su tienda y su precio.' },
+  { title: 'Todo en un solo lugar', text: 'Tus guardados, ordenados por tienda y listos para compartir.' },
 ];
+
+// Tarjeta de producto dibujada (la primera vez todavía no hay fotos reales)
+function MockProduct({ icon, tint, store, name, price, width = 200, imgH = 170, star, style }) {
+  return (
+    <View style={[bienvenidaStyles.card, { width }, style]}>
+      <View style={[bienvenidaStyles.cardImg, { height: imgH, backgroundColor: tint }]}>
+        <Ionicons name={icon} size={imgH * 0.42} color="rgba(30,26,23,0.78)" />
+        {!!store && <View style={bienvenidaStyles.cardStore}><Text style={bienvenidaStyles.cardStoreText}>{store}</Text></View>}
+        {star !== undefined && (
+          <View style={bienvenidaStyles.cardStar}>
+            <Ionicons name={star ? 'star' : 'star-outline'} size={18} color={PK.accent} />
+          </View>
+        )}
+      </View>
+      {!!name && (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 2 }}>
+          <Text style={bienvenidaStyles.cardName} numberOfLines={1}>{name}</Text>
+          <Text style={bienvenidaStyles.cardPrice}>{price}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// Anillo que late sobre la foto: "mantené apretado acá"
+function PressRing() {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(v, { toValue: 1, duration: 1400, easing: Easing.out(Easing.quad), useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [v]);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[bienvenidaStyles.ring, {
+        opacity: v.interpolate({ inputRange: [0, 0.7, 1], outputRange: [0.9, 0.4, 0] }),
+        transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.5] }) }],
+      }]}
+    />
+  );
+}
+
+function WelcomeVisual({ index }) {
+  if (index === 0) {
+    return (
+      <View>
+        <MockProduct icon="shirt-outline" tint="#F3E3D8" store="Zara" name="Camisa de lino arena" price="$ 1.890" width={220} imgH={200} />
+        <View style={bienvenidaStyles.ringSpot}><PressRing /><View style={bienvenidaStyles.ringDot} /></View>
+      </View>
+    );
+  }
+  if (index === 1) {
+    return (
+      <View style={{ width: 260, height: 270, alignItems: 'center' }}>
+        <MockProduct icon="bulb-outline" tint="#E3E0EC" width={120} imgH={160} style={{ position: 'absolute', left: 0, top: 34, transform: [{ rotate: '-9deg' }] }} />
+        <MockProduct icon="footsteps-outline" tint="#DDE5DE" width={120} imgH={160} style={{ position: 'absolute', right: 0, top: 34, transform: [{ rotate: '9deg' }] }} />
+        <MockProduct icon="shirt-outline" tint="#F3E3D8" store="Zara" width={160} imgH={208} star style={{ position: 'absolute', top: 0 }} />
+        <View style={bienvenidaStyles.picksPill}><Ionicons name="bookmark" size={13} color="#fff" /><Text style={bienvenidaStyles.picksPillText}>Mis Picks · 3</Text></View>
+      </View>
+    );
+  }
+  const minis = [
+    ['shirt-outline', '#F3E3D8', 'ZARA', '$ 1.890'],
+    ['bulb-outline', '#E3E0EC', 'KAVEHOME', '$ 1.490'],
+    ['footsteps-outline', '#DDE5DE', 'NIKE', '$ 4.590'],
+    ['flower-outline', '#F0DCDC', 'MIBELLEZA', '$ 3.200'],
+  ];
+  return (
+    <View style={bienvenidaStyles.panel}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <Text style={bienvenidaStyles.panelTitle}>Mis Picks</Text>
+        <View style={bienvenidaStyles.panelChip}><Text style={bienvenidaStyles.panelChipText}>Mudanza · 4</Text></View>
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+        {minis.map(([icon, tint, store, price]) => (
+          <View key={store} style={{ width: 103, gap: 3 }}>
+            <View style={[bienvenidaStyles.mini, { backgroundColor: tint }]}><Ionicons name={icon} size={36} color="rgba(30,26,23,0.78)" /></View>
+            <Text style={[explorarCardStyles.gridStore, { fontSize: 9 }]}>{store}</Text>
+            <Text style={[explorarCardStyles.gridPrice, { fontSize: 12 }]}>{price}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function WelcomeIntro({ onSkip, onExplore, onChooseStores }) {
   Font.useFonts(DM_FONTS);
   const [i, setI] = useState(0);
-  const fade = useRef(new Animated.Value(1)).current;
+  const pagerRef = useRef(null);
+  const touchedRef = useRef(false); // si deslizó con el dedo, deja de pasar sola
+  const W = SCREEN.width;
   useEffect(() => {
     const t = setInterval(() => {
-      Animated.timing(fade, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
-        setI(n => (n + 1) % WELCOME_SLIDES.length);
-        Animated.timing(fade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      if (touchedRef.current) return;
+      setI(n => {
+        const next = (n + 1) % WELCOME_SLIDES.length;
+        pagerRef.current?.scrollTo({ x: next * W, animated: true });
+        return next;
       });
     }, 4200);
     return () => clearInterval(t);
-  }, [fade]);
-  const s = WELCOME_SLIDES[i];
+  }, [W]);
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PK.bg }}>
       <View style={[explorarExtraStyles.topBar, { paddingRight: 8 }]}>
         <Text style={explorarExtraStyles.logo}>Picks</Text>
         <TouchableOpacity onPress={onSkip} style={bienvenidaStyles.skip}><Text style={bienvenidaStyles.skipText}>Saltar</Text></TouchableOpacity>
       </View>
-      <View style={{ flex: 1, justifyContent: 'center', gap: 10 }}>
-        <Text style={bienvenidaStyles.eyebrow}>¡Bienvenido/a a la comunidad Picks!</Text>
-        <Animated.View style={[bienvenidaStyles.visual, { opacity: fade }]}>
-          <View style={bienvenidaStyles.card}>
-            <View style={[bienvenidaStyles.cardImg, { backgroundColor: s.tint }]}>
-              <Ionicons name={s.icon} size={72} color={PK.accent} />
-            </View>
-            <View style={{ padding: 14, gap: 6 }}>
-              <View style={[bienvenidaStyles.line, { width: '80%' }]} />
-              <View style={[bienvenidaStyles.line, { width: '40%', backgroundColor: PK.savedBg }]} />
+      <Text style={[bienvenidaStyles.eyebrow, { marginTop: 8 }]}>¡Bienvenido/a a la comunidad Picks!</Text>
+      <ScrollView
+        ref={pagerRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScrollBeginDrag={() => { touchedRef.current = true; }}
+        onMomentumScrollEnd={(e) => setI(Math.round(e.nativeEvent.contentOffset.x / W))}
+        style={{ flex: 1 }}
+      >
+        {WELCOME_SLIDES.map((s, k) => (
+          <View key={k} style={{ width: W, justifyContent: 'center', alignItems: 'center', gap: 22 }}>
+            <View style={bienvenidaStyles.visual}><WelcomeVisual index={k} /></View>
+            <View style={{ paddingHorizontal: 32, gap: 8 }}>
+              <Text style={bienvenidaStyles.title}>{s.title}</Text>
+              <Text style={bienvenidaStyles.text}>{s.text}</Text>
             </View>
           </View>
-        </Animated.View>
-        <Animated.View style={{ opacity: fade, paddingHorizontal: 32, gap: 8 }}>
-          <Text style={bienvenidaStyles.title}>{s.title}</Text>
-          <Text style={bienvenidaStyles.text}>{s.text}</Text>
-        </Animated.View>
-        <View style={bienvenidaStyles.dots}>
-          {WELCOME_SLIDES.map((_, k) => <View key={k} style={[bienvenidaStyles.dot, k === i && bienvenidaStyles.dotOn]} />)}
-        </View>
+        ))}
+      </ScrollView>
+      <View style={bienvenidaStyles.dots}>
+        {WELCOME_SLIDES.map((_, k) => (
+          <TouchableOpacity key={k} hitSlop={8} onPress={() => { touchedRef.current = true; setI(k); pagerRef.current?.scrollTo({ x: k * W, animated: true }); }}>
+            <View style={[bienvenidaStyles.dot, k === i && bienvenidaStyles.dotOn]} />
+          </TouchableOpacity>
+        ))}
       </View>
-      <View style={{ paddingHorizontal: 24, paddingBottom: 18, alignItems: 'center' }}>
+      <View style={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 18, alignItems: 'center' }}>
         <TouchableOpacity style={bienvenidaStyles.cta} onPress={onExplore} activeOpacity={0.85}>
           <Text style={bienvenidaStyles.ctaText}>Empezar a explorar</Text>
           <Ionicons name="arrow-forward" size={18} color="#fff" />
@@ -3166,13 +3261,38 @@ const bienvenidaStyles = StyleSheet.create({
   skip: { height: 44, paddingHorizontal: 12, justifyContent: 'center' },
   skipText: { fontSize: 14, fontFamily: DM[600], color: PK.muted },
   eyebrow: { fontSize: 14, fontFamily: DM[700], letterSpacing: 0.6, textTransform: 'uppercase', color: PK.accentDark, textAlign: 'center', paddingHorizontal: 28 },
-  visual: { height: 320, alignItems: 'center', justifyContent: 'center' },
+  visual: { height: 300, alignItems: 'center', justifyContent: 'center' },
   card: {
     width: 220, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line, overflow: 'hidden',
     shadowColor: PK.ink, shadowOpacity: 0.12, shadowRadius: 17, shadowOffset: { width: 0, height: 14 }, elevation: 6,
   },
   cardImg: { height: 200, alignItems: 'center', justifyContent: 'center' },
   line: { height: 10, borderRadius: 5, backgroundColor: PK.pill },
+  cardStore: { position: 'absolute', top: 10, left: 10, height: 26, paddingHorizontal: 10, borderRadius: 99, backgroundColor: PK.bg, justifyContent: 'center' },
+  cardStoreText: { fontSize: 12, fontFamily: DM[700], color: PK.ink },
+  cardStar: {
+    position: 'absolute', right: 10, bottom: 10, width: 38, height: 38, borderRadius: 19, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: PK.ink, shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+  },
+  cardName: { fontSize: 14, fontFamily: DM[600], color: PK.ink },
+  cardPrice: { fontSize: 16, fontFamily: DM[800], color: PK.accent },
+  ringSpot: { position: 'absolute', left: 78, top: 68, width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute', width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(224,89,42,0.35)', borderWidth: 2, borderColor: PK.logo },
+  ringDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: PK.logo, borderWidth: 3, borderColor: '#fff' },
+  picksPill: {
+    position: 'absolute', bottom: 6, flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: 14,
+    borderRadius: 99, backgroundColor: PK.ink,
+  },
+  picksPillText: { color: '#fff', fontSize: 13, fontFamily: DM[700] },
+  panel: {
+    width: 260, padding: 14, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line,
+    shadowColor: PK.ink, shadowOpacity: 0.12, shadowRadius: 17, shadowOffset: { width: 0, height: 14 }, elevation: 6,
+  },
+  panelTitle: { fontSize: 16, fontFamily: DM[800], color: PK.ink },
+  panelChip: { height: 24, paddingHorizontal: 10, borderRadius: 99, backgroundColor: PK.savedBg, justifyContent: 'center' },
+  panelChipText: { fontSize: 11, fontFamily: DM[700], color: PK.accentDark },
+  mini: { width: 103, height: 82, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 24, lineHeight: 32, fontFamily: DM[800], letterSpacing: -0.5, color: PK.ink, textAlign: 'center' },
   text: { fontSize: 15, lineHeight: 22, fontFamily: DM[400], color: PK.muted, textAlign: 'center' },
   dots: { flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 4 },
