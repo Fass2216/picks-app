@@ -4358,7 +4358,7 @@ function notifIconFor(type) {
 
 // ── NotificationsScreen ───────────────────────────────────────────────────────
 function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommunity, onClose, onRead }) {
-  const [group, setGroup] = useState('precio');
+  const [group, setGroup] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -4386,11 +4386,16 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommu
     })();
   }, [userProfile?.id]);
 
-  const grouped = NOTIF_GROUPS.reduce((acc, g) => {
-    acc[g.id] = items.filter(n => n.group === g.id);
-    return acc;
-  }, {});
-  const list = grouped[group] || [];
+  // Filtros del diseño: Todo / Picks (precio y stock) / Tiendas (promos) / Amigos.
+  // "Equipo" solo aparece si hay avisos internos.
+  const catOf = (n) => n.group === 'equipo' ? 'equipo'
+    : n.group === 'social' ? 'amigos'
+    : n.type === 'bank_promo' ? 'tiendas'
+    : 'picks';
+  const filters = [['all', 'Todo'], ['picks', 'Picks'], ['tiendas', 'Tiendas'], ['amigos', 'Amigos'],
+    ...(items.some(n => catOf(n) === 'equipo') ? [['equipo', 'Equipo']] : [])];
+  const list = group === 'all' ? items : items.filter(n => catOf(n) === group);
+  const [readAll, setReadAll] = useState(false); // "Marcar leídas" apaga los puntitos
 
   const handlePress = (n) => {
     // Aviso de promos en varias tiendas: la lista de todas
@@ -4402,63 +4407,71 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommu
   };
 
   return (
-    <SafeAreaView style={profileStyles.container} edges={['top']}>
-      <View style={profileStyles.viewingHeader}>
-        <TouchableOpacity onPress={onClose} style={{ padding: 6, marginRight: 4 }} hitSlop={10}>
-          <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+    <SafeAreaView style={[profileStyles.container, { backgroundColor: PK.bg }]} edges={['top']}>
+      <View style={notifStyles.head}>
+        <TouchableOpacity onPress={onClose} style={{ padding: 6, marginLeft: -8 }} hitSlop={10} accessibilityLabel="Volver">
+          <Ionicons name="chevron-back" size={24} color={PK.ink} />
         </TouchableOpacity>
-        <Text style={[profileStyles.viewingTitle, { flex: 1 }]}>Notificaciones</Text>
+        <Text style={notifStyles.h1}>Notificaciones</Text>
+        <TouchableOpacity onPress={() => setReadAll(true)} hitSlop={10}>
+          <Text style={notifStyles.markRead}>Marcar leídas</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Desliza hacia el costado cuando no entran todas (con "Equipo" son 4) */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        // flexShrink 0: si no, la lista de abajo la achicaba y cortaba las palabras
-        style={{ flexGrow: 0, flexShrink: 0 }}
-        contentContainerStyle={[notifStyles.tabsRow, { paddingBottom: 4, alignItems: 'center' }]}
-      >
-        {NOTIF_GROUPS.filter(g => !g.onlyIfAny || grouped[g.id]?.length).map(g => {
-          const active = group === g.id;
-          const count = grouped[g.id]?.length || 0;
+      <View style={notifStyles.filters}>
+        {filters.map(([id, label]) => {
+          const active = group === id;
           return (
             <TouchableOpacity
-              key={g.id}
-              style={[notifStyles.tabBtn, active && notifStyles.tabBtnActive]}
-              onPress={() => setGroup(g.id)}
-              activeOpacity={0.7}
+              key={id}
+              style={[notifStyles.filterBtn, active && { backgroundColor: PK.ink }]}
+              onPress={() => setGroup(id)}
+              activeOpacity={0.75}
+              accessibilityState={{ selected: active }}
             >
-              <Ionicons name={g.icon} size={15} color={active ? '#fff' : COLORS.textSecondary} />
-              <Text style={[notifStyles.tabText, active && notifStyles.tabTextActive]}>
-                {g.label}{count > 0 ? ` (${count})` : ''}
-              </Text>
+              <Text style={[notifStyles.filterText, active && { color: '#fff' }]} numberOfLines={1}>{label}</Text>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {loading ? (
-        <ActivityIndicator size="small" color={COLORS.accent} style={{ marginTop: 30 }} />
+        <ActivityIndicator size="small" color={PK.accent} style={{ marginTop: 30 }} />
       ) : list.length === 0 ? (
-        <Text style={[profileStyles.sectionSub, { textAlign: 'center', marginTop: 30, paddingHorizontal: 24 }]}>
-          {group === 'precio' ? 'Sin novedades de precio todavía.'
-            : group === 'stock' ? 'Sin novedades de stock todavía.'
+        <Text style={notifStyles.empty}>
+          {group === 'picks' ? 'Sin novedades de tus picks todavía.'
+            : group === 'tiendas' ? 'Sin promos de tus tiendas todavía.'
+            : group === 'amigos' ? 'Sin actividad de amigos todavía.'
             : group === 'equipo' ? 'Sin avisos del equipo.'
-            : 'Sin actividad social todavía.'}
+            : 'No tenés notificaciones todavía.'}
         </Text>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 30 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 30 }}>
           {list.map(n => {
-            const icon = notifIconFor(n.type);
+            const tag = notifTagFor(n.type);
+            const img = n.data?.img || n.data?.image;
+            const unread = !readAll && !n.read && !n.read_at;
             return (
               <TouchableOpacity key={n.id} style={notifStyles.row} onPress={() => handlePress(n)} activeOpacity={0.75}>
-                <View style={[notifStyles.iconWrap, { backgroundColor: icon.color + '1A' }]}>
-                  <Ionicons name={icon.name} size={18} color={icon.color} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={notifStyles.title} numberOfLines={2}>{n.title}</Text>
-                  <Text style={notifStyles.body} numberOfLines={2}>{n.body}</Text>
-                  <Text style={notifStyles.time}>{timeAgo(n.created_at)}</Text>
+                <View style={[notifStyles.dot, unread && { backgroundColor: PK.logo }]} />
+                {img ? (
+                  <Image source={{ uri: img }} style={notifStyles.thumb} />
+                ) : (
+                  <View style={[notifStyles.thumb, { backgroundColor: tag.bg, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Ionicons name={tag.icon} size={20} color={tag.fg} />
+                  </View>
+                )}
+                <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={[notifStyles.tag, { backgroundColor: tag.bg }]}>
+                      <Text style={[notifStyles.tagText, { color: tag.fg }]}>{tag.label}</Text>
+                    </View>
+                    <Text style={notifStyles.when}>{timeAgo(n.created_at)}</Text>
+                  </View>
+                  <Text style={notifStyles.text}>
+                    <Text style={{ fontFamily: DM[700] }}>{n.title}</Text>
+                    {n.body ? ` ${n.body}` : ''}
+                  </Text>
                 </View>
               </TouchableOpacity>
             );
@@ -4469,6 +4482,19 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommu
   );
 }
 
+// Etiqueta de color de cada aviso (como en el diseño: Rebaja, Agotado, Promo…)
+function notifTagFor(type) {
+  const RED = ['#FBE4E0', '#B42318'], ORG = ['#FDEBE2', '#9A3412'], GRN = ['#E3F1E7', '#1F5F3A'], GRY = ['#F1E9E2', '#5A5049'], BLU = ['#E3E8F5', '#2F4A8A'];
+  const mk = (label, [bg, fg], icon) => ({ label, bg, fg, icon });
+  if (type === 'price_drop') return mk('Rebaja', GRN, 'trending-down-outline');
+  if (type === 'bank_promo') return mk('Promo', ORG, 'card-outline');
+  if (type === 'out_of_stock') return mk('Agotado', RED, 'close-circle-outline');
+  if (type === 'back_in_stock') return mk('Stock', GRN, 'checkmark-circle-outline');
+  if (type === 'new_follower') return mk('Amigos', BLU, 'person-add-outline');
+  if (type === 'team_alert') return mk('Equipo', GRY, 'megaphone-outline');
+  return mk('Aviso', GRY, 'notifications-outline');
+}
+
 const notifStyles = StyleSheet.create({
   badge: {
     position: 'absolute', top: -4, right: -6, backgroundColor: COLORS.accent,
@@ -4476,23 +4502,20 @@ const notifStyles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   badgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
-  tabsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 14 },
-  tabBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: COLORS.card, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8,
-  },
-  tabBtnActive: { backgroundColor: COLORS.textPrimary },
-  tabText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
-  tabTextActive: { color: '#fff' },
-  row: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
-    padding: 12, marginBottom: 10,
-  },
-  iconWrap: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
-  body: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
-  time: { fontSize: 11, color: COLORS.textTertiary, marginTop: 4 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10 },
+  h1: { flex: 1, fontSize: 28, fontFamily: DM[800], letterSpacing: -0.8, color: PK.ink },
+  markRead: { fontSize: 13, fontFamily: DM[700], color: PK.accent },
+  filters: { flexDirection: 'row', gap: 4, marginHorizontal: 20, padding: 4, backgroundColor: PK.pill, borderRadius: 99 },
+  filterBtn: { flex: 1, height: 36, borderRadius: 99, alignItems: 'center', justifyContent: 'center' },
+  filterText: { fontSize: 13, fontFamily: DM[700], color: PK.soft },
+  empty: { textAlign: 'center', marginTop: 30, paddingHorizontal: 24, fontSize: 14, fontFamily: DM[400], color: PK.muted },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: PK.line },
+  dot: { width: 8, height: 8, borderRadius: 4, marginTop: 18 },
+  thumb: { width: 44, height: 44, borderRadius: 12, overflow: 'hidden' },
+  tag: { height: 20, paddingHorizontal: 8, borderRadius: 99, justifyContent: 'center' },
+  tagText: { fontSize: 11, fontFamily: DM[800] },
+  when: { fontSize: 12, fontFamily: DM[400], color: PK.muted },
+  text: { fontSize: 14, lineHeight: 19, fontFamily: DM[400], color: PK.ink },
 });
 
 const profileStyles = StyleSheet.create({
