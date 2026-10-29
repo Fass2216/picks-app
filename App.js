@@ -7141,58 +7141,56 @@ function PicksView({
           </ViewShot>
         </View>
       )}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Animated.Text style={[styles.title, {
+      {/* Logo y campana como en el resto; compartir y configuración se mantienen */}
+      <View style={[explorarExtraStyles.topBar, { paddingLeft: 0, paddingRight: 0, paddingTop: 0 }]}>
+        <Animated.Text style={[explorarExtraStyles.logo, {
           opacity: titleOpacity,
           transform: [
             { scale: titleScale },
             { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
           ],
         }]}>
-          Mis Picks
+          Picks
         </Animated.Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          {picks.length > 0 && (
-            <TouchableOpacity onPress={() => shareCollection()} style={styles.shareCollectionBtn} hitSlop={10} activeOpacity={0.7}>
-              <Ionicons name="share-outline" size={18} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-          )}
           {!!onOpenNotifications && (
-            <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} />
+            <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={PK.ink} />
           )}
           {!!userProfile && (
-            <TouchableOpacity onPress={onOpenSettings} hitSlop={10} activeOpacity={0.7}>
-              <Ionicons name="settings-outline" size={20} color={COLORS.textSecondary} />
+            <TouchableOpacity onPress={onOpenSettings} hitSlop={10} activeOpacity={0.7} accessibilityLabel="Configuración">
+              <Ionicons name="settings-outline" size={22} color={PK.ink} />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
       {userProfile ? (
-        <View style={picksHeaderStyles.row}>
-          <View style={picksHeaderStyles.avatarCircle}>
-            {avatarUrl && !avatarError
-              ? <Image source={{ uri: avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22 }} onError={() => setAvatarError(true)} />
-              : <Ionicons name="person" size={20} color="#fff" />
-            }
-          </View>
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={picksHeaderStyles.name} numberOfLines={1}>
+        <View style={profStyles.row}>
+          <TouchableOpacity onPress={onOpenEditProfile} activeOpacity={0.8} accessibilityLabel="Editar perfil">
+            <View style={profStyles.avatar}>
+              {avatarUrl && !avatarError
+                ? <Image source={{ uri: avatarUrl }} style={{ width: 48, height: 48, borderRadius: 24 }} onError={() => setAvatarError(true)} />
+                : <Text style={profStyles.avatarLetter}>{(userProfile.user_metadata?.name || myProfileRow?.username || '?').charAt(0).toUpperCase()}</Text>}
+            </View>
+            <View style={profStyles.avatarEdit}>
+              <Ionicons name="pencil" size={10} color="#fff" />
+            </View>
+          </TouchableOpacity>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={profStyles.name} numberOfLines={1}>
               {userProfile.user_metadata?.name || myProfileRow?.username || 'Fede'}
             </Text>
-            {!!myProfileRow?.username && (
-              <Text style={picksHeaderStyles.username}>@{myProfileRow.username}</Text>
-            )}
             <TouchableOpacity onPress={onOpenCommunity} activeOpacity={0.7}>
-              <Text style={picksHeaderStyles.counts}>
-                {followerCount} seguidor{followerCount === 1 ? '' : 'es'} · {followingCount} siguiendo
+              <Text style={profStyles.stats} numberOfLines={1}>
+                <Text style={profStyles.statsNum}>{picks.length}</Text> picks · <Text style={profStyles.statsNum}>{collections.length}</Text> colecciones · <Text style={profStyles.statsNum}>{followerCount}</Text> seguidor{followerCount === 1 ? '' : 'es'}
               </Text>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity style={picksHeaderStyles.editBtn} onPress={onOpenEditProfile} activeOpacity={0.7}>
-            <Ionicons name="pencil-outline" size={12} color={COLORS.textPrimary} />
-            <Text style={picksHeaderStyles.editBtnText}>Editar perfil</Text>
-          </TouchableOpacity>
+          {picks.length > 0 && (
+            <TouchableOpacity onPress={() => shareCollection()} style={profStyles.shareBtn} activeOpacity={0.7} accessibilityLabel="Compartir perfil">
+              <Ionicons name="share-outline" size={22} color={PK.ink} />
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <TouchableOpacity style={picksHeaderStyles.authBanner} onPress={onOpenAuth} activeOpacity={0.8}>
@@ -7204,56 +7202,53 @@ function PicksView({
         </TouchableOpacity>
       )}
 
-      <View style={styles.storeSectionTabs}>
-        <TouchableOpacity
-          style={[styles.storeSectionTab, picksTab === 'todos' && styles.storeSectionTabActive]}
-          onPress={() => setPicksTab('todos')}
-        >
-          <Text style={[styles.storeSectionTabText, picksTab === 'todos' && styles.storeSectionTabTextActive]}>
-            Todos ({picks.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.storeSectionTab, picksTab === 'colecciones' && styles.storeSectionTabActive]}
-          onPress={() => setPicksTab('colecciones')}
-        >
-          <Text style={[styles.storeSectionTabText, picksTab === 'colecciones' && styles.storeSectionTabTextActive]}>
-            Colecciones ({collections.length})
-          </Text>
-        </TouchableOpacity>
+      <View style={profStyles.tabs}>
+        {[['todos', `Picks (${picks.length})`], ['colecciones', `Colecciones (${collections.length})`]].map(([id, label]) => {
+          const on = picksTab === id;
+          return (
+            <TouchableOpacity key={id} style={[profStyles.tab, on && { borderBottomColor: PK.ink }]} onPress={() => setPicksTab(id)} accessibilityState={{ selected: on }}>
+              <Text style={[profStyles.tabText, on && { color: PK.ink }]}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {picksTab === 'colecciones' ? (
-        collections.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="folder-outline" size={48} color={COLORS.border} />
-            <Text style={styles.emptyTitle}>Sin colecciones</Text>
-            <Text style={styles.emptyDesc}>Al guardar un pick podrás organizarlo en colecciones.</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={collections}
-            keyExtractor={c => c.id}
-            contentContainerStyle={{ gap: 10, paddingBottom: 20 + menuInset, paddingTop: 4 }}
-            renderItem={({ item: col }) => {
-              const thumb = picks.find(p => col.pickIds.includes(p.id));
-              return (
-                <TouchableOpacity style={colStyles.colListRow} onPress={() => setOpenCollection(col.id)} activeOpacity={0.85}>
-                  <View style={colStyles.colListThumb}>
-                    {thumb
-                      ? <Image source={{ uri: thumb.img }} style={{ width: '100%', height: '100%', borderRadius: 10 }} />
-                      : <Ionicons name="folder" size={28} color={COLORS.accent} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={colStyles.colListName}>{col.name}</Text>
-                    <Text style={colStyles.colListCount}>{col.pickIds.length} {col.pickIds.length === 1 ? 'Pick' : 'Picks'}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
-                </TouchableOpacity>
-              );
-            }}
-          />
-        )
+        <ScrollView contentContainerStyle={[profStyles.colGrid, { paddingBottom: 20 + menuInset }]} showsVerticalScrollIndicator={false}>
+          {[{ id: null, name: 'Todos los picks', all: true }, ...collections].map(col => {
+            const list = col.all ? picks : picks.filter(p => col.pickIds.includes(p.id));
+            const imgs = list.slice(0, 4);
+            return (
+              <TouchableOpacity
+                key={col.id || 'all'}
+                style={profStyles.colCard}
+                onPress={() => (col.all ? setPicksTab('todos') : setOpenCollection(col.id))}
+                activeOpacity={0.85}
+              >
+                <View style={profStyles.mosaic}>
+                  {[0, 1, 2, 3].map(i => (
+                    <View key={i} style={[profStyles.mosaicCell, { backgroundColor: PK_TINTS[i % PK_TINTS.length] }]}>
+                      {!!imgs[i]?.img && <Image source={{ uri: imgs[i].img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />}
+                    </View>
+                  ))}
+                  {list.length > 0 && (
+                    <TouchableOpacity
+                      style={profStyles.colShare}
+                      onPress={() => (col.all ? shareCollection() : shareCollectionLink(col, list))}
+                      accessibilityLabel={`Compartir ${col.name}`}
+                    >
+                      <Ionicons name="share-outline" size={17} color={PK.ink} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={profStyles.colName} numberOfLines={1}>{col.name}</Text>
+                <Text style={profStyles.colMeta}>
+                  {list.length} {list.length === 1 ? 'pick' : 'picks'}{col.all ? '' : col.isPublic ? ' · Compartida' : ' · Privada'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       ) : (
 
       picks.length === 0 ? (
@@ -7360,36 +7355,28 @@ function PicksView({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={styles.picksGrid}>
-                {filtered.map((p) => (
+              <View style={profStyles.picksGrid}>
+                {filtered.map((p, i) => (
                   <TouchableOpacity
                     key={p.id}
-                    style={styles.pickCard}
+                    style={profStyles.pickCard}
                     activeOpacity={0.85}
                     onPress={() => onOpen(p.url)}
                     onLongPress={() => onRemove(p.id)}
                   >
-                    <View style={styles.pickImgWrap}>
-                      <Image source={{ uri: p.img }} style={styles.pickImg} resizeMode="cover" />
-                    </View>
-                    <View style={styles.pickInfo}>
-                      <Text style={styles.pickName} numberOfLines={2}>{p.name}</Text>
-                      <View style={styles.pickMeta}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
-                          {(() => { const c = getDomainCountry(p.domain, p.url); return c ? <Text style={{ fontSize: 11 }}>{COUNTRY_INFO[c].flag}</Text> : null; })()}
-                          <Text style={[styles.pickDomain, { flexShrink: 1 }]} numberOfLines={1}>{getStoreDisplayName(p.domain)}</Text>
-                        </View>
-                        {p.price ? <Text style={styles.pickPrice} numberOfLines={1}>{p.price}</Text> : null}
-                      </View>
-                      <TouchableOpacity
-                        style={styles.shareBtn}
-                        onPress={() => sharePick(p)}
-                        hitSlop={8}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="share-outline" size={14} color={COLORS.textSecondary} />
-                        <Text style={styles.shareBtnText}>Compartir</Text>
+                    <View style={[profStyles.pickImg, { backgroundColor: PK_TINTS[i % PK_TINTS.length] }]}>
+                      {!!p.img && <SmartCropImage uri={p.img} />}
+                      <TouchableOpacity style={profStyles.pickShare} onPress={() => sharePick(p)} hitSlop={6} accessibilityLabel="Compartir">
+                        <Ionicons name="share-outline" size={16} color={PK.ink} />
                       </TouchableOpacity>
+                    </View>
+                    <View style={{ paddingHorizontal: 4, gap: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        {(() => { const c = getDomainCountry(p.domain, p.url); return c ? <Text style={{ fontSize: 11 }}>{COUNTRY_INFO[c].flag}</Text> : null; })()}
+                        <Text style={[explorarCardStyles.gridStore, { flexShrink: 1 }]} numberOfLines={1}>{getStoreDisplayName(p.domain)}</Text>
+                      </View>
+                      <Text style={explorarCardStyles.gridTitle} numberOfLines={1}>{p.name}</Text>
+                      {!!p.price && <Text style={explorarCardStyles.gridPrice} numberOfLines={1}>{p.price}</Text>}
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -7403,6 +7390,42 @@ function PicksView({
     </View>
   );
 }
+
+const PROF_COL_W = (SCREEN.width - 48 - 12) / 2; // 2 por fila (Mis Picks tiene 24 de margen)
+const profStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#F3E3D8', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarLetter: { fontSize: 20, fontFamily: DM[700], color: PK.ink },
+  avatarEdit: {
+    position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: 10,
+    backgroundColor: PK.ink, borderWidth: 2, borderColor: PK.bg, alignItems: 'center', justifyContent: 'center',
+  },
+  name: { fontSize: 17, fontFamily: DM[800], letterSpacing: -0.3, color: PK.ink },
+  stats: { fontSize: 12, fontFamily: DM[400], color: PK.muted, marginTop: 1 },
+  statsNum: { fontFamily: DM[700], color: PK.ink },
+  shareBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  tabs: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 8, marginHorizontal: -24, borderBottomWidth: 1, borderBottomColor: PK.line },
+  tab: { height: 44, paddingHorizontal: 4, justifyContent: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabText: { fontSize: 16, fontFamily: DM[700], color: PK.muted },
+  colGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 14, paddingTop: 14 },
+  colCard: { width: PROF_COL_W, gap: 2 },
+  mosaic: { height: 124, flexDirection: 'row', flexWrap: 'wrap', gap: 3, borderRadius: 16, overflow: 'hidden', marginBottom: 6 },
+  mosaicCell: { width: (PROF_COL_W - 3) / 2, height: 60.5 },
+  colShare: {
+    position: 'absolute', top: 6, right: 6, width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: PK.ink, shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  colName: { fontSize: 15, fontFamily: DM[700], color: PK.ink },
+  colMeta: { fontSize: 13, fontFamily: DM[400], color: PK.muted },
+  picksGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 16, paddingTop: 4 },
+  pickCard: { width: PROF_COL_W, gap: 6 },
+  pickImg: { width: PROF_COL_W, height: PROF_COL_W, borderRadius: 16, overflow: 'hidden' },
+  pickShare: {
+    position: 'absolute', top: 8, right: 8, width: 32, height: 32, borderRadius: 16, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+});
 
 // Idioma para el reconocimiento de voz. El de Apple solo acepta variantes que
 // tenga exactamente (es-ES, es-MX, es-US, es-CL…, no "es-UY"): con un idioma
