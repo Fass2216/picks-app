@@ -1503,6 +1503,7 @@ function AppContent() {
   // publicación de Instagram, el link de una tienda o un texto)
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent({ resetOnBackground: true });
   const [unreadNotifCount, setUnreadNotifCount] = useState(0); // para el contador de la campanita
+  const [searchBackTab, setSearchBackTab] = useState('home'); // a dónde vuelve "Volver" desde Buscar
   const [searchInitialQuery, setSearchInitialQuery] = useState(null); // texto libre pre-cargado desde "Mis tiendas" (modo Toda la web)
   const [customBackLabel, setCustomBackLabel] = useState(null); // label del botón "volver" del navegador cuando se abrió desde un lugar puntual (ej. una colección)
   // "Comparar en otras tiendas": lista de tiendas de la categoría (para el
@@ -1969,7 +1970,8 @@ function AppContent() {
   // La primera vez que se abre la app (nunca antes visto), arranca el tour solo.
   useEffect(() => {
     AsyncStorage.getItem('onboarding-tour-seen-v1').then((seen) => {
-      if (!seen) setTimeout(() => setTourActive(true), 900);
+      // Antes arrancaba el tour de globitos; ahora la Bienvenida del diseño nuevo
+      if (!seen) setTimeout(() => setWelcomeStep('intro'), 900);
     }).catch(() => {});
   }, []);
 
@@ -2018,9 +2020,15 @@ function AppContent() {
     AsyncStorage.setItem('onboarding-tour-seen-v1', '1').catch(() => {});
   }
   function replayTour() {
-    setActiveTab('home');
-    setTourStepIndex(0);
-    setTimeout(() => setTourActive(true), 350);
+    setWelcomeStep('intro');
+  }
+  // Bienvenida: 'intro' (cómo funciona) | 'stores' (elegir tiendas) | null
+  const [welcomeStep, setWelcomeStep] = useState(null);
+  const [saveTip, setSaveTip] = useState(false); // "Así se guarda un pick" en Explorar
+  function finishOnboarding(tab) {
+    setWelcomeStep(null);
+    if (tab) setActiveTab(tab);
+    AsyncStorage.setItem('onboarding-tour-seen-v1', '1').catch(() => {});
   }
 
   function getActiveBrowserUrl() {
@@ -2464,7 +2472,7 @@ function AppContent() {
               onOpenUrl={openUrl}
               preset={searchPreset}
               onPresetConsumed={() => setSearchPreset(null)}
-              onBack={() => setActiveTab('home')}
+              onBack={() => setActiveTab(searchBackTab)}
               initialQuery={searchInitialQuery}
               onInitialQueryConsumed={() => setSearchInitialQuery(null)}
             />
@@ -2495,6 +2503,16 @@ function AppContent() {
             screens={{
               explorar: (
                 <ExplorarScreen
+                  onSearch={(text) => {
+                    setSearchBackTab('explorar');
+                    setSearchInitialQuery({ query: text, scope: 'all', nonce: Date.now() });
+                    setActiveTab('search');
+                  }}
+                  onSearchAction={(action) => {
+                    setSearchBackTab('explorar');
+                    setSearchInitialQuery({ action, scope: 'all', nonce: Date.now() });
+                    setActiveTab('search');
+                  }}
                   picks={picks}
                   customStores={customStores}
                   userInterests={userInterests}
@@ -2548,6 +2566,7 @@ function AppContent() {
               ),
               picks: (
                 <PicksView
+                  onGoTab={setActiveTab}
                   picks={picks}
                   collections={collections}
                   picksTab={picksTab}
@@ -2923,6 +2942,32 @@ function AppContent() {
         onOpenUrl={(url) => openUrl(url)}
         onClose={() => setPromoListOpen(false)}
       />
+      <Modal visible={!!welcomeStep} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => finishOnboarding()}>
+        {welcomeStep === 'stores' ? (
+          <ChooseStores
+            stores={STORES_BY_COUNTRY[country] || STORES}
+            onSkip={() => { finishOnboarding('explorar'); setSaveTip(true); }}
+            onDone={(list) => {
+              list.forEach(s => onAddCustomStoreByDomain(getRegisteredDomain(s.domain), s.url));
+              track('welcome_stores_chosen', { count: list.length });
+              finishOnboarding('home');
+            }}
+          />
+        ) : (
+          <WelcomeIntro
+            onSkip={() => finishOnboarding()}
+            onExplore={() => { finishOnboarding('explorar'); setSaveTip(true); }}
+            onChooseStores={() => setWelcomeStep('stores')}
+          />
+        )}
+      </Modal>
+      {saveTip && activeTab === 'explorar' && !browserUrl && (
+        <SaveTipCard
+          title="Así se guarda un pick"
+          text="Apretá la estrella y queda guardado. O mantené apretado el producto un segundito."
+          onClose={() => setSaveTip(false)}
+        />
+      )}
       {showIntro && <IntroSplash onDone={() => setShowIntro(false)} />}
     </TourContext.Provider>
   );
@@ -2987,6 +3032,172 @@ function personDisplayLabel(person) {
 // Bienvenida después de crear la cuenta o del primer ingreso: elegir las
 // categorías de interés, que son las que arman "Para vos" en Explorar y las
 // tiendas de Mis tiendas. Se muestra una sola vez por usuario.
+// ── Bienvenida (primera vez) ─────────────────────────────────────────────────
+// Los 3 pasos que van rotando: qué hacés, cómo se guarda, dónde queda
+const WELCOME_SLIDES = [
+  { icon: 'bag-handle-outline', tint: '#F3E3D8', title: 'Encontrá algo que te guste', text: 'Entrá a cualquier tienda y mantené presionada una imagen.' },
+  { icon: 'star', tint: '#FDEBE2', title: 'Mantené y se guarda', text: 'Picks guarda el producto con su tienda y su precio.' },
+  { icon: 'bookmark', tint: '#E3E0EC', title: 'Todo en un solo lugar', text: 'Tus guardados, ordenados por tienda y listos para compartir.' },
+];
+
+function WelcomeIntro({ onSkip, onExplore, onChooseStores }) {
+  Font.useFonts(DM_FONTS);
+  const [i, setI] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const t = setInterval(() => {
+      Animated.timing(fade, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+        setI(n => (n + 1) % WELCOME_SLIDES.length);
+        Animated.timing(fade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      });
+    }, 4200);
+    return () => clearInterval(t);
+  }, [fade]);
+  const s = WELCOME_SLIDES[i];
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: PK.bg }}>
+      <View style={[explorarExtraStyles.topBar, { paddingRight: 8 }]}>
+        <Text style={explorarExtraStyles.logo}>Picks</Text>
+        <TouchableOpacity onPress={onSkip} style={bienvenidaStyles.skip}><Text style={bienvenidaStyles.skipText}>Saltar</Text></TouchableOpacity>
+      </View>
+      <View style={{ flex: 1, justifyContent: 'center', gap: 10 }}>
+        <Text style={bienvenidaStyles.eyebrow}>¡Bienvenido/a a la comunidad Picks!</Text>
+        <Animated.View style={[bienvenidaStyles.visual, { opacity: fade }]}>
+          <View style={bienvenidaStyles.card}>
+            <View style={[bienvenidaStyles.cardImg, { backgroundColor: s.tint }]}>
+              <Ionicons name={s.icon} size={72} color={PK.accent} />
+            </View>
+            <View style={{ padding: 14, gap: 6 }}>
+              <View style={[bienvenidaStyles.line, { width: '80%' }]} />
+              <View style={[bienvenidaStyles.line, { width: '40%', backgroundColor: PK.savedBg }]} />
+            </View>
+          </View>
+        </Animated.View>
+        <Animated.View style={{ opacity: fade, paddingHorizontal: 32, gap: 8 }}>
+          <Text style={bienvenidaStyles.title}>{s.title}</Text>
+          <Text style={bienvenidaStyles.text}>{s.text}</Text>
+        </Animated.View>
+        <View style={bienvenidaStyles.dots}>
+          {WELCOME_SLIDES.map((_, k) => <View key={k} style={[bienvenidaStyles.dot, k === i && bienvenidaStyles.dotOn]} />)}
+        </View>
+      </View>
+      <View style={{ paddingHorizontal: 24, paddingBottom: 18, alignItems: 'center' }}>
+        <TouchableOpacity style={bienvenidaStyles.cta} onPress={onExplore} activeOpacity={0.85}>
+          <Text style={bienvenidaStyles.ctaText}>Empezar a explorar</Text>
+          <Ionicons name="arrow-forward" size={18} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onChooseStores} style={{ height: 48, justifyContent: 'center' }}>
+          <Text style={tileStyles.sectionLink}>Elegir mis tiendas</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// "¿En qué tiendas comprás?": se eligen tocando, y "Listo" las suma a Mis tiendas
+function ChooseStores({ stores, onSkip, onDone }) {
+  Font.useFonts(DM_FONTS);
+  const [sel, setSel] = useState([]);
+  const n = sel.length;
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: PK.bg }}>
+      <View style={[explorarExtraStyles.topBar, { paddingRight: 8 }]}>
+        <Text style={explorarExtraStyles.logo}>Picks</Text>
+        <TouchableOpacity onPress={onSkip} style={bienvenidaStyles.skip}><Text style={bienvenidaStyles.skipText}>Saltar</Text></TouchableOpacity>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 110 }}>
+        <Text style={[bienvenidaStyles.eyebrow, { textAlign: 'left' }]}>Paso 1 de 1</Text>
+        <Text style={[tileStyles.h1, { fontSize: 26, marginTop: 6 }]}>¿En qué tiendas comprás?</Text>
+        <Text style={[bienvenidaStyles.text, { textAlign: 'left', marginTop: 6, marginBottom: 20 }]}>Elegí las que usás y te mostramos sus productos. Después podés sumar las que quieras.</Text>
+        <View style={tileStyles.grid}>
+          {stores.map(s => {
+            const on = sel.includes(s.domain);
+            return (
+              <View key={s.domain}>
+                <View style={[{ borderRadius: 20, borderWidth: 2, borderColor: on ? PK.accent : 'transparent', margin: -2 }]}>
+                  <StoreTile store={s} onPress={() => setSel(v => (on ? v.filter(d => d !== s.domain) : [...v, s.domain]))} />
+                </View>
+                {on && (
+                  <View style={bienvenidaStyles.check} pointerEvents="none">
+                    <Ionicons name="checkmark" size={15} color="#fff" />
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+      <View style={bienvenidaStyles.bottomBar} pointerEvents="box-none">
+        <TouchableOpacity
+          style={[bienvenidaStyles.cta, !n && { backgroundColor: PK.pill }]}
+          disabled={!n}
+          onPress={() => onDone(stores.filter(s => sel.includes(s.domain)))}
+          activeOpacity={0.85}
+        >
+          <Text style={[bienvenidaStyles.ctaText, !n && { color: PK.soft }]}>{n ? `Listo · ${n} ${n === 1 ? 'elegida' : 'elegidas'}` : 'Elegí al menos una'}</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// Tarjetita que aparece en Explorar la primera vez: cómo se guarda un pick
+function SaveTipCard({ eyebrow, title, text, onClose }) {
+  return (
+    <View style={bienvenidaStyles.tipWrap} pointerEvents="box-none">
+      <View style={bienvenidaStyles.tip}>
+        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+          <View style={bienvenidaStyles.tipIcon}><Ionicons name="star" size={24} color={PK.accent} /></View>
+          <View style={{ flex: 1, gap: 2 }}>
+            {!!eyebrow && <Text style={[tileStyles.eyebrow, { marginTop: 0 }]}>{eyebrow}</Text>}
+            <Text style={bienvenidaStyles.tipTitle}>{title}</Text>
+            <Text style={bienvenidaStyles.tipText}>{text}</Text>
+          </View>
+        </View>
+        <TouchableOpacity style={[bienvenidaStyles.cta, { height: 46, marginTop: 12, backgroundColor: PK.ink }]} onPress={onClose} activeOpacity={0.85}>
+          <Text style={bienvenidaStyles.ctaText}>Entendido</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const bienvenidaStyles = StyleSheet.create({
+  skip: { height: 44, paddingHorizontal: 12, justifyContent: 'center' },
+  skipText: { fontSize: 14, fontFamily: DM[600], color: PK.muted },
+  eyebrow: { fontSize: 14, fontFamily: DM[700], letterSpacing: 0.6, textTransform: 'uppercase', color: PK.accentDark, textAlign: 'center', paddingHorizontal: 28 },
+  visual: { height: 320, alignItems: 'center', justifyContent: 'center' },
+  card: {
+    width: 220, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line, overflow: 'hidden',
+    shadowColor: PK.ink, shadowOpacity: 0.12, shadowRadius: 17, shadowOffset: { width: 0, height: 14 }, elevation: 6,
+  },
+  cardImg: { height: 200, alignItems: 'center', justifyContent: 'center' },
+  line: { height: 10, borderRadius: 5, backgroundColor: PK.pill },
+  title: { fontSize: 24, lineHeight: 32, fontFamily: DM[800], letterSpacing: -0.5, color: PK.ink, textAlign: 'center' },
+  text: { fontSize: 15, lineHeight: 22, fontFamily: DM[400], color: PK.muted, textAlign: 'center' },
+  dots: { flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 4 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: PK.line },
+  dotOn: { width: 22, backgroundColor: PK.accent },
+  cta: {
+    alignSelf: 'stretch', height: 52, borderRadius: 99, backgroundColor: PK.accent,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  ctaText: { color: '#fff', fontSize: 16, fontFamily: DM[700] },
+  check: {
+    position: 'absolute', top: -8, right: -8, width: 26, height: 26, borderRadius: 13,
+    backgroundColor: PK.accent, borderWidth: 2, borderColor: PK.bg, alignItems: 'center', justifyContent: 'center',
+  },
+  bottomBar: { position: 'absolute', left: 20, right: 20, bottom: 28 },
+  tipWrap: { position: 'absolute', left: 16, right: 16, bottom: 110 },
+  tip: {
+    padding: 16, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line,
+    shadowColor: PK.ink, shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8,
+  },
+  tipIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: PK.savedBg, alignItems: 'center', justifyContent: 'center' },
+  tipTitle: { fontSize: 16, fontFamily: DM[800], color: PK.ink },
+  tipText: { fontSize: 14, lineHeight: 19, fontFamily: DM[400], color: PK.muted },
+});
+
 function WelcomeInterests({ name, onDone, onSkip }) {
   const [selected, setSelected] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -5921,8 +6132,6 @@ function HomeView({ savedPicks = [], onAddPick, bottomInset = 0, backgroundSourc
       contentContainerStyle={[styles.scrollContent, { paddingHorizontal: 20, paddingTop: 0, paddingBottom: 40 + bottomInset }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      // El buscador (2º hijo) queda fijo arriba al deslizar las tiendas
-      stickyHeaderIndices={[1]}
     >
       <View>
         <View style={[explorarExtraStyles.topBar, { paddingLeft: 0, paddingRight: 0 }]}>
@@ -5941,87 +6150,6 @@ function HomeView({ savedPicks = [], onAddPick, bottomInset = 0, backgroundSourc
             </TourTarget>
           )}
         </View>
-      </View>
-
-      {/* Buscador único (fijo arriba al deslizar): Mis tiendas / Toda la web */}
-      {/* Con fondo personalizado no hay franja: el buscador flota (con una
-          sombra suave) sobre tu fondo, como el menú de abajo. Una franja de
-          color o con el fondo recortado se notaba como un corte. */}
-      <View
-        style={[homeExtraStyles.stickySearch, !!backgroundSource && homeExtraStyles.stickySearchFloating]}
-        onLayout={(e) => { stickyTopRef.current = e.nativeEvent.layout.y; }}
-      >
-      {/* Con fondo personalizado y el selector abierto: un panel claro detrás
-          de buscador + selector + botón, para que las tiendas que pasan por
-          debajo no se vean entre los huecos (quedaba entreverado) */}
-      {/* Contenedor del ancho exacto del buscador: el panel se mide desde acá */}
-      <View>
-      {/* Solo si bajaste: arriba de todo se ve mejor sin panel */}
-      {!!backgroundSource && !!input.trim() && scrolledPast && (
-        <View pointerEvents="none" style={homeExtraStyles.stickySearchPanel} />
-      )}
-      <View style={homeExtraStyles.searchRow}>
-        <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
-        <View style={homeExtraStyles.searchInputWrap}>
-          <Ionicons name="search-outline" size={20} color={PK.muted} />
-          <TextInput
-            ref={searchInputRef}
-            style={homeExtraStyles.searchInputField}
-            placeholder="Buscar…"
-            placeholderTextColor={COLORS.textTertiary}
-            value={input}
-            onChangeText={(t) => {
-              // Primera letra habiendo bajado: subir (por si al tocar no subió)
-              if (!input.trim() && t.trim()) scrollHomeToTop();
-              setInput(t);
-            }}
-            // Si bajaste por las tiendas, al tocar el buscador la pantalla sube:
-            // buscador, selector y botón quedan en su lugar, sin nada detrás
-            onFocus={scrollHomeToTop}
-            onSubmitEditing={submitSearch}
-            returnKeyType={searchMode === 'mis' ? 'search' : 'go'}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {input.length > 0 ? (
-            <TouchableOpacity onPress={() => setInput('')} hitSlop={10}>
-              <Ionicons name="close-circle" size={16} color={COLORS.textTertiary} />
-            </TouchableOpacity>
-          ) : !!onOpenSearchWithAction && (
-            // Con el campo vacío: atajos a buscar por foto o por voz, sin tener
-            // que escribir algo antes para llegar a la pantalla de Buscar.
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-              <TouchableOpacity onPress={() => onOpenSearchWithAction('camera')} hitSlop={8} accessibilityLabel="Buscar con una foto">
-                <Ionicons name="camera-outline" size={19} color={COLORS.accent} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => onOpenSearchWithAction('mic')} hitSlop={8} accessibilityLabel="Buscar por voz">
-                <Ionicons name="mic-outline" size={19} color={COLORS.accent} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-        </TourTarget>
-      </View>
-
-      {/* Con algo escrito: dónde buscar (Mis tiendas / Toda la web) y el botón.
-          Antes era un chip chico al lado del buscador que casi nadie notaba. */}
-      {!!input.trim() && (
-        <View style={{ marginBottom: 14 }}>
-          <SearchModeSelector mode={searchMode} onChange={switchSearchMode} />
-          <TouchableOpacity
-            style={[homeExtraStyles.webSearchBtn, { marginBottom: 0 }, lookingUpStore && { opacity: 0.5 }]}
-            onPress={searchMode === 'web' ? submitWebSearch : submitMyStoresSearch}
-            disabled={lookingUpStore}
-            activeOpacity={0.8}
-          >
-            <Text style={homeExtraStyles.webSearchBtnText}>
-              {lookingUpStore ? 'Buscando...' : searchMode === 'web' ? 'Buscar en toda la web' : 'Buscar en mis tiendas'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      </View>
       </View>
 
       {/* ── Mis tiendas: 5 + Agregar, "Ver todas" muestra el resto ── */}
@@ -6846,7 +6974,7 @@ function ShareCardContent({ pick, onImageReady }) {
 function PicksView({
   picks, collections = [], onRemove, onOpen, picksTab, setPicksTab, openCollection, setOpenCollection, onToggleCollectionPublic,
   userProfile, avatarUrl, onOpenAuth, onOpenEditProfile, onOpenSettings, onOpenCommunity,
-  unreadNotifCount = 0, onOpenNotifications,
+  unreadNotifCount = 0, onOpenNotifications, onGoTab,
 }) {
   const menuInset = useContext(TabBarInsetContext);
   const [myProfileRow, setMyProfileRow] = useState(null);
@@ -7295,12 +7423,23 @@ function PicksView({
       ) : (
 
       picks.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="heart-outline" size={56} color={COLORS.border} />
-          <Text style={styles.emptyTitle}>Acá van tus Picks</Text>
-          <Text style={styles.emptyDesc}>
-            Entrá a una tienda, mantené presionada una imagen y se guarda acá.
+        <View style={[styles.emptyState, { paddingHorizontal: 12 }]}>
+          <View style={bienvenidaStyles.tipIcon}><Ionicons name="star" size={26} color={PK.accent} /></View>
+          <Text style={[bienvenidaStyles.title, { fontSize: 22, marginTop: 14 }]}>Acá van a quedar tus Picks</Text>
+          <Text style={[bienvenidaStyles.text, { marginTop: 6 }]}>
+            Apretá la estrella o mantené apretado un producto y aparece acá, ordenado por tienda.
           </Text>
+          {!!onGoTab && (
+            <>
+              <TouchableOpacity style={[bienvenidaStyles.cta, { marginTop: 20 }]} onPress={() => onGoTab('explorar')} activeOpacity={0.85}>
+                <Text style={bienvenidaStyles.ctaText}>Empezar a explorar</Text>
+                <Ionicons name="arrow-forward" size={18} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onGoTab('home')} style={{ height: 48, justifyContent: 'center' }}>
+                <Text style={tileStyles.sectionLink}>Ir a mis tiendas</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       ) : (
         <>
@@ -8331,7 +8470,7 @@ function getStoreBgColor(storeName) {
   return found ? found.bg : '#555555';
 }
 
-function ExplorarScreen({ picks, collections = [], customStores = [], userInterests = [], onOpenUrl, onAddPick, onRemovePick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
+function ExplorarScreen({ onSearch, onSearchAction, picks, collections = [], customStores = [], userInterests = [], onOpenUrl, onAddPick, onRemovePick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
   Font.useFonts(DM_FONTS); // al terminar de cargar la letra, se vuelve a dibujar con DM Sans
   const [newCount, setNewCount] = useState(0); // "NUEVO · N productos para vos" después de actualizar
   // Pastilla oscura que se desliza entre Para vos / Comunidad / Tendencias
@@ -8725,14 +8864,27 @@ function ExplorarScreen({ picks, collections = [], customStores = [], userIntere
             style={explorarExtraStyles.searchInput}
             value={exploreQuery}
             onChangeText={setExploreQuery}
+            // Al buscar: productos en tus tiendas y en toda la web (la pantalla de Buscar)
+            onSubmitEditing={() => { const q = exploreQuery.trim(); if (q && onSearch) { track('search_performed', { query: q.toLowerCase(), query_length: q.length, scope: 'explorar' }); onSearch(q); } }}
+            returnKeyType="search"
             autoCorrect={false}
             accessibilityLabel="Buscar marcas o productos"
           />
         </View>
-        {exploreQuery.length > 0 && (
+        {exploreQuery.length > 0 ? (
           <TouchableOpacity onPress={() => setExploreQuery('')} hitSlop={10} style={{ paddingRight: 10 }}>
             <Ionicons name="close-circle" size={18} color={PK.muted} />
           </TouchableOpacity>
+        ) : !!onSearchAction && (
+          // Buscar con una foto o con la voz (como estaba en Mis tiendas)
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => onSearchAction('mic')} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Buscar por voz">
+              <Ionicons name="mic-outline" size={21} color={PK.accent} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onSearchAction('camera')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Buscar con foto">
+              <Ionicons name="camera-outline" size={22} color={PK.accent} />
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
