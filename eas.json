@@ -34,7 +34,8 @@
     "prueba": {
       "ios": {
         "bundleIdentifier": "com.fass216.picksapp.prueba",
-        "appName": "Picks Prueba"
+        "appName": "Picks Prueba",
+        "ascAppId": "6828289468"
       }
     }
   }
