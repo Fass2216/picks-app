@@ -295,6 +295,23 @@ const COLORS = {
   accent: '#C2410C',
   accentLight: '#FDEBE2',
 };
+
+// Letra y colores del diseño nuevo (lienzo de Agus). Se usan en Explorar y Mis tiendas.
+const DM_FONTS = {
+  DMSans_400Regular: require('@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf'),
+  DMSans_500Medium: require('@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf'),
+  DMSans_600SemiBold: require('@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf'),
+  DMSans_700Bold: require('@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf'),
+  DMSans_800ExtraBold: require('@expo-google-fonts/dm-sans/800ExtraBold/DMSans_800ExtraBold.ttf'),
+  DMSans_800ExtraBold_Italic: require('@expo-google-fonts/dm-sans/800ExtraBold_Italic/DMSans_800ExtraBold_Italic.ttf'),
+};
+const DM = { 400: 'DMSans_400Regular', 500: 'DMSans_500Medium', 600: 'DMSans_600SemiBold', 700: 'DMSans_700Bold', 800: 'DMSans_800ExtraBold', '800i': 'DMSans_800ExtraBold_Italic' };
+const PK = {
+  bg: '#FBF6F2', ink: '#1E1A17', muted: '#6B625C', soft: '#5A5049', line: '#EDE4DD', pill: '#F1E9E2',
+  accent: '#C2410C', accentDark: '#9A3412', logo: '#E0592A', savedBg: '#FDEBE2', savedLine: '#E8C9B8',
+};
+// Fondos suaves detrás de cada foto, van rotando
+const PK_TINTS = ['#F3E3D8', '#E3E0EC', '#DDE5DE', '#F0DCDC', '#DCE4EC', '#EDE6D3'];
  
 const STORES = [
   { name: 'Zara', domain: 'zara.com', url: 'https://www.zara.com/uy/', bg: '#000000', fg: '#FFFFFF', short: 'ZA' },
@@ -4651,6 +4668,21 @@ function rememberLogoSrc(domain, url) {
 // Alturas variables para el efecto masonry (estilo Pinterest)
 const MASONRY_HEIGHTS = [136, 158, 146, 126, 154, 140, 130, 164];
 
+// Clearbit (logo.clearbit.com) dejó de existir: cada logo perdía tiempo en
+// ese intento antes de pasar al siguiente. La que ya funcionó otra vez va
+// primero (logoSrcCache).
+function useStoreLogoUrls(store) {
+  return useMemo(() => {
+    const list = [
+      ...(store.logo ? [store.logo] : []),
+      `https://${store.domain}/apple-touch-icon.png`,
+      `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${store.domain}&size=256`,
+    ];
+    const known = logoSrcCache[store.domain];
+    return known ? [known, ...list.filter(u => u !== known)] : list;
+  }, [store.domain, store.logo]);
+}
+
 function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height = 200 }) {
   const [logoIdx, setLogoIdx] = useState(0);
   // Logos de baja resolución (favicons de 32-64px) se muestran más chicos
@@ -4675,18 +4707,7 @@ function StoreGridCard({ store, onPress, onLongPress, index = 0, bgImage, height
   };
   const bgOpacity = bgFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] });
 
-  // Clearbit (logo.clearbit.com) dejó de existir: cada logo perdía tiempo en
-  // ese intento antes de pasar al siguiente. La que ya funcionó otra vez va
-  // primero (logoSrcCache).
-  const logoUrls = useMemo(() => {
-    const list = [
-      ...(store.logo ? [store.logo] : []),
-      `https://${store.domain}/apple-touch-icon.png`,
-      `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${store.domain}&size=256`,
-    ];
-    const known = logoSrcCache[store.domain];
-    return known ? [known, ...list.filter(u => u !== known)] : list;
-  }, [store.domain, store.logo]);
+  const logoUrls = useStoreLogoUrls(store);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -4809,6 +4830,122 @@ function MasonryStoreGrid({ stores, storeImages, onPress, onLongPress }) {
 }
 
 
+// ── Mis tiendas (diseño nuevo) ───────────────────────────────────────────────
+// Cuadrado con el color de la marca, el logo al medio, la promo arriba y el nombre abajo
+const STORE_TILE_W = (SCREEN.width - 40 - 32) / 3; // 3 por fila, 20 de margen y 16 entre cada una
+
+function StoreTile({ store, onPress, onLongPress }) {
+  const logoUrls = useStoreLogoUrls(store);
+  const [logoIdx, setLogoIdx] = useState(0);
+  const promo = bestPromoFor(useContext(PromosContext), store.domain);
+  return (
+    <TouchableOpacity style={tileStyles.tile} onPress={onPress} onLongPress={onLongPress} activeOpacity={0.85}>
+      <View style={[tileStyles.box, { backgroundColor: store.bg || COLORS.card }]}>
+        {logoIdx < logoUrls.length ? (
+          <Image
+            source={{ uri: logoUrls[logoIdx] }}
+            style={tileStyles.logo}
+            resizeMode="contain"
+            onLoad={() => rememberLogoSrc(store.domain, logoUrls[logoIdx])}
+            onError={() => setLogoIdx(prev => prev + 1)}
+          />
+        ) : (
+          <Text style={[tileStyles.initials, { color: store.fg || '#fff' }]} numberOfLines={1}>{store.short || store.name?.slice(0, 2)}</Text>
+        )}
+        {!!promo && (
+          <View style={tileStyles.promo} pointerEvents="none">
+            <Text style={tileStyles.promoText}>{promo.discount}%</Text>
+          </View>
+        )}
+      </View>
+      <Text style={tileStyles.name} numberOfLines={1}>{store.name}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function AddStoreTile({ onPress }) {
+  return (
+    <TouchableOpacity style={tileStyles.tile} onPress={onPress} activeOpacity={0.85} accessibilityLabel="Agregar tienda">
+      <View style={[tileStyles.box, tileStyles.addBox]}>
+        <Ionicons name="add" size={28} color={PK.muted} />
+      </View>
+      <Text style={[tileStyles.name, { color: PK.muted }]}>Agregar</Text>
+    </TouchableOpacity>
+  );
+}
+
+// Título de sección con link a la derecha ("Ver todas (11)")
+function SectionTitle({ title, subtitle, linkLabel, onLink }) {
+  return (
+    <View style={tileStyles.sectionRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={tileStyles.sectionTitle}>{title}</Text>
+        {!!subtitle && <Text style={tileStyles.sectionSub}>{subtitle}</Text>}
+      </View>
+      {!!linkLabel && (
+        <TouchableOpacity onPress={onLink} hitSlop={10}>
+          <Text style={tileStyles.sectionLink}>{linkLabel}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+// Tarjeta de "Tiendas destacadas": logo, categoría, nombre, web y Seguir
+function FeaturedStoreCard({ store, catLabel, following, onPress, onFollow, full }) {
+  return (
+    <TouchableOpacity style={[tileStyles.featured, full && { width: '100%' }]} onPress={onPress} activeOpacity={0.88}>
+      <View style={[tileStyles.featuredMark, { backgroundColor: store.bg || COLORS.card }]}>
+        <Text style={[tileStyles.featuredMarkText, { color: store.fg || PK.ink }]} numberOfLines={1}>{store.short || store.name?.charAt(0)}</Text>
+      </View>
+      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+        {!!catLabel && <Text style={tileStyles.featuredCat} numberOfLines={1}>{catLabel}</Text>}
+        <Text style={tileStyles.featuredName} numberOfLines={1}>{store.name}</Text>
+        <Text style={tileStyles.featuredUrl} numberOfLines={1}>{store.domain}</Text>
+      </View>
+      <TouchableOpacity
+        style={[tileStyles.followBtn, following && tileStyles.followBtnOn]}
+        onPress={following ? undefined : onFollow}
+        disabled={following}
+        activeOpacity={0.8}
+      >
+        <Text style={[tileStyles.followText, following && { color: PK.accentDark }]}>{following ? 'Siguiendo' : 'Seguir'}</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+// Tarjeta de categoría: nombre, cuántas tiendas y logos encimados
+function CategoryCard({ label, stores, tint, active, onPress }) {
+  const shown = stores.slice(0, stores.length > 3 ? 2 : 3);
+  const extra = stores.length - shown.length;
+  return (
+    <TouchableOpacity
+      style={[tileStyles.cat, { backgroundColor: tint }, active && { borderColor: PK.ink }]}
+      onPress={onPress}
+      activeOpacity={0.88}
+      accessibilityState={{ selected: active }}
+    >
+      <View style={{ gap: 2 }}>
+        <Text style={tileStyles.catName} numberOfLines={2}>{label}</Text>
+        <Text style={tileStyles.catCount}>{stores.length === 1 ? '1 tienda' : `${stores.length} tiendas`}</Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignSelf: 'flex-end' }}>
+        {shown.map((s, i) => (
+          <View key={s.domain} style={[tileStyles.catLogo, { backgroundColor: s.bg || '#fff', borderColor: tint, marginLeft: i ? -8 : 0 }]}>
+            <Text style={[tileStyles.catLogoText, { color: s.fg || PK.ink }]}>{(s.name || '?').charAt(0).toUpperCase()}</Text>
+          </View>
+        ))}
+        {extra > 0 && (
+          <View style={[tileStyles.catLogo, { backgroundColor: PK.ink, borderColor: tint, marginLeft: -8 }]}>
+            <Text style={[tileStyles.catLogoText, { color: '#fff' }]}>+{extra}</Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // Muestra las categorías de interés del usuario como chips (misma apariencia
 // que "Mis intereses" en Perfil). Al tocar una, las tiendas destacadas de esa
 // categoría cambian cuál es la lista mostrada en la pestaña "Destacadas".
@@ -4847,6 +4984,11 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
   const [input, setInput] = useState('');
   const [lookingUpStore, setLookingUpStore] = useState(false);
   const [searchMode, setSearchMode] = useState('mis'); // 'mis' | 'web'
+  Font.useFonts(DM_FONTS);
+  const [showAllMine, setShowAllMine] = useState(false);       // "Ver todas" de Mis tiendas
+  const [showAllFeatured, setShowAllFeatured] = useState(false); // "Ver más" de destacadas
+  const [showAllCats, setShowAllCats] = useState(false);       // "Ver todas" de categorías
+  const searchInputRef = useRef(null);
   const homeScrollRef = useRef(null);
   const stickyTopRef = useRef(0);           // dónde empieza el buscador fijo
   const [scrolledPast, setScrolledPast] = useState(false); // ¿ya quedó pegado arriba?
@@ -5309,16 +5451,15 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       }}
       style={styles.scroll}
       // Espacio abajo para que las últimas tiendas no queden debajo del menú
-      contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + bottomInset }]}
+      contentContainerStyle={[styles.scrollContent, { paddingHorizontal: 20, paddingTop: 0, paddingBottom: 40 + bottomInset }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // El buscador (2º hijo) queda fijo arriba al deslizar las tiendas
       stickyHeaderIndices={[1]}
     >
-      <View style={styles.brandHeader}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Animated.Text style={[styles.brandName, {
-            fontSize: 26,
+      <View>
+        <View style={[explorarExtraStyles.topBar, { paddingLeft: 0, paddingRight: 0 }]}>
+          <Animated.Text style={[explorarExtraStyles.logo, {
             opacity: titleOpacity,
             transform: [
               { scale: titleScale },
@@ -5355,8 +5496,9 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       <View style={homeExtraStyles.searchRow}>
         <TourTarget id="search-mode-chip" style={{ flex: 1 }}>
         <View style={homeExtraStyles.searchInputWrap}>
-          <Ionicons name="search-outline" size={17} color={COLORS.textSecondary} />
+          <Ionicons name="search-outline" size={20} color={PK.muted} />
           <TextInput
+            ref={searchInputRef}
             style={homeExtraStyles.searchInputField}
             placeholder="Buscar…"
             placeholderTextColor={COLORS.textTertiary}
@@ -5415,60 +5557,118 @@ function HomeView({ bottomInset = 0, backgroundSource = null, onOpenSearchWithAc
       </View>
       </View>
 
-      <Text style={homeExtraStyles.sectionHeading}>
-        Mis tiendas{customStores && customStores.length > 0 ? ` (${customStores.length})` : ''}
+      {/* ── Mis tiendas: 5 + Agregar, "Ver todas" muestra el resto ── */}
+      <SectionTitle
+        title="Mis tiendas"
+        linkLabel={filteredCustomStores.length > 5 ? (showAllMine ? 'Ver menos' : `Ver todas (${filteredCustomStores.length})`) : null}
+        onLink={() => setShowAllMine(v => !v)}
+      />
+      <View style={tileStyles.grid}>
+        {(showAllMine ? filteredCustomStores : filteredCustomStores.slice(0, 5)).map(store => (
+          <StoreTile
+            key={store.domain}
+            store={store}
+            onPress={() => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
+            onLongPress={() => confirmRemove(store)}
+          />
+        ))}
+        {/* Agregar: escribís el nombre o la web arriba y la app te ofrece sumarla */}
+        <AddStoreTile onPress={() => { setSearchMode('mis'); scrollHomeToTop(); searchInputRef.current?.focus(); }} />
+      </View>
+      <Text style={[styles.picksHint, { marginTop: 10 }]}>
+        {filteredCustomStores.length > 0
+          ? 'Mantené presionada una tienda para eliminarla'
+          : 'Tocá la estrella arriba en cualquier web para agregarla acá'}
       </Text>
-      {customStores && customStores.length > 0 ? (
-        filteredCustomStores.length > 0 ? (
-          <View>
-            <MasonryStoreGrid
-              stores={filteredCustomStores}
-              storeImages={storeImages}
-              onPress={(store) => { track('store_opened', { store: store.name, type: 'custom' }); onOpenUrl(store.url); }}
-              onLongPress={confirmRemove}
-            />
-            <Text style={[styles.picksHint, { marginTop: 8, marginBottom: 8 }]}>Mantené presionada una tienda para eliminarla</Text>
-          </View>
-        ) : (
-          <View style={styles.emptyStores}>
-            <Ionicons name="search-outline" size={30} color={COLORS.textTertiary} />
-            <Text style={styles.emptyStoresText}>Ninguna tienda tuya coincide con "{input.trim()}"</Text>
-          </View>
-        )
-      ) : (
-        <View style={styles.emptyStores}>
-          <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
-          <Text style={styles.emptyStoresText}>Todavía no agregaste tiendas</Text>
-          <Text style={[styles.picksHint, { textAlign: 'center', marginTop: 4 }]}>
-            Tocá la estrella arriba en cualquier web para agregarla acá
-          </Text>
-        </View>
-      )}
 
-      <Text style={[homeExtraStyles.sectionHeading, { marginTop: 24 }]}>Descubrir tiendas por categoría</Text>
+      {/* ── Tiendas destacadas (las de tu país que todavía no seguís) ── */}
+      {(() => {
+        const mine = new Set((customStores || []).map(s => s.domain));
+        const featured = countryStores.filter(s => !mine.has(s.domain));
+        if (!featured.length) return null;
+        const cards = (showAllFeatured ? featured : featured.slice(0, 8)).map(store => (
+          <FeaturedStoreCard
+            key={store.domain}
+            store={store}
+            full={showAllFeatured}
+            catLabel={INTEREST_CATEGORIES.find(c => c.id === store.category)?.label || 'Destacada'}
+            following={mine.has(store.domain)}
+            onPress={() => { track('store_opened', { store: store.name, type: 'predefined' }); onOpenUrl(store.url); }}
+            onFollow={() => onAddCustomStoreByDomain?.(store.domain, store.url)}
+          />
+        ));
+        return (
+          <>
+            <SectionTitle
+              title="Tiendas destacadas"
+              linkLabel={featured.length > 1 ? (showAllFeatured ? 'Ver menos' : 'Ver más') : null}
+              onLink={() => setShowAllFeatured(v => !v)}
+            />
+            {showAllFeatured ? (
+              <View style={{ gap: 10 }}>{cards}</View>
+            ) : (
+              <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 20 }}>
+                {cards}
+              </PagerSafeScrollView>
+            )}
+          </>
+        );
+      })()}
+
+      {/* ── Descubrí por categoría: al tocar una, se ven sus tiendas abajo ── */}
+      <SectionTitle
+        title="Descubrí por categoría"
+        subtitle="Tiendas nuevas para guardar productos"
+        linkLabel={Object.keys(interestStoresByCat).length > 2 ? (showAllCats ? 'Ver menos' : `Ver todas (${Object.keys(interestStoresByCat).length})`) : null}
+        onLink={() => setShowAllCats(v => !v)}
+      />
       {interestStoresLoading && Object.keys(interestStoresByCat).length === 0 && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <ActivityIndicator size="small" color={COLORS.accent} />
           <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>Cargando tus categorías…</Text>
         </View>
       )}
-      <InterestCategoryChips
-        categories={Object.keys(interestStoresByCat)}
-        selected={selectedInterestCat}
-        onSelect={setSelectedInterestCat}
-      />
-      {destacadasStores.length > 0 ? (
-        <MasonryStoreGrid
-          stores={destacadasStores}
-          storeImages={storeImages}
-          onPress={(store) => { track('store_opened', { store: store.name, type: selectedInterestCat ? 'category' : 'predefined' }); onOpenUrl(store.url); }}
-        />
-      ) : (
-        <View style={styles.emptyStores}>
-          <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
-          <Text style={styles.emptyStoresText}>Todavía no hay tiendas cargadas en esta categoría</Text>
-        </View>
+      {(() => {
+        const cats = Object.keys(interestStoresByCat).map((catId, i) => (
+          <CategoryCard
+            key={catId}
+            label={INTEREST_CATEGORIES.find(c => c.id === catId)?.label || catId}
+            stores={interestStoresByCat[catId] || []}
+            tint={PK_TINTS[i % PK_TINTS.length]}
+            active={selectedInterestCat === catId}
+            onPress={() => setSelectedInterestCat(selectedInterestCat === catId ? null : catId)}
+          />
+        ));
+        return showAllCats ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{cats}</View>
+        ) : (
+          <PagerSafeScrollView showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 20 }}>
+            {cats}
+          </PagerSafeScrollView>
+        );
+      })()}
+      {!!selectedInterestCat && (
+        <>
+          <SectionTitle title={INTEREST_CATEGORIES.find(c => c.id === selectedInterestCat)?.label || selectedInterestCat} />
+          {destacadasStores.length > 0 ? (
+            <View style={tileStyles.grid}>
+              {destacadasStores.map(store => (
+                <StoreTile
+                  key={store.domain}
+                  store={store}
+                  onPress={() => { track('store_opened', { store: store.name, type: 'category' }); onOpenUrl(store.url); }}
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyStores}>
+              <Ionicons name="storefront-outline" size={36} color={COLORS.textTertiary} />
+              <Text style={styles.emptyStoresText}>Todavía no hay tiendas cargadas en esta categoría</Text>
+            </View>
+          )}
+        </>
       )}
+      <View style={{ height: 24 }} />
 
       <View style={styles.infoCard}>
         <Ionicons
@@ -5497,8 +5697,8 @@ const homeExtraStyles = StyleSheet.create({
   // a todo el ancho (compensa el padding de 24 de la pantalla)
   stickySearch: {
     backgroundColor: COLORS.background,
-    marginHorizontal: -24,
-    paddingHorizontal: 24,
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
     zIndex: 2,
   },
   // Un poco más grande que buscador + selector + botón, para enmarcarlos
@@ -5529,15 +5729,18 @@ const homeExtraStyles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     backgroundColor: COLORS.surface,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     paddingHorizontal: 14,
-    height: 44,
+    height: 48,
   },
   searchInputField: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
+    fontFamily: DM[400],
     color: COLORS.textPrimary,
     paddingVertical: 0,
   },
@@ -5605,6 +5808,49 @@ const homeExtraStyles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginBottom: 10,
   },
+});
+
+const tileStyles = StyleSheet.create({
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  tile: { width: STORE_TILE_W, alignItems: 'center', gap: 8 },
+  box: {
+    width: STORE_TILE_W, height: STORE_TILE_W, borderRadius: 18,
+    borderWidth: 1, borderColor: 'rgba(30,26,23,0.08)',
+    alignItems: 'center', justifyContent: 'center', padding: 6,
+  },
+  addBox: { borderWidth: 2, borderStyle: 'dashed', borderColor: '#CFC3B9' },
+  logo: { width: '62%', height: '62%', borderRadius: 12 },
+  initials: { fontSize: 22, fontFamily: DM[800] },
+  promo: {
+    position: 'absolute', top: -7, right: -7, borderRadius: 99, paddingHorizontal: 7, paddingVertical: 3,
+    backgroundColor: PK.accent, borderWidth: 2, borderColor: PK.bg,
+  },
+  promoText: { color: '#fff', fontSize: 11, fontFamily: DM[700] },
+  name: { maxWidth: '100%', fontSize: 13, fontFamily: DM[500], color: PK.ink },
+  sectionRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingTop: 24, paddingBottom: 14 },
+  sectionTitle: { fontSize: 19, fontFamily: DM[700], color: PK.ink },
+  sectionSub: { fontSize: 14, fontFamily: DM[400], color: PK.muted, marginTop: 4 },
+  sectionLink: { fontSize: 14, fontFamily: DM[600], color: PK.accent, paddingTop: 3 },
+  featured: {
+    width: 290, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line, borderRadius: 20,
+  },
+  featuredMark: { width: 76, height: 76, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  featuredMarkText: { fontSize: 24, fontFamily: DM[800] },
+  featuredCat: { fontSize: 11, fontFamily: DM[700], color: PK.accentDark, textTransform: 'uppercase', letterSpacing: 0.6 },
+  featuredName: { fontSize: 15, fontFamily: DM[700], color: PK.ink },
+  featuredUrl: { fontSize: 12, fontFamily: DM[400], color: PK.muted },
+  followBtn: { height: 40, paddingHorizontal: 14, borderRadius: 99, backgroundColor: PK.accent, justifyContent: 'center' },
+  followBtnOn: { backgroundColor: PK.savedBg },
+  followText: { color: '#fff', fontSize: 13, fontFamily: DM[700] },
+  cat: {
+    width: 158, height: 116, padding: 14, borderRadius: 20, borderWidth: 1.5, borderColor: 'transparent',
+    justifyContent: 'space-between',
+  },
+  catName: { fontSize: 16, fontFamily: DM[700], lineHeight: 19, color: PK.ink },
+  catCount: { fontSize: 13, fontFamily: DM[400], color: '#4A423C' },
+  catLogo: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  catLogoText: { fontSize: 11, fontFamily: DM[700] },
 });
 
 // Dominios de Facebook/Meta a los que algunas tiendas redirigen por error
@@ -8073,22 +8319,6 @@ function ExplorarScreen({ picks, collections = [], customStores = [], userIntere
   );
 }
 
-// Letra y colores del diseño nuevo (lienzo de Agus). Por ahora solo en Explorar.
-const DM_FONTS = {
-  DMSans_400Regular: require('@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf'),
-  DMSans_500Medium: require('@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf'),
-  DMSans_600SemiBold: require('@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf'),
-  DMSans_700Bold: require('@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf'),
-  DMSans_800ExtraBold: require('@expo-google-fonts/dm-sans/800ExtraBold/DMSans_800ExtraBold.ttf'),
-  DMSans_800ExtraBold_Italic: require('@expo-google-fonts/dm-sans/800ExtraBold_Italic/DMSans_800ExtraBold_Italic.ttf'),
-};
-const DM = { 400: 'DMSans_400Regular', 500: 'DMSans_500Medium', 600: 'DMSans_600SemiBold', 700: 'DMSans_700Bold', 800: 'DMSans_800ExtraBold', '800i': 'DMSans_800ExtraBold_Italic' };
-const PK = {
-  bg: '#FBF6F2', ink: '#1E1A17', muted: '#6B625C', soft: '#5A5049', line: '#EDE4DD', pill: '#F1E9E2',
-  accent: '#C2410C', accentDark: '#9A3412', logo: '#E0592A', savedBg: '#FDEBE2', savedLine: '#E8C9B8',
-};
-// Fondos suaves detrás de cada foto, van rotando
-const PK_TINTS = ['#F3E3D8', '#E3E0EC', '#DDE5DE', '#F0DCDC', '#DCE4EC', '#EDE6D3'];
 
 const explorarCardStyles = StyleSheet.create({
   gridList: { paddingHorizontal: 16, paddingTop: 14, gap: 16 },
