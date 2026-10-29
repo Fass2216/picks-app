@@ -8083,7 +8083,7 @@ function ExplorarScreen({ picks, collections = [], customStores = [], userIntere
       <TouchableOpacity style={explorarCardStyles.gridCard} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.88}>
         <View style={[explorarCardStyles.gridImgBox, { backgroundColor: PK_TINTS[index % PK_TINTS.length] }]}>
           {item.img ? (
-            <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <SmartCropImage uri={item.img} />
           ) : (
             <Ionicons name="image-outline" size={28} color={PK.muted} />
           )}
@@ -8121,7 +8121,7 @@ function ExplorarScreen({ picks, collections = [], customStores = [], userIntere
           activeOpacity={0.9}
         >
           {item.img ? (
-            <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <SmartCropImage uri={item.img} />
           ) : (
             <Ionicons name="image-outline" size={36} color={PK.muted} />
           )}
@@ -8391,6 +8391,32 @@ const EXPLORAR_CHIPS = [
   { id: 'amigos', label: 'Comunidad' },
   { id: 'tendencias', label: 'Tendencias' },
 ];
+
+// Foto que llena su recuadro sin fondo atrás. Si es más alta que el recuadro
+// (un vestido, una persona de cuerpo entero) no se centra: se corre hacia
+// arriba para mostrar la parte donde suele estar lo importante (la persona
+// luciendo la prenda) y se recorta abajo (el ruedo, los pies).
+const CROP_FOCUS_Y = 0.35; // punto de la foto (desde arriba) que queda al medio
+
+function SmartCropImage({ uri }) {
+  const [box, setBox] = useState(null);
+  const [ratio, setRatio] = useState(null); // alto / ancho de la foto
+  useEffect(() => {
+    let alive = true;
+    Image.getSize(uri, (w, h) => { if (alive && w) setRatio(h / w); }, () => {});
+    return () => { alive = false; };
+  }, [uri]);
+  let imgStyle = { width: '100%', height: '100%' };
+  if (box && ratio && ratio > box.h / box.w) {
+    const h = box.w * ratio;
+    imgStyle = { position: 'absolute', left: 0, width: box.w, height: h, top: Math.min(0, Math.max(box.h - h, box.h / 2 - h * CROP_FOCUS_Y)) };
+  }
+  return (
+    <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} onLayout={(e) => setBox(e.nativeEvent.layout)} pointerEvents="none">
+      <Image source={{ uri }} style={imgStyle} resizeMode="cover" />
+    </View>
+  );
+}
 
 // Lo que va rotando en el buscador de Explorar: "Buscá ___"
 const SEARCH_HINTS = ['productos', 'zapatillas', 'en tus tiendas favoritas', 'Nike', 'un regalo para mamá', 'en KaveHome', 'una lámpara', 'en MiBelleza'];
