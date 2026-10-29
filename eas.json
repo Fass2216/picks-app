@@ -20,9 +20,17 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "prueba": {
+      "channel": "preview",
+      "distribution": "store",
+      "env": {
+        "APP_VARIANT": "prueba"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "prueba": {}
   }
 }

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useContext, useMemo, createCo
 import * as ImagePicker from 'expo-image-picker';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import * as Sharing from 'expo-sharing';
 import ViewShot from 'react-native-view-shot';
 import { useShareIntent } from 'expo-share-intent';
@@ -241,7 +242,12 @@ Notifications.setNotificationHandler({
 
 let debugAlertShown = false;
  
+// "Picks Prueba" (la copia para probar cambios, canal "preview"): no manda
+// estadísticas, así las pruebas no se mezclan con el uso real
+const IS_PRUEBA = Updates.channel === 'preview';
+
 function track(event, props) {
+  if (IS_PRUEBA) return;
   // Sin el ID del celular PostHog descarta el evento. "app_opened" se manda
   // apenas abre la app, antes de que el ID termine de cargarse: nunca llegaba
   // (y no se podían contar los usuarios por día). Ahora espera al ID.
