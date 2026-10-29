@@ -2024,10 +2024,9 @@ function AppContent() {
   }
   // Bienvenida: 'intro' (cómo funciona) | 'stores' (elegir tiendas) | null
   const [welcomeStep, setWelcomeStep] = useState(null);
-  const [saveTip, setSaveTip] = useState(false); // "Así se guarda un pick" en Explorar
-  function finishOnboarding(tab) {
-    setWelcomeStep(null);
-    if (tab) setActiveTab(tab);
+  const [tipStep, setTipStep] = useState(null); // tips guiados después: 'explorar' → 'picks'
+  function finishOnboarding() {
+    setTipStep(null);
     AsyncStorage.setItem('onboarding-tour-seen-v1', '1').catch(() => {});
   }
 
@@ -2942,30 +2941,36 @@ function AppContent() {
         onOpenUrl={(url) => openUrl(url)}
         onClose={() => setPromoListOpen(false)}
       />
-      <Modal visible={!!welcomeStep} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => finishOnboarding()}>
+      {/* Bienvenida guiada: cómo funciona → elegir tiendas → tip en Explorar → tip en tu perfil */}
+      <Modal visible={!!welcomeStep} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => {}}>
         {welcomeStep === 'stores' ? (
           <ChooseStores
             stores={STORES_BY_COUNTRY[country] || STORES}
-            onSkip={() => { finishOnboarding('explorar'); setSaveTip(true); }}
             onDone={(list) => {
               list.forEach(s => onAddCustomStoreByDomain(getRegisteredDomain(s.domain), s.url));
               track('welcome_stores_chosen', { count: list.length });
-              finishOnboarding('home');
+              setWelcomeStep(null);
+              setActiveTab('explorar');
+              setTipStep('explorar');
             }}
           />
         ) : (
-          <WelcomeIntro
-            onSkip={() => finishOnboarding()}
-            onExplore={() => { finishOnboarding('explorar'); setSaveTip(true); }}
-            onChooseStores={() => setWelcomeStep('stores')}
-          />
+          <WelcomeIntro onNext={() => setWelcomeStep('stores')} />
         )}
       </Modal>
-      {saveTip && activeTab === 'explorar' && !browserUrl && (
+      {tipStep === 'explorar' && activeTab === 'explorar' && !browserUrl && (
         <SaveTipCard
           title="Así se guarda un pick"
           text="Apretá la estrella y queda guardado. O mantené apretado el producto un segundito."
-          onClose={() => setSaveTip(false)}
+          onClose={() => { setActiveTab('picks'); setTipStep('picks'); }}
+        />
+      )}
+      {tipStep === 'picks' && activeTab === 'picks' && !browserUrl && (
+        <SaveTipCard
+          eyebrow="TU PERFIL"
+          title="Acá van a quedar todos tus picks"
+          text="Cada producto que guardes aparece en tu perfil, ordenado por tienda. Después podés juntarlos en colecciones y compartirlas."
+          onClose={finishOnboarding}
         />
       )}
       {showIntro && <IntroSplash onDone={() => setShowIntro(false)} />}
@@ -3126,7 +3131,7 @@ function WelcomeVisual({ index }) {
   );
 }
 
-function WelcomeIntro({ onSkip, onExplore, onChooseStores }) {
+function WelcomeIntro({ onNext }) {
   Font.useFonts(DM_FONTS);
   const [i, setI] = useState(0);
   const pagerRef = useRef(null);
@@ -3144,10 +3149,9 @@ function WelcomeIntro({ onSkip, onExplore, onChooseStores }) {
     return () => clearInterval(t);
   }, [W]);
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: PK.bg }}>
+    <View style={bienvenidaStyles.screen}>
       <View style={[explorarExtraStyles.topBar, { paddingRight: 8 }]}>
         <Text style={explorarExtraStyles.logo}>Picks</Text>
-        <TouchableOpacity onPress={onSkip} style={bienvenidaStyles.skip}><Text style={bienvenidaStyles.skipText}>Saltar</Text></TouchableOpacity>
       </View>
       <Text style={[bienvenidaStyles.eyebrow, { marginTop: 8 }]}>¡Bienvenido/a a la comunidad Picks!</Text>
       <ScrollView
@@ -3177,28 +3181,25 @@ function WelcomeIntro({ onSkip, onExplore, onChooseStores }) {
         ))}
       </View>
       <View style={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 18, alignItems: 'center' }}>
-        <TouchableOpacity style={bienvenidaStyles.cta} onPress={onExplore} activeOpacity={0.85}>
-          <Text style={bienvenidaStyles.ctaText}>Empezar a explorar</Text>
+        {/* Recorrido guiado: no se saltea, sigue con elegir tiendas */}
+        <TouchableOpacity style={bienvenidaStyles.cta} onPress={onNext} activeOpacity={0.85}>
+          <Text style={bienvenidaStyles.ctaText}>Empezar</Text>
           <Ionicons name="arrow-forward" size={18} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onChooseStores} style={{ height: 48, justifyContent: 'center' }}>
-          <Text style={tileStyles.sectionLink}>Elegir mis tiendas</Text>
-        </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // "¿En qué tiendas comprás?": se eligen tocando, y "Listo" las suma a Mis tiendas
-function ChooseStores({ stores, onSkip, onDone }) {
+function ChooseStores({ stores, onDone }) {
   Font.useFonts(DM_FONTS);
   const [sel, setSel] = useState([]);
   const n = sel.length;
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: PK.bg }}>
+    <View style={bienvenidaStyles.screen}>
       <View style={[explorarExtraStyles.topBar, { paddingRight: 8 }]}>
         <Text style={explorarExtraStyles.logo}>Picks</Text>
-        <TouchableOpacity onPress={onSkip} style={bienvenidaStyles.skip}><Text style={bienvenidaStyles.skipText}>Saltar</Text></TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 110 }}>
         <Text style={[bienvenidaStyles.eyebrow, { textAlign: 'left' }]}>Paso 1 de 1</Text>
@@ -3232,14 +3233,14 @@ function ChooseStores({ stores, onSkip, onDone }) {
           <Text style={[bienvenidaStyles.ctaText, !n && { color: PK.soft }]}>{n ? `Listo · ${n} ${n === 1 ? 'elegida' : 'elegidas'}` : 'Elegí al menos una'}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // Tarjetita que aparece en Explorar la primera vez: cómo se guarda un pick
 function SaveTipCard({ eyebrow, title, text, onClose }) {
   return (
-    <View style={bienvenidaStyles.tipWrap} pointerEvents="box-none">
+    <View style={bienvenidaStyles.tipBackdrop}>
       <View style={bienvenidaStyles.tip}>
         <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
           <View style={bienvenidaStyles.tipIcon}><Ionicons name="star" size={24} color={PK.accent} /></View>
@@ -3258,6 +3259,12 @@ function SaveTipCard({ eyebrow, title, text, onClose }) {
 }
 
 const bienvenidaStyles = StyleSheet.create({
+  // En un Modal el área segura no llega: se usa la medida del arranque
+  screen: {
+    flex: 1, backgroundColor: PK.bg,
+    paddingTop: (initialWindowMetrics?.insets?.top || 44) + 12,
+    paddingBottom: (initialWindowMetrics?.insets?.bottom || 20),
+  },
   skip: { height: 44, paddingHorizontal: 12, justifyContent: 'center' },
   skipText: { fontSize: 14, fontFamily: DM[600], color: PK.muted },
   eyebrow: { fontSize: 14, fontFamily: DM[700], letterSpacing: 0.6, textTransform: 'uppercase', color: PK.accentDark, textAlign: 'center', paddingHorizontal: 28 },
@@ -3308,7 +3315,8 @@ const bienvenidaStyles = StyleSheet.create({
     backgroundColor: PK.accent, borderWidth: 2, borderColor: PK.bg, alignItems: 'center', justifyContent: 'center',
   },
   bottomBar: { position: 'absolute', left: 20, right: 20, bottom: 28 },
-  tipWrap: { position: 'absolute', left: 16, right: 16, bottom: 110 },
+  // Oscurece la app y no deja tocar nada hasta "Entendido": el tutorial guía
+  tipBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(30,26,23,0.45)', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 110 },
   tip: {
     padding: 16, borderRadius: 24, backgroundColor: '#fff', borderWidth: 1, borderColor: PK.line,
     shadowColor: PK.ink, shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8,
