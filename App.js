@@ -7798,135 +7798,93 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
     : feed.filter(i => i.type !== 'trending'); // 'para_vos': el servidor ya lo arma según intereses y Picks
   const displayFeed = chipBaseFeed.filter(matchesQuery);
 
-  // ── Lista card ──────────────────────────────────────────────────────────────
+  const priceOf = (item) => item.priceText || (item.price ? `$ ${Number(item.price).toLocaleString('es-UY', { maximumFractionDigits: 0 })}` : '');
+  // Quién lo trae: la tienda, o la persona si es un Pick de la comunidad
+  const sourceOf = (item) => item.type === 'friend_pick' ? `${item.actorName} guardó un Pick` : item.store;
+  const shareItem = (item) => { if (item.url) Share.share({ message: `${item.title}\n${item.url}` }).catch(() => {}); };
+
+  // ── Grilla: 2 columnas, foto cuadrada con la estrella para guardar ─────────
   function renderListCard({ item }) {
     const picked = isAlreadyPicked(item.url);
-    const storeBg = getStoreBgColor(item.store);
     return (
-      <TouchableOpacity
-        style={styles.explorarCard}
-        onPress={() => item.url && onOpenUrl(item.url)}
-        activeOpacity={0.88}
-      >
-        {item.img ? (
-          <Image source={{ uri: item.img }} style={styles.explorarCardImg} resizeMode="cover" />
-        ) : (
-          <View style={[styles.explorarCardImg, styles.explorarCardImgEmpty]}>
-            <Ionicons name="image-outline" size={28} color={COLORS.textTertiary} />
-          </View>
-        )}
-        <View style={styles.explorarCardBody}>
-          {item.type === 'friend_pick' ? (
-            <View style={[styles.explorarStoreBadge, { backgroundColor: COLORS.accent, marginBottom: 6, alignSelf: 'flex-start' }]}>
-              <Text style={styles.explorarStoreBadgeText}>🧡 {item.actorName} guardó un Pick</Text>
-            </View>
+      <TouchableOpacity style={explorarCardStyles.gridCard} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.88}>
+        <View style={explorarCardStyles.gridImgBox}>
+          {item.img ? (
+            <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           ) : (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-              <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
-                <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
-              </View>
-              {item.type === 'trending' && (
-                <View style={styles.explorarTrendingBadge}>
-                  <Text style={styles.explorarTrendingText}>{trendingLabel(item)}</Text>
-                </View>
-              )}
-            </View>
+            <Ionicons name="image-outline" size={28} color={COLORS.textTertiary} />
           )}
-          <Text style={styles.explorarCardTitle} numberOfLines={2}>{item.title}</Text>
-          {item.priceText || item.price ? (
-            <Text style={styles.explorarCardPrice}>
-              {item.priceText || `$${Number(item.price).toLocaleString('es-UY', { maximumFractionDigits: 0 })}`}
-            </Text>
-          ) : null}
+          <TouchableOpacity
+            style={explorarCardStyles.gridSaveBtn}
+            onPress={() => !picked && onAddPick(item)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={picked ? 'Guardado' : 'Guardar'}
+            accessibilityState={{ selected: picked }}
+          >
+            <Ionicons name={picked ? 'star' : 'star-outline'} size={20} color={COLORS.accent} />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={styles.explorarPickBtn}
-          onPress={() => !picked && onAddPick(item)}
-          hitSlop={10}
-          activeOpacity={0.7}
-        >
-          <Ionicons name={picked ? 'heart' : 'heart-outline'} size={22} color={picked ? COLORS.accent : COLORS.textTertiary} />
-        </TouchableOpacity>
+        <View style={{ paddingHorizontal: 4, gap: 1 }}>
+          <Text style={explorarCardStyles.gridStore} numberOfLines={1}>
+            {item.type === 'trending' ? `${sourceOf(item)} · ${trendingLabel(item)}` : sourceOf(item)}
+          </Text>
+          <Text style={explorarCardStyles.gridTitle} numberOfLines={1}>{item.title}</Text>
+          {!!priceOf(item) && <Text style={explorarCardStyles.gridPrice}>{priceOf(item)}</Text>}
+        </View>
       </TouchableOpacity>
     );
   }
 
-  // ── Reel card ───────────────────────────────────────────────────────────────
+  // ── Feed: una tarjeta grande por producto, con Guardar / abrir / compartir ─
   function renderReelCard({ item }) {
     const picked = isAlreadyPicked(item.url);
-    const storeBg = getStoreBgColor(item.store);
+    const source = sourceOf(item) || '';
     return (
-      <View style={[styles.reelCard, { height: reelHeight }]}>
-        {/* Fondo de punta a punta: la misma foto desenfocada y oscurecida
-            (mantiene el efecto reel, y nunca queda blanco puro) */}
-        {item.img ? (
-          <Image source={{ uri: item.img }} style={styles.reelImg} resizeMode="cover" blurRadius={30} />
-        ) : (
-          <View style={[styles.reelImg, { backgroundColor: COLORS.borderSoft }]} />
-        )}
-        <View style={styles.reelDim} />
-
-        {/* El producto entero, sin recortar ni estirar, en una tarjeta arriba */}
-        {!!item.img && (
-          <View style={[styles.reelProductBox, { height: Math.max(200, reelHeight - REEL_TOP_SPACE - REEL_BOTTOM_SPACE - menuInset) }]}>
+      <View style={[explorarCardStyles.feedCard, picked && { borderColor: '#E8C9B8' }]}>
+        <TouchableOpacity style={explorarCardStyles.feedImgBox} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.9}>
+          {item.img ? (
             <Image source={{ uri: item.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-          </View>
-        )}
-
-        {/* Info abajo a la izquierda */}
-        <View style={[styles.reelInfo, { bottom: 90 + menuInset }]}>
-          {item.type === 'friend_pick' ? (
-            <View style={[styles.explorarStoreBadge, { backgroundColor: COLORS.accent, marginBottom: 10, alignSelf: 'flex-start' }]}>
-              <Text style={styles.explorarStoreBadgeText}>🧡 {item.actorName} guardó un Pick</Text>
-            </View>
           ) : (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <View style={[styles.explorarStoreBadge, { backgroundColor: storeBg }]}>
-                <Text style={styles.explorarStoreBadgeText}>{item.store}</Text>
-              </View>
-              {item.type === 'trending' && (
-                <View style={styles.explorarTrendingBadge}>
-                  <Text style={styles.explorarTrendingText}>{trendingLabel(item)}</Text>
-                </View>
-              )}
+            <Ionicons name="image-outline" size={36} color={COLORS.textTertiary} />
+          )}
+          <View style={explorarCardStyles.feedStorePill}>
+            <View style={[explorarCardStyles.feedStoreMark, { backgroundColor: item.type === 'friend_pick' ? COLORS.accent : getStoreBgColor(item.store) }]}>
+              <Text style={explorarCardStyles.feedStoreMarkText}>{(item.type === 'friend_pick' ? item.actorName : item.store || '?').charAt(0).toUpperCase()}</Text>
+            </View>
+            <Text style={explorarCardStyles.feedStoreName} numberOfLines={1}>{source}</Text>
+          </View>
+          {item.type === 'trending' && (
+            <View style={[styles.explorarTrendingBadge, { position: 'absolute', top: 14, right: 14 }]}>
+              <Text style={styles.explorarTrendingText}>{trendingLabel(item)}</Text>
             </View>
           )}
-          <Text style={styles.reelTitle} numberOfLines={3}>{item.title}</Text>
-          {item.priceText || item.price ? (
-            <Text style={styles.reelPrice}>
-              {item.priceText || `$${Number(item.price).toLocaleString('es-UY', { maximumFractionDigits: 0 })}`}
-            </Text>
-          ) : null}
-          <TouchableOpacity
-            style={styles.reelOpenBtn}
-            onPress={() => item.url && onOpenUrl(item.url)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.reelOpenBtnText}>Ver producto →</Text>
-          </TouchableOpacity>
+          {picked && (
+            <View style={explorarCardStyles.feedHaveIt}>
+              <Ionicons name="checkmark" size={14} color="#F4A27F" />
+              <Text style={explorarCardStyles.feedHaveItText}>Ya lo tenés</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 2 }}>
+          <Text style={explorarCardStyles.feedTitle} numberOfLines={3}>{item.title}</Text>
+          {!!priceOf(item) && <Text style={explorarCardStyles.feedPrice}>{priceOf(item)}</Text>}
         </View>
-
-        {/* Acciones lado derecho */}
-        <View style={[styles.reelActions, { bottom: 100 + menuInset }]}>
+        <View style={explorarCardStyles.feedActions}>
           <TouchableOpacity
-            style={styles.reelActionBtn}
+            style={[explorarCardStyles.feedSaveBtn, picked && { backgroundColor: '#FDEBE2' }]}
             onPress={() => !picked && onAddPick(item)}
-            activeOpacity={0.7}
+            activeOpacity={0.8}
+            accessibilityState={{ selected: picked }}
           >
-            <View style={styles.reelActionCircle}>
-              <Ionicons name={picked ? 'heart' : 'heart-outline'} size={26} color={picked ? COLORS.accent : '#fff'} />
-            </View>
-            <Text style={styles.reelActionLabel}>{picked ? 'Guardado' : 'Guardar'}</Text>
+            <Ionicons name={picked ? 'star' : 'star-outline'} size={20} color={picked ? '#9A3412' : '#fff'} />
+            <Text style={[explorarCardStyles.feedSaveText, picked && { color: '#9A3412' }]}>{picked ? 'Guardado' : 'Guardar'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.reelActionBtn}
-            onPress={() => item.url && onOpenUrl(item.url)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.reelActionCircle}>
-              <Ionicons name="open-outline" size={23} color="#fff" />
-            </View>
-            <Text style={styles.reelActionLabel}>Abrir</Text>
+          <TouchableOpacity style={explorarCardStyles.feedRoundBtn} onPress={() => item.url && onOpenUrl(item.url)} activeOpacity={0.7} accessibilityLabel="Abrir en la tienda">
+            <Ionicons name="open-outline" size={20} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={explorarCardStyles.feedRoundBtn} onPress={() => shareItem(item)} activeOpacity={0.7} accessibilityLabel="Compartir">
+            <Ionicons name="share-outline" size={20} color={COLORS.textPrimary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -8025,62 +7983,84 @@ function ExplorarScreen({ picks, customStores = [], userInterests = [], onOpenUr
           <ActivityIndicator size="large" color={COLORS.accent} />
           <Text style={{ color: COLORS.textSecondary, marginTop: 12, fontSize: 14 }}>Cargando novedades...</Text>
         </View>
-      ) : viewMode === 'lista' ? (
-        displayFeed.length === 0 ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
-            <Ionicons name="compass-outline" size={40} color={COLORS.border} />
-            <Text style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: 15, marginTop: 12, textAlign: 'center' }}>{emptyMessage}</Text>
-            {chip !== 'amigos' && (
-              <TouchableOpacity onPress={() => loadFeed()} style={{ marginTop: 20 }}>
-                <Text style={{ color: COLORS.accent, fontWeight: '500' }}>Reintentar</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          <FlatList
-            data={displayFeed}
-            renderItem={renderListCard}
-            keyExtractor={(item, i) => `lista-${i}-${item.url || ''}`}
-            contentContainerStyle={[styles.explorarList, { paddingBottom: 30 + menuInset }]}
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            showsVerticalScrollIndicator={false}
-            onEndReached={loadMore}
-            onEndReachedThreshold={1.5}
-            onScrollBeginDrag={() => { userScrolledRef.current = true; }}
-            ListFooterComponent={renderMoreFooter(false)}
-          />
-        )
-      ) : (
-        <View
-          style={{ flex: 1 }}
-          onLayout={(e) => setReelHeight(e.nativeEvent.layout.height)}
-        >
-          {displayFeed.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, backgroundColor: '#161616' }}>
-              <Text style={{ color: '#fff', fontWeight: '500', fontSize: 15, textAlign: 'center' }}>{emptyMessage}</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={displayFeed}
-              renderItem={renderReelCard}
-              keyExtractor={(item, i) => `reel-${i}-${item.url || ''}`}
-              pagingEnabled
-              snapToAlignment="start"
-              decelerationRate="fast"
-              showsVerticalScrollIndicator={false}
-              getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
-              onEndReached={loadMore}
-              onEndReachedThreshold={4}
-              onScrollBeginDrag={() => { userScrolledRef.current = true; }}
-              ListFooterComponent={renderMoreFooter(true)}
-            />
+      ) : displayFeed.length === 0 ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+          <Ionicons name="compass-outline" size={40} color={COLORS.border} />
+          <Text style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: 15, marginTop: 12, textAlign: 'center' }}>{emptyMessage}</Text>
+          {chip !== 'amigos' && (
+            <TouchableOpacity onPress={() => loadFeed()} style={{ marginTop: 20 }}>
+              <Text style={{ color: COLORS.accent, fontWeight: '500' }}>Reintentar</Text>
+            </TouchableOpacity>
           )}
         </View>
+      ) : (
+        // key: la grilla (2 columnas) y el feed (1) son listas distintas
+        <FlatList
+          key={viewMode}
+          data={displayFeed}
+          renderItem={viewMode === 'lista' ? renderListCard : renderReelCard}
+          numColumns={viewMode === 'lista' ? 2 : 1}
+          columnWrapperStyle={viewMode === 'lista' ? { gap: 12 } : undefined}
+          keyExtractor={(item, i) => `${viewMode}-${i}-${item.url || ''}`}
+          contentContainerStyle={[viewMode === 'lista' ? explorarCardStyles.gridList : explorarCardStyles.feedList, { paddingBottom: 30 + menuInset }]}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={1.5}
+          onScrollBeginDrag={() => { userScrolledRef.current = true; }}
+          ListFooterComponent={renderMoreFooter(false)}
+        />
       )}
     </View>
   );
 }
+
+const explorarCardStyles = StyleSheet.create({
+  gridList: { paddingHorizontal: 16, paddingTop: 6, gap: 16 },
+  gridCard: { flex: 1, gap: 6 },
+  gridImgBox: {
+    aspectRatio: 1, borderRadius: 18, overflow: 'hidden',
+    backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center',
+  },
+  gridSaveBtn: {
+    position: 'absolute', top: 8, right: 8, width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#1E1A17', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  gridStore: { fontSize: 11, fontWeight: '700', color: '#6B625C', textTransform: 'uppercase', letterSpacing: 0.5 },
+  gridTitle: { fontSize: 13, fontWeight: '600', color: COLORS.textPrimary },
+  gridPrice: { fontSize: 14, fontWeight: '800', color: COLORS.accent },
+  feedList: { paddingHorizontal: 20, paddingTop: 6, gap: 16 },
+  feedCard: { backgroundColor: COLORS.surface, borderWidth: 1.5, borderColor: '#EDE4DD', borderRadius: 28, overflow: 'hidden' },
+  feedImgBox: { height: 290, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center' },
+  feedStorePill: {
+    position: 'absolute', top: 14, left: 14, maxWidth: '75%', height: 32, borderRadius: 99,
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 4, paddingRight: 12,
+    backgroundColor: COLORS.background,
+  },
+  feedStoreMark: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  feedStoreMarkText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  feedStoreName: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: COLORS.textPrimary },
+  feedHaveIt: {
+    position: 'absolute', left: 14, bottom: 14, height: 30, borderRadius: 99,
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 12,
+    backgroundColor: COLORS.textPrimary,
+  },
+  feedHaveItText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  feedTitle: { fontSize: 18, fontWeight: '700', lineHeight: 23, color: COLORS.textPrimary },
+  feedPrice: { fontSize: 20, fontWeight: '800', color: COLORS.accent },
+  feedActions: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 14 },
+  feedSaveBtn: {
+    flex: 1, height: 48, borderRadius: 99, backgroundColor: COLORS.accent,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  feedSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  feedRoundBtn: {
+    width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: '#E5DBD3',
+    alignItems: 'center', justifyContent: 'center',
+  },
+});
 
 // Últimos reels de Explorar guardados en el celular (se muestran al abrir)
 const EXPLORAR_CACHE_KEY = 'explorar-feed-v1';
