@@ -5409,6 +5409,28 @@ function CategoryCard({ label, stores, tint, active, width, onPress }) {
   );
 }
 
+// Logo chico de una tienda (44): su ícono real o, si no hay, las iniciales.
+// La gente reconoce la marca por el logo más que por cómo se escribe.
+function StoreLogo({ store }) {
+  const urls = useStoreLogoUrls(store);
+  const [idx, setIdx] = useState(0);
+  return (
+    <View style={[tileStyles.sheetLogo, { backgroundColor: idx < urls.length ? '#fff' : (store.bg || PK.pill), borderWidth: 1, borderColor: PK.line, overflow: 'hidden' }]}>
+      {idx < urls.length ? (
+        <Image
+          source={{ uri: urls[idx] }}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="contain"
+          onLoad={() => rememberLogoSrc(store.domain, urls[idx])}
+          onError={() => setIdx(i => i + 1)}
+        />
+      ) : (
+        <Text style={{ color: store.fg || PK.ink, fontSize: 13, fontFamily: DM[700] }} numberOfLines={1}>{store.short || (store.name || '?').charAt(0).toUpperCase()}</Text>
+      )}
+    </View>
+  );
+}
+
 // Flecha para volver + texto ("Por categoría", "Belleza")
 function PageBack({ label, onPress }) {
   return (
@@ -5590,15 +5612,33 @@ function AddStoreSheet({ visible, onClose, popular, known, customStores, country
   }, [toast]);
   const mine = new Set((customStores || []).map(s => s.domain));
   const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const squash = (t) => norm(t).replace(/[^a-z0-9]/g, '');
   const query = norm(q.trim());
   let list = popular.slice(0, 8);
   if (query) {
+    // Sugerencias mientras escribís, solo de tiendas del país elegido: primero
+    // las que empiezan igual, después las que lo contienen y al final las
+    // parecidas aunque esté mal escrito ("adiddas" → Adidas, "zarra" → Zara)
+    const qs = squash(query);
+    const tol = qs.length <= 4 ? 1 : 2;
+    const scoreOf = (s) => {
+      const n = squash(s.name), d = squash((s.domain || '').split('.')[0]);
+      if (n.startsWith(qs) || d.startsWith(qs)) return 0;
+      if (n.includes(qs) || d.includes(qs)) return 1;
+      if (qs.length >= 3) {
+        const dist = Math.min(editDistance(qs, n.slice(0, qs.length + 1)), editDistance(qs, n), editDistance(qs, d));
+        if (dist <= tol) return 2 + dist;
+      }
+      return -1;
+    };
     const seen = new Set();
-    list = [...popular, ...known].filter(s => {
-      if (!s.domain || seen.has(s.domain)) return false;
-      seen.add(s.domain);
-      return norm(s.name).includes(query) || s.domain.includes(query);
-    }).slice(0, 12);
+    list = [...popular, ...known]
+      .filter(s => s.domain && !seen.has(s.domain) && seen.add(s.domain))
+      .map((s, i) => ({ s, i, r: scoreOf(s) }))
+      .filter(x => x.r >= 0)
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .map(x => x.s)
+      .slice(0, 12);
     // Escribió una web que no conocemos ("mitienda.com.uy"): se puede sumar igual
     const typed = query.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
     if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(typed) && !list.some(s => s.domain === typed)) {
@@ -5629,7 +5669,7 @@ function AddStoreSheet({ visible, onClose, popular, known, customStores, country
               accessibilityLabel="Nombre de la tienda"
             />
           </View>
-          <Text style={tileStyles.sheetLabel}>{query ? 'Resultados' : `Populares en ${countryName}`}</Text>
+          <Text style={tileStyles.sheetLabel}>{query ? `Tiendas en ${countryName}` : `Populares en ${countryName}`}</Text>
           <ScrollView style={{ flexGrow: 0, maxHeight: 360 }} keyboardShouldPersistTaps="handled">
             {list.map(s => {
               const added = mine.has(s.domain);
@@ -5643,9 +5683,7 @@ function AddStoreSheet({ visible, onClose, popular, known, customStores, country
                   }}
                   activeOpacity={0.8}
                 >
-                  <View style={[tileStyles.sheetLogo, { backgroundColor: s.bg || PK.pill }]}>
-                    <Text style={{ color: s.fg || PK.ink, fontSize: 13, fontFamily: DM[700] }} numberOfLines={1}>{s.short || s.name.charAt(0).toUpperCase()}</Text>
-                  </View>
+                  <StoreLogo store={s} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={tileStyles.featuredName} numberOfLines={1}>{s.name}</Text>
                     {!!s.category && <Text style={tileStyles.featuredUrl}>{INTEREST_CATEGORIES.find(c => c.id === s.category)?.label || s.category}</Text>}
