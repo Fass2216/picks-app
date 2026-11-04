@@ -102,7 +102,7 @@ const INTEREST_KEYWORDS = {
   herramientas: ['herramienta','taladro','sierra','llave','tornillo','martillo','electricidad','pintura'],
   gaming:       ['gaming','consola','joystick','headset','mouse gamer','teclado gamer','monitor'],
   mascotas:     ['mascota','perro','gato','collar','racion','juguete mascota','correa'],
-  salud:        ['vitamina','suplemento','proteina','salud','bienestar','medicamento','termometro'],
+  salud:        ['vitamina','suplemento','proteina','salud','bienestar','medicamento','termometro','optica','anteojo','lentes','gafas','oftalm','receta','multifocal','armazon'],
   bebes:        ['bebe','nino','nena','infantil','juguete','cochecito','mamadera','panal'],
 };
 
@@ -125,6 +125,23 @@ function detectSearchCategory(text) {
   }
   if (CAR_BRANDS.some(hasPhrase)) return 'vehiculos';
   return null;
+}
+
+// Tiendas parecidas a lo que se buscó, para cuando casi no hay productos:
+// las que tienen la palabra en el nombre o el dominio ("opticas" → "Óptica
+// Lux") y después las de la categoría de la búsqueda. Así buscar un rubro
+// ("ópticas", "lentes de receta") muestra tiendas aunque no haya un producto
+// con ese nombre.
+function similarStores(stores, text, category, limit = 8) {
+  const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const roots = norm(text).split(/[^a-z0-9]+/)
+    .filter(w => w.length >= 4 && !['para', 'como', 'busco', 'quiero'].includes(w))
+    .map(w => w.replace(/(es|s)$/, ''));
+  const cats = (s) => (Array.isArray(s.categories) && s.categories.length ? s.categories : [s.category]).filter(Boolean);
+  const byName = stores.filter(s => roots.some(r => norm(`${s.name} ${s.domain}`).includes(r)));
+  const byCategory = category ? stores.filter(s => cats(s).includes(category)) : [];
+  const seen = new Set();
+  return [...byName, ...byCategory].filter(s => s.domain && !seen.has(s.domain) && seen.add(s.domain)).slice(0, limit);
 }
 
 // ID de dispositivo persistente (se guarda en AsyncStorage la primera vez)
@@ -8295,6 +8312,12 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
         track('product_search_results', { query, count: (data.results || []).length });
         // Pocos resultados: puede estar mal escrito ("zapatiyas", "adiddas")
         if ((data.results || []).length < 3) {
+          // y se muestran tiendas parecidas a lo buscado ("ópticas", "lentes de receta")
+          const similar = similarStores(dbSearchable, query, searchCategory);
+          if (similar.length) {
+            setSuggestedStores(similar);
+            track('similar_stores_suggested', { query, count: similar.length });
+          }
           fetchWithTimeout(`${BACKEND_URL}/api/search/spellcheck`, 8000, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
