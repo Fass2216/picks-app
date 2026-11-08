@@ -8268,6 +8268,10 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
   // "Buscar en más tiendas": cuántas de la lista ya se revisaron
   const [searchedCount, setSearchedCount] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Lo que ninguna tienda de la base tiene ("lentes" sin ópticas): el servidor
+  // pide a la IA tiendas de ese rubro, busca ahí y suma a la base las que lo
+  // tienen. null = no hace falta; { loading } mientras busca.
+  const [discover, setDiscover] = useState(null);
 
   useEffect(() => {
     if (!query || nlLoading || !searchableStores.length) return;
@@ -8279,6 +8283,7 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
     setDidYouMean(null);
     setSearchedCount(Math.min(searchableStores.length, SEARCH_BATCH));
     setLoadingMore(false);
+    setDiscover(null);
     fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8293,6 +8298,8 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
         setProducts(Array.isArray(data.results) ? data.results : []);
         setUnreadableDomains([...(data.unsupported || []), ...(data.slow || [])]);
         track('product_search_results', { query, count: (data.results || []).length });
+        // Casi nada en las tiendas conocidas: buscar tiendas nuevas que lo vendan
+        if ((data.results || []).length < 4 && scope !== 'mis' && !compareMode) discoverStores(seq);
         // Pocos resultados: puede estar mal escrito ("zapatiyas", "adiddas")
         if ((data.results || []).length < 3) {
           fetchWithTimeout(`${BACKEND_URL}/api/search/spellcheck`, 8000, {
@@ -8308,6 +8315,27 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
       .catch(() => { if (seq === searchSeq.current) setProductsError(true); })
       .finally(() => { if (seq === searchSeq.current) setProductsLoading(false); });
   }, [query, storesKey, nlLoading]);
+
+  function discoverStores(seq) {
+    setDiscover({ loading: true });
+    fetchWithTimeout(`${BACKEND_URL}/api/search/discover`, 50000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: query }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (seq !== searchSeq.current) return;
+        const found = Array.isArray(data.results) ? data.results : [];
+        setProducts(prev => {
+          const have = new Set(prev.map(p => p.url));
+          return [...prev, ...found.filter(p => !have.has(p.url))];
+        });
+        setDiscover({ rubro: data.rubro || null, stores: Array.isArray(data.stores) ? data.stores : [] });
+        track('search_discover', { query, rubro: data.rubro || '', stores: (data.stores || []).length, count: found.length });
+      })
+      .catch(() => { if (seq === searchSeq.current) setDiscover(null); });
+  }
 
   // Las siguientes SEARCH_BATCH tiendas de la lista: lo que encuentra se suma
   // abajo de lo que ya había
@@ -8636,7 +8664,9 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
                       ? 'Revisá tu conexión y probá de nuevo.'
                       : scope === 'mis'
                         ? `No encontramos "${query}" en tus tiendas.`
-                        : `No encontramos "${query}" en las tiendas. Probá con otras palabras.`}
+                        : discover?.loading
+                          ? `No está en las tiendas que conocemos. Buscando otras tiendas que vendan "${query}"…`
+                          : `No encontramos "${query}" en las tiendas. Probá con otras palabras.`}
                   </Text>
                   {/* Sin nada en Mis tiendas: ofrecer lo mismo en todas, sin
                       volver atrás ni escribirlo de nuevo */}
@@ -8667,6 +8697,36 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
                     <Ionicons name="globe-outline" size={16} color="#fff" />
                     <Text style={searchWidenStyles.btnText} numberOfLines={1}>Buscar en todas las tiendas</Text>
                   </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Tiendas nuevas para lo que la base no cubre */}
+              {!!discover?.loading && products.length + exactProducts.length > 0 && (
+                <View style={[searchWidenStyles.card, { flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
+                  <ActivityIndicator size="small" color={COLORS.accent} />
+                  <Text style={[searchWidenStyles.cardSub, { marginTop: 0, flex: 1 }]}>Buscando otras tiendas que vendan "{query}"…</Text>
+                </View>
+              )}
+              {!!discover?.stores?.length && (
+                <View style={searchWidenStyles.card}>
+                  <Text style={searchWidenStyles.cardTitle}>{discover.rubro ? `Tiendas de ${discover.rubro.toLowerCase()}` : 'Otras tiendas'}</Text>
+                  <Text style={searchWidenStyles.cardSub}>
+                    {discover.stores.some(s => s.found)
+                      ? 'Sumamos estas tiendas a Picks: sus productos están arriba. Tocá una para entrar.'
+                      : 'Pueden tener lo que buscás. Tocá una para entrar y guardarlo en Picks.'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                    {discover.stores.map((s) => (
+                      <TouchableOpacity
+                        key={s.domain}
+                        style={[styles.storeTab, { marginRight: 0 }]}
+                        activeOpacity={0.7}
+                        onPress={() => { track('search_discover_open', { domain: s.domain, query }); onOpenUrl?.(s.url || `https://${s.domain}`, 'Buscar'); }}
+                      >
+                        <Text style={styles.storeTabText}>{s.name}{s.found ? ` · ${s.found}` : ''}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </View>
               )}
 
