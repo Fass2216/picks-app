@@ -14,7 +14,7 @@ const GLOBALS = new Set(('console setTimeout clearTimeout setInterval clearInter
   'TextDecoder TextEncoder').split(' '));
 
 let failed = false;
-for (const file of ['App.js', 'index.js']) {
+for (const file of ['App.js', 'Amigos.js', 'index.js']) {
   let ast;
   try {
     ast = parser.parse(fs.readFileSync(file, 'utf8'), { sourceType: 'module', plugins: ['jsx'] });

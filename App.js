@@ -41,6 +41,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import AmigosScreen from './Amigos';
  
 // ============ ANALYTICS (PostHog vía REST API + DEBUG) ============
 const POSTHOG_HOST = 'https://us.i.posthog.com';
@@ -1244,7 +1245,7 @@ true;
  
 // Orden real de los 3 tabs principales (igual que en la tab bar) — se usa
 // para saber a cuál ir cuando se hace swipe horizontal.
-const MAIN_TAB_ORDER = ['explorar', 'home', 'picks'];
+const MAIN_TAB_ORDER = ['explorar', 'home', 'amigos', 'picks'];
 
 // Pager deslizable: mantiene los 3 tabs principales montados uno al lado del
 // otro (como un carrusel horizontal) y anima el desplazamiento siguiendo el
@@ -1544,7 +1545,7 @@ function AppContent() {
   // las tiendas pasan por detrás; en el resto de las pantallas se deja ese
   // espacio abajo para no tapar nada.
   const [tabBarHeight, setTabBarHeight] = useState(90);
-  const menuFloats = !browserUrl && ['home', 'picks', 'explorar', 'search'].includes(activeTab);
+  const menuFloats = !browserUrl && ['home', 'amigos', 'picks', 'explorar', 'search'].includes(activeTab);
   const [appBackground, setAppBackground] = useState(null);     // id del fondo elegido, o null = ninguno
 
   const changeAppBackground = async (id) => {
@@ -2583,6 +2584,20 @@ function AppContent() {
                   onOpenNotifications={() => setActiveTab('notifications')}
                 />
               ),
+              amigos: (
+                <AmigosScreen
+                  supabase={supabase}
+                  backendUrl={BACKEND_URL}
+                  userProfile={userProfile}
+                  myPicks={picks}
+                  avatarUrlFor={getAvatarUrl}
+                  bottomInset={tabBarHeight}
+                  track={track}
+                  onOpenUrl={openUrl}
+                  onOpenAuth={() => setActiveTab('auth')}
+                  onOpenCommunity={() => setActiveTab('community')}
+                />
+              ),
               picks: (
                 <PicksView
                   onGoTab={setActiveTab}
@@ -2896,7 +2911,8 @@ function AppContent() {
         activeTab={
           browserUrl ? 'home'
           : activeTab === 'search' ? 'home'
-          : ['auth', 'editProfile', 'settings', 'community', 'notifications'].includes(activeTab) ? 'picks'
+          : activeTab === 'community' ? 'amigos'
+          : ['auth', 'editProfile', 'settings', 'notifications'].includes(activeTab) ? 'picks'
           : activeTab
         }
         setActiveTab={changeTab}
@@ -9892,6 +9908,13 @@ function TabBar({ activeTab, setActiveTab, pickCount, onHeight }) {
           isActive={activeTab === 'home'}
           onPress={() => setActiveTab('home')}
           tourId="tab-home"
+        />
+        <Tab
+          label="Amigos"
+          iconName="people-outline"
+          iconActive="people"
+          isActive={activeTab === 'amigos'}
+          onPress={() => setActiveTab('amigos')}
         />
         <Tab
           label="Mis Picks"
