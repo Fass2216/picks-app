@@ -42,6 +42,7 @@ import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import AmigosScreen from './Amigos';
+import TrendsHeader from './Tendencias';
  
 // ============ ANALYTICS (PostHog vía REST API + DEBUG) ============
 const POSTHOG_HOST = 'https://us.i.posthog.com';
@@ -9326,7 +9327,15 @@ function ExplorarScreen({ onSearch, onSearchAction, onAddCustomStoreByDomain, co
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PK.accent} colors={[PK.accent]} title="Buscando productos nuevos…" titleColor={PK.muted} />
           }
-          ListHeaderComponent={newBanner}
+          ListHeaderComponent={chip === 'tendencias' && !exploreQuery.trim() ? (
+            <TrendsHeader
+              backendUrl={BACKEND_URL}
+              country={country}
+              myDomains={customStores.map(st => st.domain).filter(Boolean)}
+              onOpenUrl={onOpenUrl}
+              onSearch={onSearch}
+            />
+          ) : newBanner}
           showsVerticalScrollIndicator={false}
           onEndReached={loadMore}
           onEndReachedThreshold={1.5}
