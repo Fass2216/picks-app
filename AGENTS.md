@@ -18,3 +18,7 @@ Reglas para quien prueba cambios (por ejemplo de diseño):
 5. `App.js` es un archivo muy grande y lo tocan varias personas: hacer cambios chicos y traer seguido lo nuevo de `main` (`git pull origin main`) para no pisarse.
 6. La carpeta `backend/` es otro repositorio (el servidor) y no se toca desde acá.
 7. Escribir a la persona en español y explicar en palabras simples qué se cambió.
+
+# Pendientes para Fede
+
+Si quien está trabajando es Fede, al empezar avisarle que hay pendientes en `PARA-FEDE.md` (tablas de Supabase, notificaciones y `/api/trends` para que funcionen Amigos y Tendencias) y resumírselos. Cuando estén resueltos, se puede borrar el archivo y esta sección.
