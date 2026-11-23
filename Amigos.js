@@ -319,7 +319,7 @@ export default function AmigosScreen(props) {
 
   if (!userProfile) {
     return (
-      <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+      <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
         <Header title="Amigos" />
         <View style={[s.center, { paddingBottom: bottomInset }]}>
           <Ionicons name="people-outline" size={44} color={A.accent} />
@@ -384,7 +384,7 @@ function AmigosHome(props) {
   };
 
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <View style={s.logoRow}>
         <Text style={s.logo}>Picks</Text>
         {bell || null}
@@ -558,7 +558,7 @@ function AmigoPerfil(props) {
   };
 
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]}>
         <View style={{ alignItems: 'center', gap: 6 }}>
@@ -610,7 +610,7 @@ function InvitarAmigos(props) {
     { e: '✈️', t: 'Un viaje', d: 'Lo que hay que llevar, en una sola lista.' },
   ];
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]}>
         <Text style={s.pageTitle}>Invitar amigos</Text>
@@ -677,7 +677,7 @@ function NuevoGrupo(props) {
     pop();
   };
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]} keyboardShouldPersistTaps="handled">
         <Text style={s.pageTitle}>Nuevo grupo</Text>
@@ -717,7 +717,7 @@ function FechasImportantes(props) {
   useEffect(() => { load(); }, [load]);
   const next = state.list[0];
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]}>
         <Text style={s.pageTitle}>Fechas importantes</Text>
@@ -838,7 +838,7 @@ function AgregarFecha(props) {
     { id: 'people', e: '🙋', t: 'Algunas personas', d: 'Elegís quiénes.' },
   ];
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} backLabel="Fechas" />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]} keyboardShouldPersistTaps="handled">
         <Text style={s.pageTitle}>Nueva fecha</Text>
@@ -924,8 +924,8 @@ function ColeccionEquipo(props) {
   }, [collectionId]);
   useEffect(() => { load(); }, [load]);
 
-  if (col === null) return <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}><Header onBack={pop} /><ActivityIndicator color={A.accent} style={{ marginTop: 40 }} /></SafeAreaView>;
-  if (col === false) return <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}><Header onBack={pop} /><Text style={[s.sectionSub, { padding: 20 }]}>No encontramos esta colección.</Text></SafeAreaView>;
+  if (col === null) return <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}><Header onBack={pop} /><ActivityIndicator color={A.accent} style={{ marginTop: 40 }} /></SafeAreaView>;
+  if (col === false) return <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}><Header onBack={pop} /><Text style={[s.sectionSub, { padding: 20 }]}>No encontramos esta colección.</Text></SafeAreaView>;
 
   const members = (col.team_collection_members || []).filter(m => m.status === 'joined');
   const memberIds = members.map(m => m.user_id);
@@ -956,7 +956,7 @@ function ColeccionEquipo(props) {
   const share = () => Share.share({ message: `Mirá «${col.name}» en Picks: ${picks.length} picks.` }).catch(() => {});
 
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]}>
         <View style={{ gap: 6 }}>
@@ -1039,7 +1039,7 @@ function NuevaColeccion(props) {
     push('coleccion', { collectionId: res.data.id });
   };
   return (
-    <SafeAreaView style={[s.screen, bgStyle()]} edges={['top']}>
+    <SafeAreaView style={[s.screen, bgStyle()]} edges={[]}>
       <Header onBack={pop} />
       <ScrollView contentContainerStyle={[s.body, { paddingBottom: 32 + bottomInset }]} keyboardShouldPersistTaps="handled">
         <Text style={s.pageTitle}>Nueva colección en equipo</Text>
@@ -1074,7 +1074,7 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 32 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, minHeight: 52 },
   title: { fontFamily: F[800], fontSize: 26, lineHeight: 34, paddingRight: 14, marginRight: -8, color: A.ink, letterSpacing: 0 },
-  logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 4 },
+  logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 6, paddingLeft: 20, paddingRight: 16 },
   logo: { fontSize: 30, lineHeight: 40, paddingRight: 16, marginRight: -10, fontFamily: 'DMSans_800ExtraBold_Italic', letterSpacing: -1.5, color: '#E0592A' },
   back: { flexDirection: 'row', alignItems: 'center', marginLeft: -6, minHeight: 44 },
   backText: { fontFamily: F[700], fontSize: 15, color: A.ink },
