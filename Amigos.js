@@ -348,7 +348,7 @@ function useApi(props) {
 
 // ── 4 · Amigos ──────────────────────────────────────────────────────────────
 function AmigosHome(props) {
-  const { push, onOpenUrl, onOpenCommunity, avatarUrlFor, bottomInset, track } = props;
+  const { push, onOpenUrl, onOpenCommunity, avatarUrlFor, bottomInset, track, bell } = props;
   const api = useApi(props);
   const [loading, setLoading] = useState(true);
   const [friends, setFriends] = useState([]);
@@ -385,6 +385,10 @@ function AmigosHome(props) {
 
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
+      <View style={s.logoRow}>
+        <Text style={s.logo}>Picks</Text>
+        {bell || null}
+      </View>
       <Header
         title="Amigos"
         right={(
@@ -1069,7 +1073,9 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: A.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 32 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, minHeight: 52 },
-  title: { fontFamily: F[800], fontSize: 26, color: A.ink, letterSpacing: -0.5 },
+  title: { fontFamily: F[800], fontSize: 26, lineHeight: 34, paddingRight: 6, color: A.ink, letterSpacing: -0.5 },
+  logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 4 },
+  logo: { fontSize: 30, lineHeight: 40, paddingRight: 16, marginRight: -10, fontFamily: 'DMSans_800ExtraBold_Italic', letterSpacing: -1.5, color: '#E0592A' },
   back: { flexDirection: 'row', alignItems: 'center', marginLeft: -6, minHeight: 44 },
   backText: { fontFamily: F[700], fontSize: 15, color: A.ink },
   body: { paddingHorizontal: 16, paddingTop: 4, gap: 22 },

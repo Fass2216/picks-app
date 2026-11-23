@@ -2597,6 +2597,7 @@ function AppContent() {
                   onOpenUrl={openUrl}
                   onOpenAuth={() => setActiveTab('auth')}
                   onOpenCommunity={() => setActiveTab('community')}
+                  bell={<NotificationBell count={unreadNotifCount} onPress={() => setActiveTab('notifications')} color={PK.ink} />}
                 />
               ),
               picks: (
@@ -9483,7 +9484,7 @@ function RollingPlaceholder() {
 const explorarExtraStyles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 6, paddingLeft: 20, paddingRight: 16 },
   // lineHeight y paddingRight: la itálica se sale de su caja y el celular la recortaba
-  logo: { fontSize: 30, lineHeight: 40, paddingRight: 6, fontFamily: DM['800i'], letterSpacing: -1.5, color: PK.logo },
+  logo: { fontSize: 30, lineHeight: 40, paddingRight: 16, marginRight: -10, fontFamily: DM['800i'], letterSpacing: -1.5, color: PK.logo },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 10, height: 48,
     backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: PK.line,
