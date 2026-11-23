@@ -310,8 +310,13 @@ function FriendPicker({ friends, selected, onToggle, avatarUrlFor }) {
 }
 
 // ── Pantalla principal ──────────────────────────────────────────────────────
+// Si la app tiene un fondo elegido, las pantallas lo dejan ver (como Mis tiendas y Mis Picks)
+let amigosTransparent = false;
+const bgStyle = () => (amigosTransparent ? { backgroundColor: 'transparent' } : null);
+
 export default function AmigosScreen(props) {
   const { userProfile, onOpenAuth, bottomInset = 0 } = props;
+  amigosTransparent = !!props.transparent;
   const [stack, setStack] = useState([{ name: 'home' }]);
   const view = stack[stack.length - 1];
   const push = (name, params = {}) => setStack(st => [...st, { name, params }]);
