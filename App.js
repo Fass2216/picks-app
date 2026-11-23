@@ -8706,15 +8706,17 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
                 ))
               ) : (
                 <View style={[styles.searchEmpty, { paddingTop: 40 }]}>
-                  <Ionicons name={productsError ? 'cloud-offline-outline' : 'sad-outline'} size={44} color={COLORS.border} />
-                  <Text style={styles.searchEmptyTitle}>{productsError ? 'No pudimos buscar' : 'Sin resultados'}</Text>
+                  {!productsError && scope !== 'mis' && discover?.loading
+                    ? <ActivityIndicator size="large" color={COLORS.accent} />
+                    : <Ionicons name={productsError ? 'cloud-offline-outline' : 'sad-outline'} size={44} color={COLORS.border} />}
+                  <Text style={styles.searchEmptyTitle}>{productsError ? 'No pudimos buscar' : (scope !== 'mis' && discover?.loading) ? 'Buscando en más tiendas…' : 'Sin resultados'}</Text>
                   <Text style={styles.searchEmptySubtitle}>
                     {productsError
                       ? 'Revisá tu conexión y probá de nuevo.'
                       : scope === 'mis'
                         ? `No encontramos "${query}" en tus tiendas.`
                         : discover?.loading
-                          ? `No está en las tiendas que conocemos. Buscando otras tiendas que vendan "${query}"…`
+                          ? `No está en las tiendas que conocemos. Estamos buscando otras tiendas que vendan "${query}". Puede tardar hasta un minuto: no cierres la búsqueda.`
                           : `No encontramos "${query}" en las tiendas. Probá con otras palabras.`}
                   </Text>
                   {/* Sin nada en Mis tiendas: ofrecer lo mismo en todas, sin
@@ -8753,7 +8755,7 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
               {!!discover?.loading && products.length + exactProducts.length > 0 && (
                 <View style={[searchWidenStyles.card, { flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
                   <ActivityIndicator size="small" color={COLORS.accent} />
-                  <Text style={[searchWidenStyles.cardSub, { marginTop: 0, flex: 1 }]}>Buscando otras tiendas que vendan "{query}"…</Text>
+                  <Text style={[searchWidenStyles.cardSub, { marginTop: 0, flex: 1 }]}>Buscando otras tiendas que vendan "{query}"… Puede tardar unos segundos.</Text>
                 </View>
               )}
               {!!discover?.stores?.length && (
