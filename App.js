@@ -2476,6 +2476,7 @@ function AppContent() {
         {activeTab === 'search' && (
           <View style={[{ flex: 1 }, !!browserUrl && { display: 'none' }]}>
             <SearchView
+              transparent={!!appBackground}
               onMessage={handleWebMessage}
               onAddPick={addPick}
               // Guardar desde los resultados con la animación de "bajar a Mis
@@ -7953,7 +7954,7 @@ function ResultImage({ uri }) {
   );
 }
 
-function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed }) {
+function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = [], customStores = [], countryStores = STORES, country = 'UY', onOpenUrl, preset = null, onPresetConsumed, onBack, initialQuery = null, onInitialQueryConsumed, transparent = false }) {
   const menuInset = useContext(TabBarInsetContext);
   const [inputText, setInputText] = useState('');
   const [query, setQuery] = useState('');
@@ -8444,7 +8445,7 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+    <View style={{ flex: 1, backgroundColor: transparent ? 'transparent' : COLORS.background }}>
       {!!onBack && (
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 10 }}>
           <TouchableOpacity onPress={onBack} style={{ padding: 6, marginLeft: -6 }} hitSlop={10}>
