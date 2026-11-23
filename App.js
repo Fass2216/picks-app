@@ -8459,7 +8459,7 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
         </View>
       )}
       {/* Barra de búsqueda */}
-      <View style={styles.searchBarWrap}>
+      <View style={[styles.searchBarWrap, transparent && { backgroundColor: 'transparent', borderBottomWidth: 0 }]}>
         <View style={styles.searchBarInner}>
           <Ionicons name="search-outline" size={18} color={COLORS.textSecondary} />
           <TextInput
