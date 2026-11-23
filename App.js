@@ -2521,6 +2521,7 @@ function AppContent() {
             screens={{
               explorar: (
                 <ExplorarScreen
+                  transparent={!!appBackground}
                   onAddCustomStoreByDomain={onAddCustomStoreByDomain}
                   country={country}
                   countryStores={STORES_BY_COUNTRY[country] || STORES}
@@ -2587,6 +2588,7 @@ function AppContent() {
               ),
               amigos: (
                 <AmigosScreen
+                  transparent={!!appBackground}
                   supabase={supabase}
                   backendUrl={BACKEND_URL}
                   userProfile={userProfile}
@@ -8832,7 +8834,7 @@ function getStoreBgColor(storeName) {
   return found ? found.bg : '#555555';
 }
 
-function ExplorarScreen({ onSearch, onSearchAction, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, picks, collections = [], customStores = [], userInterests = [], onOpenUrl, onAddPick, onRemovePick, unreadNotifCount = 0, onOpenNotifications, userProfile }) {
+function ExplorarScreen({ onSearch, onSearchAction, onAddCustomStoreByDomain, country = 'UY', countryStores = STORES, picks, collections = [], customStores = [], userInterests = [], onOpenUrl, onAddPick, onRemovePick, unreadNotifCount = 0, onOpenNotifications, userProfile, transparent = false }) {
   Font.useFonts(DM_FONTS); // al terminar de cargar la letra, se vuelve a dibujar con DM Sans
   // Buscar: si es una web o una tienda (aunque no la tengas), la ofrece; si no, busca el producto
   const { resolveSearch, lookingUpStore } = useStoreResolver({ customStores, countryStores, country, userInterests, onOpenUrl, onAddCustomStoreByDomain, onOpenSearchWithQuery: onSearch });
@@ -9203,7 +9205,7 @@ function ExplorarScreen({ onSearch, onSearchAction, onAddCustomStoreByDomain, co
   ) : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: PK.bg }}>
+    <View style={{ flex: 1, backgroundColor: transparent ? 'transparent' : PK.bg }}>
       {/* Header — igual en los dos modos: marca, buscador, filtros y cambio de vista */}
       <View style={explorarExtraStyles.topBar}>
         <Animated.Text style={[explorarExtraStyles.logo, {
