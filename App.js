@@ -4814,6 +4814,9 @@ function notifIconFor(type) {
   if (type === 'back_in_stock') return { name: 'checkmark-circle-outline', color: '#22c55e' };
   if (type === 'new_follower') return { name: 'person-add-outline', color: COLORS.accent };
   if (type === 'team_alert') return { name: 'megaphone-outline', color: COLORS.accent };
+  if (type === 'team_invite' || type === 'team_pick_added') return { name: 'people-outline', color: COLORS.accent };
+  if (type === 'date_shared' || type === 'date_reminder') return { name: 'calendar-outline', color: COLORS.accent };
+  if (type === 'birthday_reminder') return { name: 'gift-outline', color: COLORS.accent };
   return { name: 'notifications-outline', color: COLORS.textSecondary };
 }
 
@@ -4862,7 +4865,7 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommu
     // Aviso de promos en varias tiendas: la lista de todas
     if (n.type === 'bank_promo' && (n.data?.domains?.length > 1 || /tiendas de tus Picks/.test(n.title || ''))) { onOpenPromos?.(); return; }
     if (n.data?.url) { onOpenUrl?.(n.data.url); return; }
-    if (n.type === 'new_follower') { onOpenCommunity?.(); return; }
+    if (['new_follower', 'team_invite', 'team_pick_added', 'date_shared', 'date_reminder', 'birthday_reminder'].includes(n.type)) { onOpenCommunity?.(); return; }
     // Avisos del equipo: pueden ser largos (lista de comercios), se ven enteros
     if (n.type === 'team_alert') { Alert.alert(n.title, n.body); return; }
   };
@@ -4953,6 +4956,9 @@ function notifTagFor(type) {
   if (type === 'back_in_stock') return mk('Stock', GRN, 'checkmark-circle-outline');
   if (type === 'new_follower') return mk('Amigos', BLU, 'person-add-outline');
   if (type === 'team_alert') return mk('Equipo', GRY, 'megaphone-outline');
+  if (type === 'team_invite' || type === 'team_pick_added') return mk('Colección', BLU, 'people-outline');
+  if (type === 'date_shared' || type === 'date_reminder') return mk('Fecha', ORG, 'calendar-outline');
+  if (type === 'birthday_reminder') return mk('Cumple', ORG, 'gift-outline');
   return mk('Aviso', GRY, 'notifications-outline');
 }
 
