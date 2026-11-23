@@ -8320,6 +8320,9 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
   // pide a la IA tiendas de ese rubro, busca ahí y suma a la base las que lo
   // tienen. null = no hace falta; { loading } mientras busca.
   const [discover, setDiscover] = useState(null);
+  // Búsquedas que no son de ningún rubro de Picks ("lentes"): las tiendas
+  // nuevas se piden al mismo tiempo que la búsqueda normal, sin esperarla
+  const earlyDiscoverRef = useRef(null);
 
   useEffect(() => {
     if (!query || nlLoading || !searchableStores.length) return;
@@ -8332,6 +8335,16 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
     setSearchedCount(Math.min(searchableStores.length, SEARCH_BATCH));
     setLoadingMore(false);
     setDiscover(null);
+    // (no con marcas o tiendas que ya conocemos, como "adidas": no tienen
+    // rubro pero sí resultados, y la búsqueda en internet se pagaría de más)
+    const qNorm = query.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const namesKnownStore = dbSearchable.some(st => {
+      const n = String(st.name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      return n.length >= 3 && qNorm.includes(n);
+    });
+    earlyDiscoverRef.current = !searchCategory && !namesKnownStore && scope !== 'mis' && !compareMode
+      ? { seq, promise: fetchDiscoverStores() }
+      : null;
     fetchWithTimeout(`${BACKEND_URL}/api/search/products`, 20000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8347,7 +8360,10 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
         setUnreadableDomains([...(data.unsupported || []), ...(data.slow || [])]);
         track('product_search_results', { query, count: (data.results || []).length });
         // Casi nada en las tiendas conocidas: buscar tiendas nuevas que lo vendan
-        if ((data.results || []).length < 4 && scope !== 'mis' && !compareMode) discoverStores(seq);
+        if ((data.results || []).length < 4 && scope !== 'mis' && !compareMode) {
+          const early = earlyDiscoverRef.current;
+          discoverStores(seq, early?.seq === seq ? early.promise : null);
+        }
         // Pocos resultados: puede estar mal escrito ("zapatiyas", "adiddas")
         if ((data.results || []).length < 3) {
           // y se muestran tiendas parecidas a lo buscado ("ópticas", "lentes de receta")
@@ -8370,26 +8386,46 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
       .finally(() => { if (seq === searchSeq.current) setProductsLoading(false); });
   }, [query, storesKey, nlLoading]);
 
-  function discoverStores(seq) {
-    setDiscover({ loading: true });
-    fetchWithTimeout(`${BACKEND_URL}/api/search/discover`, 50000, {
+  // Paso 1: qué tiendas lo venden (~8 s, o al instante si ya se buscó)
+  function fetchDiscoverStores() {
+    return fetchWithTimeout(`${BACKEND_URL}/api/search/discover-stores`, 40000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ q: query }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (seq !== searchSeq.current) return;
-        const found = Array.isArray(data.results) ? data.results : [];
-        setProducts(prev => {
-          const have = new Set(prev.map(p => p.url));
-          return [...prev, ...found.filter(p => !have.has(p.url))];
-        });
-        setDiscover({ rubro: data.rubro || null, stores: Array.isArray(data.stores) ? data.stores : [] });
-        track('search_discover', { query, rubro: data.rubro || '', stores: (data.stores || []).length, count: found.length });
-      })
-      .catch(() => { if (seq === searchSeq.current) setDiscover(null); });
+    }).then(r => r.json()).catch(() => null);
   }
+
+  // Tiendas nuevas en dos pasos: primero se muestran las tiendas que encontró
+  // la IA y después se suman sus productos (antes se esperaba todo junto)
+  function discoverStores(seq, storesPromise) {
+    setDiscover({ loading: true });
+    const finish = (data) => {
+      if (seq !== searchSeq.current) return;
+      const found = Array.isArray(data?.results) ? data.results : [];
+      setProducts(prev => {
+        const have = new Set(prev.map(p => p.url));
+        return [...prev, ...found.filter(p => !have.has(p.url))];
+      });
+      const stores = Array.isArray(data?.stores) ? data.stores : [];
+      setDiscover(stores.length ? { rubro: data.rubro || null, stores } : null);
+      track('search_discover', { query, rubro: data?.rubro || '', stores: stores.length, count: found.length });
+    };
+    (storesPromise || fetchDiscoverStores()).then(step1 => {
+      if (seq !== searchSeq.current) return;
+      if (!step1?.stores?.length) { setDiscover(null); return; }
+      if (Array.isArray(step1.results)) { finish(step1); return; } // ya estaba buscado entero
+      setDiscover({ rubro: step1.rubro || null, stores: step1.stores, loadingProducts: true });
+      fetchWithTimeout(`${BACKEND_URL}/api/search/discover`, 40000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: query, rubro: step1.rubro, stores: step1.stores }),
+      })
+        .then(r => r.json())
+        .then(finish)
+        .catch(() => { if (seq === searchSeq.current) setDiscover(d => (d ? { ...d, loadingProducts: false } : d)); });
+    });
+  }
+  const discoverBusy = !!(discover?.loading || discover?.loadingProducts);
 
   // Las siguientes SEARCH_BATCH tiendas de la lista: lo que encuentra se suma
   // abajo de lo que ya había
@@ -8711,17 +8747,19 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
                 ))
               ) : (
                 <View style={[styles.searchEmpty, { paddingTop: 40 }]}>
-                  {!productsError && scope !== 'mis' && discover?.loading
+                  {!productsError && scope !== 'mis' && discoverBusy
                     ? <ActivityIndicator size="large" color={COLORS.accent} />
                     : <Ionicons name={productsError ? 'cloud-offline-outline' : 'sad-outline'} size={44} color={COLORS.border} />}
-                  <Text style={styles.searchEmptyTitle}>{productsError ? 'No pudimos buscar' : (scope !== 'mis' && discover?.loading) ? 'Buscando en más tiendas…' : 'Sin resultados'}</Text>
+                  <Text style={styles.searchEmptyTitle}>{productsError ? 'No pudimos buscar' : (scope !== 'mis' && discoverBusy) ? 'Buscando en más tiendas…' : 'Sin resultados'}</Text>
                   <Text style={styles.searchEmptySubtitle}>
                     {productsError
                       ? 'Revisá tu conexión y probá de nuevo.'
                       : scope === 'mis'
                         ? `No encontramos "${query}" en tus tiendas.`
                         : discover?.loading
-                          ? `No está en las tiendas que conocemos. Estamos buscando otras tiendas que vendan "${query}". Puede tardar hasta un minuto: no cierres la búsqueda.`
+                          ? `No está en las tiendas que conocemos. Estamos buscando otras tiendas que vendan "${query}". Tarda unos segundos.`
+                          : discover?.loadingProducts
+                            ? `Encontramos tiendas que lo venden (abajo). Ahora estamos trayendo sus productos.`
                           : `No encontramos "${query}" en las tiendas. Probá con otras palabras.`}
                   </Text>
                   {/* Sin nada en Mis tiendas: ofrecer lo mismo en todas, sin
@@ -8765,9 +8803,14 @@ function SearchView({ onMessage, onAddPick, onFlyPick, onAddStore, savedPicks = 
               )}
               {!!discover?.stores?.length && (
                 <View style={searchWidenStyles.card}>
-                  <Text style={searchWidenStyles.cardTitle}>{discover.rubro ? `Tiendas de ${discover.rubro.toLowerCase()}` : 'Otras tiendas'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[searchWidenStyles.cardTitle, { flex: 1 }]}>{discover.rubro ? `Tiendas de ${discover.rubro.toLowerCase()}` : 'Otras tiendas'}</Text>
+                    {!!discover.loadingProducts && <ActivityIndicator size="small" color={COLORS.accent} />}
+                  </View>
                   <Text style={searchWidenStyles.cardSub}>
-                    {discover.stores.some(s => s.found)
+                    {discover.loadingProducts
+                      ? 'Estamos trayendo sus productos. Mientras, tocá una para entrar.'
+                      : discover.stores.some(s => s.found)
                       ? 'Sumamos estas tiendas a Picks: sus productos están arriba. Tocá una para entrar.'
                       : 'Pueden tener lo que buscás. Tocá una para entrar y guardarlo en Picks.'}
                   </Text>
