@@ -4074,7 +4074,7 @@ function SettingsScreen({
   };
 
   return (
-    <SafeAreaView style={profileStyles.container} edges={['top']}>
+    <SafeAreaView style={[profileStyles.container, !!currentBackground && { backgroundColor: 'transparent' }]} edges={['top']}>
       <View style={profileStyles.viewingHeader}>
         <Text style={profileStyles.viewingTitle}>Configuración</Text>
         <TouchableOpacity onPress={onClose} style={{ padding: 6 }} hitSlop={10}>
