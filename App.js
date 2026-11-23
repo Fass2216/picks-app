@@ -2648,6 +2648,7 @@ function AppContent() {
           />
         ) : activeTab === 'search' ? null : activeTab === 'auth' ? (
           <AuthScreen
+            transparent={!!appBackground}
             picksCount={picks.length}
             onClose={() => setActiveTab('picks')}
             onClearMyPicks={async () => {
@@ -2661,6 +2662,7 @@ function AppContent() {
           />
         ) : activeTab === 'editProfile' ? (
           <EditProfileScreen
+            transparent={!!appBackground}
             userProfile={userProfile}
             avatarUrl={getAvatarUrl(userProfile?.id)}
             onAvatarChange={() => setAvatarCacheBust('?t=' + Date.now())}
@@ -2708,12 +2710,14 @@ function AppContent() {
           />
         ) : activeTab === 'community' ? (
           <CommunityScreen
+            transparent={!!appBackground}
             userProfile={userProfile}
             onOpenUrl={openUrl}
             onClose={() => setActiveTab('picks')}
           />
         ) : activeTab === 'notifications' ? (
           <NotificationsScreen
+            transparent={!!appBackground}
             userProfile={userProfile}
             onOpenUrl={openUrl}
             onOpenPromos={() => setPromoListOpen(true)}
@@ -3519,7 +3523,7 @@ const welcomeStyles = StyleSheet.create({
   skipText: { fontSize: 13, color: COLORS.textSecondary },
 });
 
-function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
+function AuthScreen({ picksCount = 0, onClearMyPicks, onClose, transparent = false }) {
   const [tab, setTab] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -3587,7 +3591,7 @@ function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
   };
 
   return (
-    <SafeAreaView style={profileStyles.container} edges={['top']}>
+    <SafeAreaView style={[profileStyles.container, transparent && { backgroundColor: 'transparent' }]} edges={['top']}>
       {!!onClose && (
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 16, paddingTop: 8 }}>
           <TouchableOpacity onPress={onClose} style={{ padding: 6 }} hitSlop={10}>
@@ -3706,7 +3710,7 @@ function AuthScreen({ picksCount = 0, onClearMyPicks, onClose }) {
 }
 
 // ── EditProfileScreen ─────────────────────────────────────────────────────────
-function EditProfileScreen({ userProfile, avatarUrl, onAvatarChange, onClose }) {
+function EditProfileScreen({ userProfile, avatarUrl, onAvatarChange, onClose, transparent = false }) {
   const [myProfileRow, setMyProfileRow] = useState(null);
   const [nameValue, setNameValue] = useState('');
   const [usernameValue, setUsernameValue] = useState('');
@@ -3809,7 +3813,7 @@ function EditProfileScreen({ userProfile, avatarUrl, onAvatarChange, onClose }) 
   };
 
   return (
-    <SafeAreaView style={profileStyles.container} edges={['top']}>
+    <SafeAreaView style={[profileStyles.container, transparent && { backgroundColor: 'transparent' }]} edges={['top']}>
       <View style={profileStyles.viewingHeader}>
         <TouchableOpacity onPress={onClose} style={{ padding: 6, marginRight: 4 }} hitSlop={10}>
           <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
@@ -4489,7 +4493,7 @@ function SettingsScreen({
 }
 
 // ── CommunityScreen ("Comunidad": seguidores / siguiendo) ────────────────────
-function CommunityScreen({ userProfile, onOpenUrl, onClose }) {
+function CommunityScreen({ userProfile, onOpenUrl, onClose, transparent = false }) {
   const [subTab, setSubTab] = useState('seguidores'); // 'seguidores' | 'siguiendo'
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
@@ -4611,7 +4615,7 @@ function CommunityScreen({ userProfile, onOpenUrl, onClose }) {
   const list = subTab === 'seguidores' ? followers : following;
 
   return (
-    <SafeAreaView style={profileStyles.container} edges={['top']}>
+    <SafeAreaView style={[profileStyles.container, transparent && { backgroundColor: 'transparent' }]} edges={['top']}>
       <View style={profileStyles.viewingHeader}>
         <TouchableOpacity onPress={onClose} style={{ padding: 6, marginRight: 4 }} hitSlop={10}>
           <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
@@ -4825,7 +4829,7 @@ function notifIconFor(type) {
 }
 
 // ── NotificationsScreen ───────────────────────────────────────────────────────
-function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommunity, onClose, onRead }) {
+function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommunity, onClose, onRead, transparent = false }) {
   const [group, setGroup] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4875,7 +4879,7 @@ function NotificationsScreen({ userProfile, onOpenUrl, onOpenPromos, onOpenCommu
   };
 
   return (
-    <SafeAreaView style={[profileStyles.container, { backgroundColor: PK.bg }]} edges={['top']}>
+    <SafeAreaView style={[profileStyles.container, { backgroundColor: transparent ? 'transparent' : PK.bg }]} edges={['top']}>
       <View style={notifStyles.head}>
         <TouchableOpacity onPress={onClose} style={{ padding: 6, marginLeft: -8 }} hitSlop={10} accessibilityLabel="Volver">
           <Ionicons name="chevron-back" size={24} color={PK.ink} />
