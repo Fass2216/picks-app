@@ -6422,6 +6422,23 @@ function HomeView({ savedPicks = [], onAddPick, bottomInset = 0, backgroundSourc
   }
 
   return (
+    <View style={{ flex: 1 }}>
+      <View style={[explorarExtraStyles.topBar, { paddingLeft: 20, paddingRight: 20 }]}>
+        <Animated.Text style={[explorarExtraStyles.logo, {
+          opacity: titleOpacity,
+          transform: [
+            { scale: titleScale },
+            { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
+          ],
+        }]}>
+          Picks
+        </Animated.Text>
+        {!!onOpenNotifications && (
+          <TourTarget id="notif-bell">
+            <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
+          </TourTarget>
+        )}
+      </View>
     <ScrollView
       ref={homeScrollRef}
       scrollEventThrottle={32}
@@ -6436,24 +6453,6 @@ function HomeView({ savedPicks = [], onAddPick, bottomInset = 0, backgroundSourc
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      <View>
-        <View style={[explorarExtraStyles.topBar, { paddingLeft: 0, paddingRight: 0 }]}>
-          <Animated.Text style={[explorarExtraStyles.logo, {
-            opacity: titleOpacity,
-            transform: [
-              { scale: titleScale },
-              { skewX: titleSkew.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] }) },
-            ],
-          }]}>
-            Picks
-          </Animated.Text>
-          {!!onOpenNotifications && (
-            <TourTarget id="notif-bell">
-              <NotificationBell count={unreadNotifCount} onPress={onOpenNotifications} color={COLORS.textPrimary} />
-            </TourTarget>
-          )}
-        </View>
-      </View>
 
       {/* ── Mis tiendas: 5 + Agregar, "Ver todas" muestra el resto ── */}
       <SectionTitle
@@ -6520,6 +6519,7 @@ function HomeView({ savedPicks = [], onAddPick, bottomInset = 0, backgroundSourc
         </Text>
       </View>
     </ScrollView>
+    </View>
   );
 }
 
